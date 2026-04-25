@@ -115,6 +115,7 @@ export default {
     overview: "概览",
     chat: "聊天",
     sessions: "会话历史",
+    memory: "记忆中心",
     agents: "Agent 管理",
     agentCategories: "Agent 分类",
     team: "Team 管理",

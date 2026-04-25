@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS agent_runtime_settings (
   l1_history_keep_revisions INTEGER NOT NULL DEFAULT 10,
   l1_default_schema_id TEXT NOT NULL DEFAULT '',
   l1_archive_on_idle_minutes INTEGER NOT NULL DEFAULT 60,
+  l2_episode_enabled INTEGER NOT NULL DEFAULT 1,
+  l2_episode_min_importance REAL NOT NULL DEFAULT 0.3,
+  l2_index_enabled INTEGER NOT NULL DEFAULT 1,
+  l2_index_embedding_model TEXT NOT NULL DEFAULT '',
+  l2_recall_enabled INTEGER NOT NULL DEFAULT 0,
+  l2_recall_max INTEGER NOT NULL DEFAULT 3,
+  l2_retention_days INTEGER NOT NULL DEFAULT 90,
+  l2_archive_after_days INTEGER NOT NULL DEFAULT 30,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -875,3 +883,106 @@ CREATE INDEX IF NOT EXISTS idx_memory_l1_tasks_agent ON memory_l1_tasks(agent_id
 CREATE INDEX IF NOT EXISTS idx_memory_l1_fields_task ON memory_l1_fields(task_id, visibility, pin_to_prompt);
 CREATE INDEX IF NOT EXISTS idx_memory_l1_fields_session ON memory_l1_fields(session_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_memory_l1_field_history_field ON memory_l1_field_history(field_id, revision DESC);
+
+-- L2 episodic memory (aranea/docs/14 memory-L2-episodic.md §3)
+
+CREATE TABLE IF NOT EXISTS memory_episodes (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  run_id TEXT NOT NULL DEFAULT '',
+  team_id TEXT NOT NULL DEFAULT '',
+  agent_id TEXT NOT NULL DEFAULT '',
+  l1_task_id TEXT NOT NULL DEFAULT '',
+  episode_kind TEXT NOT NULL DEFAULT 'task',
+  title TEXT NOT NULL,
+  goal TEXT NOT NULL DEFAULT '',
+  outcome TEXT NOT NULL DEFAULT '',
+  outcome_summary TEXT NOT NULL DEFAULT '',
+  result_preview TEXT NOT NULL DEFAULT '',
+  failure_reason TEXT NOT NULL DEFAULT '',
+  importance REAL NOT NULL DEFAULT 0.5,
+  confidence REAL NOT NULL DEFAULT 0.7,
+  user_feedback TEXT NOT NULL DEFAULT '',
+  critic_score REAL NOT NULL DEFAULT -1,
+  span_count INTEGER NOT NULL DEFAULT 0,
+  message_count INTEGER NOT NULL DEFAULT 0,
+  tool_call_count INTEGER NOT NULL DEFAULT 0,
+  skill_call_count INTEGER NOT NULL DEFAULT 0,
+  mcp_call_count INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cost_micro_usd INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  l1_snapshot_json TEXT NOT NULL DEFAULT '{}',
+  key_decisions_json TEXT NOT NULL DEFAULT '[]',
+  key_artifacts_json TEXT NOT NULL DEFAULT '[]',
+  embedding_status TEXT NOT NULL DEFAULT 'pending',
+  embedding_model TEXT NOT NULL DEFAULT '',
+  embedding_dim INTEGER NOT NULL DEFAULT 0,
+  embedding_blob BLOB,
+  embedding_norm REAL NOT NULL DEFAULT 0,
+  consolidation_status TEXT NOT NULL DEFAULT 'pending',
+  consolidated_at TEXT NOT NULL DEFAULT '',
+  consolidated_l3_count INTEGER NOT NULL DEFAULT 0,
+  consolidated_l4_count INTEGER NOT NULL DEFAULT 0,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  started_at TEXT NOT NULL DEFAULT '',
+  ended_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT NOT NULL DEFAULT '',
+  deleted_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS memory_l2_index_meta (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL DEFAULT '',
+  text_kind TEXT NOT NULL DEFAULT 'episode',
+  text_preview TEXT NOT NULL DEFAULT '',
+  token_estimate INTEGER NOT NULL DEFAULT 0,
+  embedding_model TEXT NOT NULL DEFAULT '',
+  embedding_dim INTEGER NOT NULL DEFAULT 0,
+  embedding_blob BLOB,
+  embedding_norm REAL NOT NULL DEFAULT 0,
+  importance REAL NOT NULL DEFAULT 0.5,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(episode_id, text_kind)
+);
+
+CREATE TABLE IF NOT EXISTS memory_event_marks (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  episode_id TEXT NOT NULL DEFAULT '',
+  ref_kind TEXT NOT NULL,
+  ref_id TEXT NOT NULL,
+  mark_type TEXT NOT NULL,
+  marked_by TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL DEFAULT '',
+  weight REAL NOT NULL DEFAULT 1.0,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  deleted_at TEXT NOT NULL DEFAULT '',
+  UNIQUE(ref_kind, ref_id, mark_type, marked_by)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_l2_index_fts
+USING fts5(
+  episode_id UNINDEXED,
+  session_id UNINDEXED,
+  agent_id UNINDEXED,
+  text_kind UNINDEXED,
+  text,
+  tokenize = 'unicode61 remove_diacritics 2'
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_episodes_session ON memory_episodes(session_id, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_episodes_agent ON memory_episodes(agent_id, importance DESC, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_episodes_consolidation ON memory_episodes(consolidation_status, importance DESC, ended_at);
+CREATE INDEX IF NOT EXISTS idx_memory_episodes_kind ON memory_episodes(episode_kind, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_episodes_l1_task ON memory_episodes(l1_task_id);
+CREATE INDEX IF NOT EXISTS idx_memory_l2_index_meta_episode ON memory_l2_index_meta(episode_id);
+CREATE INDEX IF NOT EXISTS idx_memory_l2_index_meta_session_kind ON memory_l2_index_meta(session_id, text_kind);
+CREATE INDEX IF NOT EXISTS idx_memory_event_marks_session ON memory_event_marks(session_id, mark_type, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_event_marks_episode ON memory_event_marks(episode_id);

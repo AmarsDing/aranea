@@ -45,6 +45,53 @@ export type AgentRuntimeSettings = {
   memory_max_chunk_length: number;
   memory_max_results: number;
   memory_min_score: number;
+  l0_recent_window_turns?: number;
+  l0_recent_window_tokens?: number;
+  l0_summary_threshold?: number;
+  l0_summary_keep_turns?: number;
+  l0_truncate_strategy?: string;
+  l0_inject_l1?: boolean;
+  l0_inject_l3?: boolean;
+  l0_inject_l4?: boolean;
+  l0_l3_max_chunks?: number;
+  l0_l4_max_paths?: number;
+  l0_snapshot_mode?: string;
+  l1_enabled?: boolean;
+  l1_budget_tokens?: number;
+  l1_field_max_tokens?: number;
+  l1_history_keep_revisions?: number;
+  l1_default_schema_id?: string;
+  l1_archive_on_idle_minutes?: number;
+  l2_episode_enabled?: boolean;
+  l2_episode_min_importance?: number;
+  l2_index_enabled?: boolean;
+  l2_index_embedding_model?: string;
+  l2_recall_enabled?: boolean;
+  l2_recall_max?: number;
+  l2_retention_days?: number;
+  l2_archive_after_days?: number;
+  l3_enabled?: boolean;
+  l3_recall_top_k?: number;
+  l3_recall_min_score?: number;
+  l3_recall_scopes_json?: string;
+  l3_embedding_model?: string;
+  l3_decay_interval_hours?: number;
+  l3_archive_threshold?: number;
+  l3_max_per_recall_chars?: number;
+  l4_enabled?: boolean;
+  l4_graph_inject_neighbors?: boolean;
+  l4_graph_max_neighbors?: number;
+  l4_graph_max_hops?: number;
+  l4_identity_inject?: boolean;
+  l4_strategy_inject?: boolean;
+  evo_enabled?: boolean;
+  evo_auto_apply?: boolean;
+  evo_min_episodes?: number;
+  evo_min_negative_feedback?: number;
+  evo_throttle_hours?: number;
+  evo_proposal_ttl_days?: number;
+  evo_persona_max_chars?: number;
+  evo_system_prompt_max_appends?: number;
   heartbeat_enabled: boolean;
   heartbeat_interval_minutes: number;
   evolution_self_evolve: boolean;
@@ -661,4 +708,170 @@ export type AuditLog = {
 export async function listAuditLogs(): Promise<AuditLog[]> {
   const { data } = await api.get("/monitor/audit");
   return data.items ?? [];
+}
+
+export type L0AssemblySegment = {
+  section: string;
+  role: string;
+  source: string;
+  tokens: number;
+  preview: string;
+  content?: string;
+};
+
+export type L0AssemblySnapshot = {
+  id: string;
+  session_id: string;
+  run_id: string;
+  turn_id: string;
+  span_id: string;
+  agent_id: string;
+  team_id: string;
+  provider: string;
+  model: string;
+  context_window_tokens: number;
+  budget_tokens: number;
+  recent_window_turns: number;
+  recent_window_tokens: number;
+  summary_token_estimate: number;
+  l1_field_count: number;
+  l1_token_estimate: number;
+  l3_chunk_count: number;
+  l3_token_estimate: number;
+  l4_path_count: number;
+  l4_token_estimate: number;
+  prompt_token_estimate: number;
+  prompt_token_actual: number;
+  used_ratio: number;
+  truncate_strategy: string;
+  truncated_message_count: number;
+  summarized_turn_from: number;
+  summarized_turn_to: number;
+  segments_json: string;
+  warning_codes_json: string;
+  metadata_json: string;
+  created_at: string;
+};
+
+export type L1Task = {
+  id: string;
+  session_id: string;
+  run_id: string;
+  team_id: string;
+  agent_id: string;
+  task_key: string;
+  task_title: string;
+  task_goal: string;
+  status: string;
+  schema_version: number;
+  budget_tokens: number;
+  used_tokens: number;
+  parent_task_id: string;
+  shared_with_json?: string;
+  started_at: string;
+  ended_at: string;
+  archived_at: string;
+  metadata_json: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type L1Field = {
+  id: string;
+  task_id: string;
+  session_id: string;
+  agent_id: string;
+  field_path: string;
+  field_kind: string;
+  visibility: string;
+  pin_to_prompt: boolean;
+  is_required: boolean;
+  value_text: string;
+  value_json: string;
+  value_ref: string;
+  preview: string;
+  token_estimate: number;
+  source: string;
+  source_ref: string;
+  ttl_seconds: number;
+  expires_at: string;
+  revision: number;
+  last_read_at: string;
+  read_count: number;
+  metadata_json: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemoryFact = {
+  id: string;
+  scope_type: string;
+  scope_id: string;
+  workspace_id: string;
+  user_id: string;
+  team_id: string;
+  agent_id: string;
+  statement: string;
+  details_markdown: string;
+  fact_kind: string;
+  tags_json: string;
+  confidence: number;
+  importance: number;
+  use_count: number;
+  hit_count: number;
+  positive_feedback_count: number;
+  negative_feedback_count: number;
+  conflict_count: number;
+  source_kind: string;
+  source_episode_id: string;
+  source_session_id: string;
+  source_message_id: string;
+  version: number;
+  status: string;
+  pii_flag: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MemoryFactListQuery = {
+  scope_type?: string;
+  scope_id?: string;
+  kind?: string;
+  status?: string;
+  keyword?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type MemoryFactListResult = {
+  items: MemoryFact[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export async function listL0Snapshots(sessionID: string, limit = 20): Promise<L0AssemblySnapshot[]> {
+  const { data } = await api.get(`/sessions/${sessionID}/l0/snapshots`, { params: { limit } });
+  return data.items ?? [];
+}
+
+export async function listL1Tasks(sessionID: string, params: { agent_id?: string; status?: string; include_ended?: boolean } = {}): Promise<L1Task[]> {
+  const { data } = await api.get(`/sessions/${sessionID}/l1/tasks`, { params });
+  return data.items ?? [];
+}
+
+export async function listL1Fields(sessionID: string, taskID: string, includeInternal = true): Promise<L1Field[]> {
+  const { data } = await api.get(`/sessions/${sessionID}/l1/tasks/${taskID}/fields`, { params: { include_internal: includeInternal ? "true" : "false" } });
+  return data.items ?? [];
+}
+
+export async function listMemoryFacts(query: MemoryFactListQuery = {}): Promise<MemoryFactListResult> {
+  const { data } = await api.get("/memory/l3/facts", { params: query });
+  const items = data.items ?? [];
+  return {
+    items,
+    total: data.total ?? items.length,
+    limit: data.limit ?? query.limit ?? items.length,
+    offset: data.offset ?? query.offset ?? 0
+  };
 }

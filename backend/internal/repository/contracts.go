@@ -124,4 +124,24 @@ type Store interface {
 	ListL1Schemas(scopeType, scopeID string) ([]domain.MemoryL1Schema, error)
 	GetL1SchemaByID(id string) (domain.MemoryL1Schema, error)
 	DeleteL1Schema(id string) error
+
+	// L2 episodic memory (aranea/docs/14 memory-L2-episodic.md §4.2).
+	CreateEpisode(e domain.MemoryEpisode) (domain.MemoryEpisode, error)
+	UpdateEpisode(e domain.MemoryEpisode) error
+	GetEpisode(id string) (domain.MemoryEpisode, error)
+	ListEpisodes(sessionID, kind string, limit, offset int) ([]domain.MemoryEpisode, int, error)
+	ListPendingConsolidation(minImportance float64, limit int) ([]domain.MemoryEpisode, error)
+	UpdateEpisodeConsolidationStatus(id, status string, l3Count, l4Count int) error
+	UpdateEpisodeEmbedding(id, status, model string, dim int, norm float64) error
+	SoftDeleteEpisode(id string) error
+	UpsertL2Index(entry domain.MemoryL2IndexEntry, text string) error
+	DeleteL2Index(episodeID string) error
+	SearchL2BM25(sessionID, query string, minImportance float64, limit int) ([]domain.MemoryL2RecallResult, error)
+	UpsertEventMark(m domain.MemoryEventMark) (domain.MemoryEventMark, error)
+	SoftDeleteEventMark(id string) error
+	ListEventMarks(sessionID, markType string, limit int) ([]domain.MemoryEventMark, error)
+	ListMarksForEpisode(episodeID string) ([]domain.MemoryEventMark, error)
+	ListL2Events(q domain.MemoryL2EventQuery) ([]domain.MemoryL2Event, int, error)
+	ArchiveEpisodesBeforeDate(sessionID, before string) (int, error)
+	DeleteArchivedEpisodesBefore(before string) (int, error)
 }

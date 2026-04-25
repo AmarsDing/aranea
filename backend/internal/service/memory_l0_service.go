@@ -22,6 +22,7 @@ import (
 type MemoryL0Service struct {
 	repo     repository.Store
 	memoryL1 L1PromptSource
+	memoryL2 L2RecallSource
 }
 
 // L1PromptSource is the narrow contract MemoryL0Service uses to render the
@@ -32,6 +33,15 @@ type L1PromptSource interface {
 	RenderActiveTaskForPrompt(ctx context.Context, sessionID, agentID string) (domain.L1PromptBlock, bool, error)
 }
 
+// L2RecallSource is the narrow contract MemoryL0Service uses to render the
+// optional L2 episodic recall segment described in
+// `aranea/docs/14 memory-L2-episodic.md` §5.3 / §5.4. Implemented by
+// *MemoryL2Service. The seam keeps the L0 happy path branch-free when the
+// recall feature is disabled (default in agent_runtime_settings).
+type L2RecallSource interface {
+	RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool)
+}
+
 func NewMemoryL0Service(repo repository.Store) *MemoryL0Service {
 	return &MemoryL0Service{repo: repo}
 }
@@ -40,6 +50,13 @@ func NewMemoryL0Service(repo repository.Store) *MemoryL0Service {
 // optional: when nil the L0 layer simply omits the L1 segment.
 func (s *MemoryL0Service) SetL1Source(src L1PromptSource) {
 	s.memoryL1 = src
+}
+
+// SetL2Source wires the MemoryL2Service into the L0 assembly pipeline. It is
+// optional: when nil the L0 layer simply omits the L2 recall segment. The
+// segment is also gated by `l2_recall_enabled` on agent_runtime_settings.
+func (s *MemoryL0Service) SetL2Source(src L2RecallSource) {
+	s.memoryL2 = src
 }
 
 // l0DefaultSafetyMargin reserves a few hundred tokens out of the model context
@@ -137,6 +154,9 @@ func (s *MemoryL0Service) assemble(ctx context.Context, req domain.L0AssemblyReq
 		if seg, ok := s.buildL1Segment(ctx, req.SessionID, req.AgentID); ok {
 			segments = append(segments, seg)
 		}
+	}
+	if seg, ok := s.buildL2Segment(ctx, req.SessionID, req.AgentID, req.UserMessage); ok {
+		segments = append(segments, seg)
 	}
 	if settings.InjectL3 {
 		segments = append(segments, s.buildL3Segments(req.UserMessage, settings.L3MaxChunks)...)
@@ -375,6 +395,17 @@ func (s *MemoryL0Service) buildL1Segment(ctx context.Context, sessionID, agentID
 		Content: body,
 		Preview: previewText(body, l0PreviewLimit),
 	}, true
+}
+
+// buildL2Segment delegates to the configured L2RecallSource. The MemoryL2
+// service itself enforces the `l2_recall_enabled` flag and the per-agent
+// recall_max so this method only has to translate "no source" / "no hits"
+// into ok=false.
+func (s *MemoryL0Service) buildL2Segment(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
+	if s.memoryL2 == nil || sessionID == "" {
+		return domain.L0Segment{}, false
+	}
+	return s.memoryL2.RecallSegmentForL0(ctx, sessionID, agentID, query)
 }
 
 // buildL3Segments / buildL4Segments are intentionally empty for now: L3 / L4

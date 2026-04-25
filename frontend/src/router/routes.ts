@@ -20,6 +20,7 @@ import ChannelsPage from "../pages/ChannelsPage.vue";
 import McpServersPage from "../pages/McpServersPage.vue";
 import CronTasksPage from "../pages/CronTasksPage.vue";
 import CronRunsPage from "../pages/CronRunsPage.vue";
+import MemoryCenterPage from "../pages/MemoryCenterPage.vue";
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -31,6 +32,7 @@ export const routes: RouteRecordRaw[] = [
       { path: "chat", name: "chat", component: ChatPage },
       { path: "sessions", name: "sessions", component: SessionsPage },
       { path: "sessions/:sessionId", name: "session-detail", component: SessionsPage },
+      { path: "memory", name: "memory", component: MemoryCenterPage },
       { path: "agents", name: "agents", component: AgentsPage },
       { path: "settings/agent-categories", name: "agent-categories", component: AgentCategoriesPage },
       { path: "agents/:id/settings", name: "agent-settings", component: AgentSettingsPage },

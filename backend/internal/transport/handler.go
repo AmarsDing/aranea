@@ -126,6 +126,10 @@ func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	// routes are session-scoped and dispatched from handleSessionByID.
 	h.registerMemoryL1Routes(mux)
 
+	// Memory L2 (episodic memory) admin routes. Per-session events /
+	// episodes / marks / recall are dispatched from handleSessionByID.
+	h.registerMemoryL2AdminRoutes(mux)
+
 	// Model usage analytics.
 	mux.HandleFunc("/api/v1/model-usage/overview", h.handleModelUsageOverview)
 	mux.HandleFunc("/api/v1/model-usage/trends", h.handleModelUsageTrends)

@@ -19,6 +19,7 @@ type ChatService struct {
 	teamRunEvents *TeamRunEventBroker
 	memoryL0      *MemoryL0Service
 	memoryL1      *MemoryL1Service
+	memoryL2      *MemoryL2Service
 }
 
 type SendMessageInput struct {
@@ -54,13 +55,17 @@ type SendStreamCallbacks struct {
 func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAdapter) *ChatService {
 	memoryL0 := NewMemoryL0Service(repo)
 	memoryL1 := NewMemoryL1Service(repo)
+	memoryL2 := NewMemoryL2Service(repo)
+	memoryL2.SetL1Source(memoryL1)
 	memoryL0.SetL1Source(memoryL1)
+	memoryL0.SetL2Source(memoryL2)
 	return &ChatService{
 		repo:          repo,
 		runtime:       runtimeAdapter,
 		teamRunEvents: NewTeamRunEventBroker(),
 		memoryL0:      memoryL0,
 		memoryL1:      memoryL1,
+		memoryL2:      memoryL2,
 	}
 }
 
@@ -71,6 +76,10 @@ func (s *ChatService) MemoryL0() *MemoryL0Service { return s.memoryL0 }
 // MemoryL1 exposes the L1 working-memory service so HTTP handlers can
 // serve task/field endpoints without re-wiring dependencies in main.go.
 func (s *ChatService) MemoryL1() *MemoryL1Service { return s.memoryL1 }
+
+// MemoryL2 exposes the L2 episodic-memory service so HTTP handlers can
+// serve episode / event / mark endpoints without re-wiring dependencies.
+func (s *ChatService) MemoryL2() *MemoryL2Service { return s.memoryL2 }
 
 func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
 	if in.SessionID == "" || in.Content == "" {
@@ -564,6 +573,10 @@ func (s *ChatService) ensureL1Task(ctx context.Context, session domain.Session, 
 // EndSessionL1Tasks marks every active task of a session as completed. It is
 // invoked by the session archive flow / monitor cron so dangling tasks don't
 // keep leaking into prompts after a session is closed.
+//
+// When the L2 service is configured each ended task is also archived into a
+// `memory_episodes` row (spec §5.4 "L1 task EndTask → ArchiveL1Task"). L2
+// archival is best-effort: failures never block the L1 close path.
 func (s *ChatService) EndSessionL1Tasks(ctx context.Context, sessionID string, status domain.L1TaskStatus) {
 	if s.memoryL1 == nil || sessionID == "" {
 		return
@@ -576,7 +589,12 @@ func (s *ChatService) EndSessionL1Tasks(ctx context.Context, sessionID string, s
 		return
 	}
 	for _, t := range tasks {
-		_ = s.memoryL1.EndTask(ctx, t.ID, status)
+		if err := s.memoryL1.EndTask(ctx, t.ID, status); err != nil {
+			continue
+		}
+		if s.memoryL2 != nil {
+			_, _ = s.memoryL2.ArchiveL1Task(ctx, t.ID)
+		}
 	}
 }
 

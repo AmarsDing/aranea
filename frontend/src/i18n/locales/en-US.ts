@@ -115,6 +115,7 @@ export default {
     overview: "Overview",
     chat: "Chat",
     sessions: "Session history",
+    memory: "Memory Center",
     agents: "Agent management",
     agentCategories: "Agent categories",
     team: "Team management",

@@ -69,6 +69,14 @@ type AgentRuntimeSettings struct {
 	L1HistoryKeepRevisions            int     `json:"l1_history_keep_revisions"`
 	L1DefaultSchemaID                 string  `json:"l1_default_schema_id"`
 	L1ArchiveOnIdleMinutes            int     `json:"l1_archive_on_idle_minutes"`
+	L2EpisodeEnabled                  bool    `json:"l2_episode_enabled"`
+	L2EpisodeMinImportance            float64 `json:"l2_episode_min_importance"`
+	L2IndexEnabled                    bool    `json:"l2_index_enabled"`
+	L2IndexEmbeddingModel             string  `json:"l2_index_embedding_model"`
+	L2RecallEnabled                   bool    `json:"l2_recall_enabled"`
+	L2RecallMax                       int     `json:"l2_recall_max"`
+	L2RetentionDays                   int     `json:"l2_retention_days"`
+	L2ArchiveAfterDays                int     `json:"l2_archive_after_days"`
 	CreatedAt                         string  `json:"created_at,omitempty"`
 	UpdatedAt                         string  `json:"updated_at,omitempty"`
 }

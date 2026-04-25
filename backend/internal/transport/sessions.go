@@ -82,6 +82,15 @@ func (h *HTTPHandler) handleSessionByID(w http.ResponseWriter, r *http.Request) 
 		h.handleL1Routes(w, r, sessionID, suffix)
 		return
 	}
+	if strings.Contains(id, "/l2/") {
+		sessionID, suffix := splitSessionPathSuffix(id, "/l2/")
+		if sessionID == "" {
+			writeErr(w, http.StatusBadRequest, errors.New("session id is required"))
+			return
+		}
+		h.handleL2Routes(w, r, sessionID, suffix)
+		return
+	}
 	if id == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("session id is required"))
 		return
