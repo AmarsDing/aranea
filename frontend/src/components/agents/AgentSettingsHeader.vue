@@ -1,0 +1,111 @@
+<template>
+  <q-card-section class="settings-header">
+    <div class="row items-center q-gutter-md no-wrap">
+      <q-btn flat round icon="arrow_back" class="header-icon-btn" @click="$emit('back')" />
+      <q-avatar rounded color="primary" text-color="white" size="64px" :icon="avatarIcon" class="settings-avatar cursor-pointer" @click="$emit('change-avatar')">
+        <img v-if="avatarSrc" :src="avatarSrc" :alt="agent.display_name" />
+        <q-tooltip>头像选择器将在 Avatar 流程中接入</q-tooltip>
+      </q-avatar>
+      <div class="min-width-0">
+        <div class="row items-center q-gutter-sm">
+          <div class="text-h5 text-weight-bold ellipsis">{{ agent.display_name || "Agent 设置" }}</div>
+          <q-badge rounded :class="['settings-status', agent.status === 'active' ? 'is-active' : '']">{{ agent.status }}</q-badge>
+          <q-chip dense square class="settings-chip">{{ promptModeLabel(agent.system_prompt_mode) }}</q-chip>
+          <q-chip v-if="selfEvolve" dense square class="settings-chip is-evolving" icon="auto_awesome">进化中</q-chip>
+        </div>
+        <div class="text-caption text-grey-7">{{ agent.agent_key }} · {{ agent.provider }} / {{ agent.model }}</div>
+      </div>
+    </div>
+
+    <div class="row q-gutter-sm">
+      <q-btn outline rounded color="primary" icon="visibility" label="系统提示词" class="settings-action" @click="$emit('open-prompt')" />
+      <q-btn flat round color="amber-8" :icon="favorite ? 'star' : 'star_border'" class="header-icon-btn" @click="$emit('toggle-favorite')" />
+      <q-btn color="primary" rounded unelevated icon="save" label="保存设置" class="settings-save" :loading="saving" @click="$emit('save')" />
+    </div>
+  </q-card-section>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue";
+import type { Agent } from "../../api/client";
+import { avatarThumbnailUrl, isAvatarAssetRef, promptModeLabel } from "./agentUi";
+
+defineEmits<{
+  back: [];
+  "change-avatar": [];
+  "open-prompt": [];
+  "toggle-favorite": [];
+  save: [];
+}>();
+
+const props = defineProps<{
+  agent: Agent;
+  selfEvolve: boolean;
+  favorite: boolean;
+  saving: boolean;
+}>();
+
+const avatarSrc = computed(() => (isAvatarAssetRef(props.agent.icon) ? avatarThumbnailUrl(props.agent.icon) : ""));
+const avatarIcon = computed(() => (avatarSrc.value ? undefined : props.agent.icon || "smart_toy"));
+</script>
+
+<style scoped>
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 22px 24px;
+  background:
+    radial-gradient(circle at top left, rgba(25, 118, 210, 0.08), transparent 28%),
+    linear-gradient(180deg, #ffffff, #fbfcff);
+}
+
+.settings-avatar {
+  box-shadow: 0 14px 34px rgba(25, 118, 210, 0.2);
+}
+
+.header-icon-btn {
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.settings-status {
+  padding: 4px 8px;
+  background: #eef2f6;
+  color: #475467;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.settings-status.is-active {
+  background: #e7f8ef;
+  color: #027a48;
+}
+
+.settings-chip {
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  background: #fff7ed;
+  color: #b45309;
+  font-weight: 700;
+}
+
+.settings-chip.is-evolving {
+  background: #fff4e5;
+}
+
+.settings-action,
+.settings-save {
+  min-height: 40px;
+  padding: 0 16px;
+  font-weight: 700;
+}
+
+.settings-save {
+  box-shadow: 0 12px 26px rgba(25, 118, 210, 0.2);
+}
+
+.min-width-0 {
+  min-width: 0;
+}
+</style>

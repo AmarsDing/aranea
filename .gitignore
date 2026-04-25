@@ -1,0 +1,14 @@
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.quasar/
+
+# backend
+backend/bin/
+backend/tmp/
+backend/data/
+
+# misc
+.DS_Store
+Thumbs.db
+*.log

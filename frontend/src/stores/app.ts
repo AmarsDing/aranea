@@ -1,0 +1,177 @@
+import { defineStore } from "pinia";
+import {
+  clearAgentSessions,
+  createAgent,
+  createSession,
+  deleteAgent,
+  deleteSession,
+  listAgents,
+  listMessages,
+  listSessions,
+  sendMessage,
+  sendMessageStream,
+  updateAgent,
+  type Agent,
+  type SendMessageOptions,
+  type Message,
+  type Session
+} from "../api/client";
+
+export const useAppStore = defineStore("app", {
+  state: () => ({
+    loading: false,
+    agents: [] as Agent[],
+    sessions: [] as Session[],
+    messages: [] as Message[],
+    selectedAgent: null as Agent | null,
+    selectedSession: null as Session | null
+  }),
+  actions: {
+    async removeAgentFromList(id: string) {
+      await deleteAgent(id);
+      this.agents = this.agents.filter((a) => a.id !== id);
+      if (this.selectedAgent?.id === id) {
+        this.selectedAgent = this.agents[0] ?? null;
+        this.sessions = [];
+        this.selectedSession = null;
+        this.messages = [];
+      }
+    },
+    async updateSelectedAgent(payload: Partial<Agent>) {
+      if (!this.selectedAgent) return null;
+      const updated = await updateAgent(this.selectedAgent.id, { ...this.selectedAgent, ...payload });
+      this.upsertAgent(updated);
+      return updated;
+    },
+    upsertAgent(agent: Agent) {
+      const exists = this.agents.some((item) => item.id === agent.id);
+      this.agents = exists ? this.agents.map((item) => (item.id === agent.id ? { ...item, ...agent } : item)) : [agent, ...this.agents];
+      if (this.selectedAgent?.id === agent.id) {
+        this.selectedAgent = { ...this.selectedAgent, ...agent };
+      }
+    },
+    async clearAllSessions() {
+      if (!this.selectedAgent) return;
+      await clearAgentSessions(this.selectedAgent.id);
+      this.sessions = [];
+      this.selectedSession = null;
+      this.messages = [];
+    },
+    async removeSessionLocal(id: string) {
+      await deleteSession(id);
+      this.sessions = this.sessions.filter((s) => s.id !== id);
+      if (this.selectedSession?.id === id) {
+        this.selectedSession = this.sessions[0] ?? null;
+      }
+      this.messages = [];
+    },
+    async loadAgents() {
+      this.agents = await listAgents();
+      if (!this.selectedAgent && this.agents.length > 0) {
+        this.selectedAgent = this.agents[0];
+      }
+    },
+    async addAgent(payload: Parameters<typeof createAgent>[0]) {
+      const created = await createAgent(payload);
+      this.agents.unshift(created);
+      this.selectedAgent = created;
+      return created;
+    },
+    async loadSessions() {
+      if (!this.selectedAgent) return;
+      const selectedID = this.selectedSession?.id;
+      this.sessions = await listSessions(this.selectedAgent.id);
+      if (selectedID) {
+        this.selectedSession = this.sessions.find((session) => session.id === selectedID) ?? this.sessions[0] ?? null;
+      } else if (!this.selectedSession && this.sessions.length > 0) {
+        this.selectedSession = this.sessions[0];
+      }
+    },
+    async addSession(title: string, options?: { dialog_mode?: string; provider?: string; model?: string }) {
+      if (!this.selectedAgent) return null;
+      const created = await createSession({ agent_id: this.selectedAgent.id, title, ...options });
+      this.sessions.unshift(created);
+      this.selectedSession = created;
+      return created;
+    },
+    async loadMessages() {
+      if (!this.selectedSession) return;
+      this.messages = await listMessages(this.selectedSession.id);
+    },
+    async send(content: string, options?: SendMessageOptions) {
+      if (!this.selectedSession || !this.selectedAgent) return;
+      const result = await sendMessage({
+        session_id: this.selectedSession.id,
+        agent_key: this.selectedAgent.agent_key,
+        content,
+        options
+      });
+      const returnedMessages = [result.user_message, result.agent_message].filter(Boolean);
+      const existing = new Set(this.messages.map((message) => message.id));
+      this.messages = [...this.messages, ...returnedMessages.filter((message) => !existing.has(message.id))];
+      await this.loadMessages();
+      await this.loadSessions();
+      return result;
+    },
+    async sendStream(content: string, options?: SendMessageOptions, signal?: AbortSignal) {
+      if (!this.selectedSession || !this.selectedAgent) return;
+      const sessionID = this.selectedSession.id;
+      let streamingMessageID = "";
+
+      const appendMessage = (message: Message) => {
+        if (this.messages.some((item) => item.id === message.id)) return;
+        this.messages = [...this.messages, message];
+      };
+
+      await sendMessageStream(
+        {
+          session_id: sessionID,
+          agent_key: this.selectedAgent.agent_key,
+          content,
+          options
+        },
+        {
+          signal,
+          onUserMessage: appendMessage,
+          onDelta: (delta) => {
+            if (!delta) return;
+            if (!streamingMessageID) {
+              streamingMessageID = `stream-${Date.now()}`;
+              appendMessage({
+                id: streamingMessageID,
+                session_id: sessionID,
+                parent_message_id: "",
+                turn_index: this.messages.length + 1,
+                role: "assistant",
+                content_markdown: "",
+                model_name: "",
+                token_in: 0,
+                token_out: 0,
+                latency_ms: 0,
+                status: "streaming",
+                attachments_count: 0,
+                options_json: "",
+                error_message: "",
+                created_at: new Date().toISOString()
+              });
+            }
+            this.messages = this.messages.map((message) =>
+              message.id === streamingMessageID
+                ? { ...message, content_markdown: `${message.content_markdown}${delta}` }
+                : message
+            );
+          },
+          onDone: (message) => {
+            if (streamingMessageID) {
+              this.messages = this.messages.map((item) => (item.id === streamingMessageID ? message : item));
+            } else {
+              appendMessage(message);
+            }
+          }
+        }
+      );
+      await this.loadMessages();
+      await this.loadSessions();
+    }
+  }
+});
