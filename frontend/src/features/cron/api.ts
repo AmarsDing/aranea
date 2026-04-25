@@ -1,5 +1,5 @@
 import { api } from "../../api/http";
-import type { Agent } from "../../api/client";
+import type { Agent, Team } from "../../api/client";
 import type { PlatformResource, PlatformResourceInput } from "../platform/api";
 import type { CronTaskRun, CronTaskRunQuery } from "./types";
 
@@ -33,6 +33,11 @@ export async function listCronTaskRuns(query: CronTaskRunQuery = {}): Promise<Cr
 
 export async function listCronAgents(): Promise<Agent[]> {
   const { data } = await api.get<ListResponse<Agent>>("/agents", { params: { limit: 200 } });
+  return data.items ?? [];
+}
+
+export async function listCronTeams(): Promise<Team[]> {
+  const { data } = await api.get<ListResponse<Team>>("/teams");
   return data.items ?? [];
 }
 

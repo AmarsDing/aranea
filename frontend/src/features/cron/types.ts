@@ -5,6 +5,8 @@ export type CronTaskStatus = "active" | "paused" | "failed" | string;
 export type CronRunStatus = "pending" | "success" | "failure" | "skipped" | string;
 
 export type CronTaskConfig = {
+  target_type?: "agent" | "team";
+  team_id?: string;
   schedule_type?: CronScheduleType;
   cron_expression?: string;
   interval_seconds?: number;
@@ -34,7 +36,9 @@ export type CronTaskFormValue = {
   name: string;
   display_name: string;
   description: string;
+  target_type: "agent" | "team";
   agent_id: string;
+  team_id: string;
   schedule_type: CronScheduleType;
   interval_minutes: number;
   cron_expression: string;

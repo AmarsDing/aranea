@@ -60,11 +60,17 @@ func main() {
 	log.Printf("skill storage root: %s", skillStorageRoot)
 	skillSvc := service.NewSkillService(repo, runtimeAdapter, skillStorageRoot)
 	toolSvc := service.NewToolService(repo)
+	cronRunner := service.NewCronRunner(repo, chatSvc)
 	var background sync.WaitGroup
 	background.Add(1)
 	go func() {
 		defer background.Done()
 		skillSvc.StartDirectorySync(rootCtx, 1)
+	}()
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		cronRunner.Start(rootCtx, time.Minute)
 	}()
 
 	handler := transport.NewHTTPHandler(transport.Services{

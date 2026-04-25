@@ -2,6 +2,8 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"strings"
 
 	"arenea/backend/internal/domain"
@@ -55,6 +57,39 @@ func (r *SQLiteRepository) ListCronTaskRuns(query domain.CronTaskRunQuery) ([]do
 	return items, rows.Err()
 }
 
+func (r *SQLiteRepository) AddCronTaskRun(run domain.CronTaskRun) (domain.CronTaskRun, error) {
+	if run.ID == "" || run.TaskID == "" {
+		return domain.CronTaskRun{}, errors.New("missing required fields")
+	}
+	if run.Status == "" {
+		run.Status = "pending"
+	}
+	now := nowISO()
+	if run.CreatedAt == "" {
+		run.CreatedAt = now
+	}
+	if run.StartedAt == "" {
+		run.StartedAt = now
+	}
+	_, err := r.db.Exec(
+		`INSERT INTO cron_task_run(id, task_id, status, started_at, finished_at, output_json, error_message, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.TaskID, run.Status, run.StartedAt, run.FinishedAt, run.OutputJSON, run.ErrorMessage, run.CreatedAt,
+	)
+	return run, err
+}
+
+func (r *SQLiteRepository) UpdateCronTaskRun(run domain.CronTaskRun) (domain.CronTaskRun, error) {
+	if run.ID == "" {
+		return domain.CronTaskRun{}, errors.New("missing required fields")
+	}
+	_, err := r.db.Exec(
+		`UPDATE cron_task_run SET status = ?, started_at = ?, finished_at = ?, output_json = ?, error_message = ? WHERE id = ?`,
+		run.Status, run.StartedAt, run.FinishedAt, run.OutputJSON, run.ErrorMessage, run.ID,
+	)
+	return run, err
+}
+
 func scanCronTaskRun(s scanner) (domain.CronTaskRun, error) {
 	var run domain.CronTaskRun
 	var started, finished sql.NullString
@@ -66,5 +101,20 @@ func scanCronTaskRun(s scanner) (domain.CronTaskRun, error) {
 	}
 	run.StartedAt = started.String
 	run.FinishedAt = finished.String
+	var output struct {
+		Trigger string `json:"trigger"`
+		RunID   string `json:"run_id"`
+	}
+	outputJSON := run.OutputJSON
+	if strings.TrimSpace(outputJSON) == "" {
+		outputJSON = "{}"
+	}
+	if json.Unmarshal([]byte(outputJSON), &output) == nil {
+		run.Trigger = output.Trigger
+		run.RunID = output.RunID
+	}
+	if run.Trigger == "" {
+		run.Trigger = "schedule"
+	}
 	return run, nil
 }

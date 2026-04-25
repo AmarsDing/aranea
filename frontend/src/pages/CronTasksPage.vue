@@ -58,7 +58,7 @@
         </template>
 
         <template #body-cell-agent="props">
-          <q-td :props="props">{{ agentLabel(props.row.agent_id) }}</q-td>
+          <q-td :props="props">{{ targetLabel(props.row) }}</q-td>
         </template>
 
         <template #body-cell-counts="props">
@@ -130,7 +130,7 @@
       </q-card-section>
     </q-card>
 
-    <CronTaskFormDialog v-model="editorOpen" :row="editingRow" :agents="agents" @saved="onSaved" />
+    <CronTaskFormDialog v-model="editorOpen" :row="editingRow" :agents="agents" :teams="teams" @saved="onSaved" />
   </q-page>
 </template>
 
@@ -138,15 +138,16 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useQuasar, type QTableColumn } from "quasar";
-import type { Agent } from "../api/client";
+import type { Agent, Team } from "../api/client";
 import CronTaskFormDialog from "../features/cron/CronTaskFormDialog.vue";
-import { deleteCronTask, listCronAgents, listCronTasks, updateCronTask } from "../features/cron/api";
+import { deleteCronTask, listCronAgents, listCronTasks, listCronTeams, updateCronTask } from "../features/cron/api";
 import type { CronFailureSummary, CronTaskConfig, CronTaskMetadata, CronTaskRow } from "../features/cron/types";
 
 const $q = useQuasar();
 const router = useRouter();
 const rows = ref<CronTaskRow[]>([]);
 const agents = ref<Agent[]>([]);
+const teams = ref<Team[]>([]);
 const loading = ref(false);
 const error = ref("");
 const search = ref("");
@@ -159,7 +160,7 @@ const columns: QTableColumn<CronTaskRow>[] = [
   { name: "name", label: "名称", field: "name", align: "left", sortable: true },
   { name: "description", label: "描述", field: "description", align: "left" },
   { name: "schedule", label: "计划", field: "config_json", align: "left" },
-  { name: "agent", label: "Agent", field: "agent_id", align: "left" },
+  { name: "agent", label: "目标", field: "agent_id", align: "left" },
   { name: "counts", label: "执行统计", field: "metadata_json", align: "left" },
   { name: "status", label: "状态", field: "status", align: "left" },
   { name: "last", label: "上次运行", field: "metadata_json", align: "left" },
@@ -180,7 +181,7 @@ const filteredRows = computed(() => {
     if (statusFilter.value === "paused" && row.enabled) return false;
     if (statusFilter.value === "failed" && row.status !== "failed") return false;
     if (!keyword) return true;
-    return [row.key, row.name, row.description, cfg.schedule_type, cfg.cron_expression, cfg.message, agentLabel(row.agent_id)]
+    return [row.key, row.name, row.description, cfg.schedule_type, cfg.cron_expression, cfg.message, targetLabel(row)]
       .some((value) => String(value || "").toLowerCase().includes(keyword));
   });
 });
@@ -191,9 +192,10 @@ async function loadAll() {
   loading.value = true;
   error.value = "";
   try {
-    const [taskRows, agentRows] = await Promise.all([listCronTasks(), listCronAgents()]);
+    const [taskRows, agentRows, teamRows] = await Promise.all([listCronTasks(), listCronAgents(), listCronTeams()]);
     rows.value = taskRows;
     agents.value = agentRows;
+    teams.value = teamRows;
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载定时任务失败";
   } finally {
@@ -258,6 +260,17 @@ function agentLabel(agentId: string) {
   if (!agentId) return "默认";
   const agent = agents.value.find((item) => item.id === agentId);
   return agent?.display_name || agent?.agent_key || agentId;
+}
+
+function teamLabel(teamId: string) {
+  const team = teams.value.find((item) => item.id === teamId);
+  return team?.display_name || team?.team_key || teamId || "未选择 Team";
+}
+
+function targetLabel(row: CronTaskRow) {
+  const cfg = config(row);
+  if (cfg.target_type === "team" || cfg.team_id) return `Team · ${teamLabel(cfg.team_id || "")}`;
+  return `Agent · ${agentLabel(row.agent_id)}`;
 }
 
 function statusColor(row: CronTaskRow) {

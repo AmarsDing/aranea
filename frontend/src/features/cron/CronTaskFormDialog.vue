@@ -16,7 +16,22 @@
           <q-input v-model="form.display_name" class="col-12 col-md-6" dense outlined label="展示名称" />
           <q-input v-model="form.description" class="col-12" dense outlined autogrow type="textarea" label="描述" />
 
+          <div class="col-12">
+            <div class="section-label q-mb-sm">目标类型</div>
+            <q-btn-toggle
+              v-model="form.target_type"
+              spread
+              no-caps
+              unelevated
+              toggle-color="primary"
+              color="grey-2"
+              text-color="grey-9"
+              :options="targetOptions"
+            />
+          </div>
+
           <q-select
+            v-if="form.target_type === 'agent'"
             v-model="form.agent_id"
             class="col-12"
             dense
@@ -25,7 +40,20 @@
             emit-value
             map-options
             label="Agent"
+            hint="留空时调度器使用默认 Agent"
             :options="agentOptions"
+          />
+          <q-select
+            v-else
+            v-model="form.team_id"
+            class="col-12"
+            dense
+            outlined
+            emit-value
+            map-options
+            label="Team *"
+            :options="teamOptions"
+            :rules="[teamRule]"
           />
 
           <div class="col-12">
@@ -116,7 +144,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import { useQuasar } from "quasar";
-import type { Agent } from "../../api/client";
+import type { Agent, Team } from "../../api/client";
 import type { PlatformResourceInput } from "../platform/api";
 import { createCronTask, updateCronTask } from "./api";
 import type { CronTaskConfig, CronTaskFormValue, CronTaskMetadata, CronTaskRow } from "./types";
@@ -125,6 +153,7 @@ const props = defineProps<{
   modelValue: boolean;
   row: CronTaskRow | null;
   agents: Agent[];
+  teams: Team[];
 }>();
 
 const emit = defineEmits<{
@@ -142,6 +171,10 @@ const scheduleOptions = [
   { label: "Cron", value: "cron" },
   { label: "一次", value: "once" }
 ];
+const targetOptions = [
+  { label: "Agent", value: "agent" },
+  { label: "Team", value: "team" }
+];
 const agentOptions = computed(() => [
   { label: "默认", value: "" },
   ...props.agents.map((agent) => ({
@@ -149,7 +182,13 @@ const agentOptions = computed(() => [
     value: agent.id
   }))
 ]);
-const canSave = computed(() => slugPattern.test(form.name) && Boolean(form.message.trim()) && isScheduleValid());
+const teamOptions = computed(() =>
+  props.teams.map((team) => ({
+    label: team.display_name || team.team_key || team.id,
+    value: team.id
+  }))
+);
+const canSave = computed(() => slugPattern.test(form.name) && Boolean(form.message.trim()) && isTargetValid() && isScheduleValid());
 
 watch(
   () => props.modelValue,
@@ -163,7 +202,9 @@ function emptyForm(): CronTaskFormValue {
     name: "",
     display_name: "",
     description: "",
+    target_type: "agent",
     agent_id: "",
+    team_id: "",
     schedule_type: "interval",
     interval_minutes: 15,
     cron_expression: "0 * * * *",
@@ -184,7 +225,9 @@ function resetForm() {
     name: row?.key || "",
     display_name: row?.name || "",
     description: row?.description || "",
+    target_type: config.target_type || (config.team_id ? "team" : "agent"),
     agent_id: row?.agent_id || "",
+    team_id: config.team_id || "",
     schedule_type: config.schedule_type || "interval",
     interval_minutes: Math.max(1, Math.round((config.interval_seconds || 900) / 60)),
     cron_expression: config.cron_expression || "0 * * * *",
@@ -219,7 +262,7 @@ function buildPayload(): PlatformResourceInput {
     key: form.name.trim(),
     name: form.display_name.trim() || form.name.trim(),
     description: form.description.trim(),
-    agent_id: form.agent_id || "",
+    agent_id: form.target_type === "agent" ? form.agent_id || "" : "",
     enabled: form.enabled,
     status: form.enabled ? "active" : "paused",
     sort_order: props.row?.sort_order || 0,
@@ -230,6 +273,8 @@ function buildPayload(): PlatformResourceInput {
 
 function buildConfig(): CronTaskConfig {
   return {
+    target_type: form.target_type,
+    team_id: form.target_type === "team" ? form.team_id : "",
     schedule_type: form.schedule_type,
     cron_expression: form.schedule_type === "cron" ? form.cron_expression.trim() : "",
     interval_seconds: form.schedule_type === "interval" ? Number(form.interval_minutes) * 60 : 0,
@@ -243,6 +288,10 @@ function isScheduleValid() {
   if (form.schedule_type === "interval") return Number(form.interval_minutes) > 0;
   if (form.schedule_type === "cron") return form.cron_expression.trim().split(/\s+/).length === 5;
   return Boolean(form.run_at_date && form.run_at_time);
+}
+
+function isTargetValid() {
+  return form.target_type === "agent" || Boolean(form.team_id);
 }
 
 function splitRunAt(value?: string) {
@@ -277,6 +326,10 @@ function cronRule(value: string) {
 
 function messageRule(value: string) {
   return Boolean(value.trim()) || "请填写 Agent 要执行的消息";
+}
+
+function teamRule(value: string) {
+  return Boolean(value) || "请选择要调动的 Team";
 }
 </script>
 

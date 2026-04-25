@@ -68,6 +68,8 @@ type Store interface {
 	UpdatePlatformResource(v domain.PlatformResource) (domain.PlatformResource, error)
 	DeletePlatformResource(resource string, id string) error
 	ListCronTaskRuns(query domain.CronTaskRunQuery) ([]domain.CronTaskRun, error)
+	AddCronTaskRun(run domain.CronTaskRun) (domain.CronTaskRun, error)
+	UpdateCronTaskRun(run domain.CronTaskRun) (domain.CronTaskRun, error)
 	ListChannelCredentials(channelID string) ([]domain.ChannelCredential, error)
 	UpsertChannelCredential(credential domain.ChannelCredential) (domain.ChannelCredential, error)
 	DeleteChannelCredential(channelID string, credentialKey string) error
