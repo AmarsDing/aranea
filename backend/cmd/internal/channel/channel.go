@@ -4,8 +4,8 @@ package channel
 import (
 	"github.com/spf13/cobra"
 
-	"arenea/backend/cmd/aranea/internal/apiclient"
-	"arenea/backend/cmd/aranea/internal/output"
+	"arenea/backend/cmd/internal/apiclient"
+	"arenea/backend/cmd/internal/output"
 	"arenea/backend/internal/domain"
 )
 

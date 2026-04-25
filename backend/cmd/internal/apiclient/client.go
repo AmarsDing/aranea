@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	cliconfig "arenea/backend/cmd/aranea/internal/config"
+	cliconfig "arenea/backend/cmd/internal/config"
 )
 
 // GlobalContext carries flags and resolved configuration that are shared

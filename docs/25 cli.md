@@ -140,9 +140,9 @@ Aranea 的 CLI 也分两层，二进制名都是 `aranea`：
 
 | Aranea | 对应 ADK | 实现位置 | 框架 |
 |--------|----------|----------|------|
-| `aranea <资源> <动作>`：管理类命令（agent / skill / tool / plugin / mcp / cron / channel / monitor / system / config / completion / login / version） | `adkgo` Cobra 命令树 | `aranea/backend/cmd/aranea/internal/<feature>/<feature>.go` + `internal/root/root.go` | **Cobra** |
-| `aranea console / web / api / webui / full`：运行时 SubLauncher | `adk` 运行时 launcher | `aranea/backend/cmd/aranea/internal/launcher/{console,web,api,webui,full}/...` | **直接复用 `google.golang.org/adk/cmd/launcher` 接口** + stdlib `flag.FlagSet` |
-| `aranea`（无参数） | `adk`（无参数 → `console`） | `cmd/aranea/main.go` 走 `full.NewLauncher().Execute(...)`，默认 sublauncher 是 `console` | 同上 |
+| `aranea <资源> <动作>`：管理类命令（agent / skill / tool / plugin / mcp / cron / channel / monitor / system / config / completion / login / version） | `adkgo` Cobra 命令树 | `aranea/backend/cmd/internal/<feature>/<feature>.go` + `internal/root/root.go` | **Cobra** |
+| `aranea console / web / api / webui / full`：运行时 SubLauncher | `adk` 运行时 launcher | `aranea/backend/cmd/internal/launcher/{console,web,api,webui,full}/...` | **直接复用 `google.golang.org/adk/cmd/launcher` 接口** + stdlib `flag.FlagSet` |
+| `aranea`（无参数） | `adk`（无参数 → `console`） | `cmd/main.go` 走 `full.NewLauncher().Execute(...)`，默认 sublauncher 是 `console` | 同上 |
 
 设计原则：
 
@@ -200,25 +200,25 @@ import (
 
     "google.golang.org/adk/runner"
 
-    "arenea/backend/cmd/aranea/internal/launcher/full"
-    "arenea/backend/cmd/aranea/internal/root"
+    "arenea/backend/cmd/internal/launcher/full"
+    "arenea/backend/cmd/internal/root"
 
     // 自注册：Cobra 子命令通过 init() 注册到 root.RootCmd
-    _ "arenea/backend/cmd/aranea/internal/agent"
-    _ "arenea/backend/cmd/aranea/internal/skill"
-    _ "arenea/backend/cmd/aranea/internal/tool"
-    _ "arenea/backend/cmd/aranea/internal/plugin"
-    _ "arenea/backend/cmd/aranea/internal/mcp"
-    _ "arenea/backend/cmd/aranea/internal/cron"
-    _ "arenea/backend/cmd/aranea/internal/channel"
-    _ "arenea/backend/cmd/aranea/internal/monitor"
-    _ "arenea/backend/cmd/aranea/internal/session"
-    _ "arenea/backend/cmd/aranea/internal/team"
-    _ "arenea/backend/cmd/aranea/internal/system"
-    _ "arenea/backend/cmd/aranea/internal/config"
-    _ "arenea/backend/cmd/aranea/internal/version"
-    _ "arenea/backend/cmd/aranea/internal/login"
-    _ "arenea/backend/cmd/aranea/internal/completion"
+    _ "arenea/backend/cmd/internal/agent"
+    _ "arenea/backend/cmd/internal/skill"
+    _ "arenea/backend/cmd/internal/tool"
+    _ "arenea/backend/cmd/internal/plugin"
+    _ "arenea/backend/cmd/internal/mcp"
+    _ "arenea/backend/cmd/internal/cron"
+    _ "arenea/backend/cmd/internal/channel"
+    _ "arenea/backend/cmd/internal/monitor"
+    _ "arenea/backend/cmd/internal/session"
+    _ "arenea/backend/cmd/internal/team"
+    _ "arenea/backend/cmd/internal/system"
+    _ "arenea/backend/cmd/internal/config"
+    _ "arenea/backend/cmd/internal/version"
+    _ "arenea/backend/cmd/internal/login"
+    _ "arenea/backend/cmd/internal/completion"
 )
 
 func main() {
@@ -264,7 +264,7 @@ func main() {
 
 ### 1.5 Aranea 的 Launcher Config
 
-`aranea/backend/cmd/aranea/internal/launcher/config.go`：
+`aranea/backend/cmd/internal/launcher/config.go`：
 
 ```go
 package launcher
@@ -355,7 +355,7 @@ Aranea 的入口策略与 ADK 的 `full.NewLauncher()` 一致：**第一个 toke
 
 ### 2.2 资源 / 动作命令树
 
-约定：所有动作动词与后端 REST 一一对应；命令树由各 `cmd/aranea/internal/<feature>/<feature>.go` 在 `init()` 内通过 `root.RootCmd.AddCommand(...)` 自注册（与 `adkgo deploy cloudrun` 写法一致）。
+约定：所有动作动词与后端 REST 一一对应；命令树由各 `cmd/internal/<feature>/<feature>.go` 在 `init()` 内通过 `root.RootCmd.AddCommand(...)` 自注册（与 `adkgo deploy cloudrun` 写法一致）。
 
 | 资源 | 子命令（动作） | 对应后端 |
 |------|----------------|----------|
@@ -626,7 +626,7 @@ aranea> 3
 
 ### 4.5 Console Launcher 实现骨架（对齐 ADK `console.NewLauncher()`）
 
-`aranea/backend/cmd/aranea/internal/launcher/console/console.go` 直接照搬 `adk-go/cmd/launcher/console/console.go` 的结构，差异点用注释标出：
+`aranea/backend/cmd/internal/launcher/console/console.go` 直接照搬 `adk-go/cmd/launcher/console/console.go` 的结构，差异点用注释标出：
 
 ```go
 package console
@@ -650,8 +650,8 @@ import (
     "google.golang.org/adk/internal/cli/util"
     "google.golang.org/adk/runner"
 
-    araneal "arenea/backend/cmd/aranea/internal/launcher"
-    "arenea/backend/cmd/aranea/internal/launcher/internal/repl"
+    araneal "arenea/backend/cmd/internal/launcher"
+    "arenea/backend/cmd/internal/launcher/internal/repl"
 )
 
 type consoleConfig struct {
@@ -1230,13 +1230,13 @@ enabled = false
 
 ## 11. 实施拆分建议
 
-> 包结构与命名严格对齐 §1.3 的 `cmd/aranea/...` 树形布局，每个 Phase 都对应可独立 PR 的 Go 子包。
+> 包结构与命名严格对齐 §1.3 的 `cmd/...` 树形布局，每个 Phase 都对应可独立 PR 的 Go 子包。
 
 ### Phase 1：CLI 骨架 + 直接命令（Cobra）
 
 | 工作 | 说明 |
 |------|------|
-| Go 二进制 `aranea` | 与后端同 repo；`cmd/aranea/main.go` + `internal/root/root.go`；使用 `github.com/spf13/cobra`，与 `adk-go/cmd/adkgo` 完全相同的写法 |
+| Go 二进制 `aranea` | 与后端同 repo；`cmd/main.go` + `internal/root/root.go`；使用 `github.com/spf13/cobra`，与 `adk-go/cmd/adkgo` 完全相同的写法 |
 | Cobra 自注册 | 每个资源一个子包（`internal/agent`、`internal/skill`、…），在 `init()` 内 `root.RootCmd.AddCommand(...)`，主包只保留 `_ "..."` 空导入 |
 | HTTP 客户端 | 共用 `internal/transport` 客户端代码；自动注入 `--base-url` / `--token` |
 | 命令树 | 实现 §2.2 全部 `ls` / `get` / 主要 `create` / `delete` / `enable` / `disable` |
@@ -1246,10 +1246,10 @@ enabled = false
 
 | 工作 | 说明 |
 |------|------|
-| `cmd/aranea/internal/launcher/config.go` | 定义 `aranea/launcher.Config`，内嵌 ADK `launcher.Config`，附加 Aranea 业务 service、`AgentLoader` 工厂 |
-| `cmd/aranea/internal/launcher/console/` | SubLauncher 实现（§4.5 骨架）；`Keyword="console"`，`flag.FlagSet` 解析；REPL 内核调用 ADK `runner.New(...).Run(ctx, userID, sessionID, msg, agent.RunConfig{StreamingMode: SSE})` |
-| `cmd/aranea/internal/launcher/web/` | SubLauncher 实现；`Keyword="web"`，挂载 Aranea HTTP server；`web.Sublauncher` 子启动器：`webui`（Quasar SPA）、`api`（Aranea REST）、可选 `adk-api`（叠加 `adkrest.Server`） |
-| `cmd/aranea/internal/launcher/full/` | `universal.NewLauncher(console, web(webui, api))`，作为默认入口 |
+| `cmd/internal/launcher/config.go` | 定义 `aranea/launcher.Config`，内嵌 ADK `launcher.Config`，附加 Aranea 业务 service、`AgentLoader` 工厂 |
+| `cmd/internal/launcher/console/` | SubLauncher 实现（§4.5 骨架）；`Keyword="console"`，`flag.FlagSet` 解析；REPL 内核调用 ADK `runner.New(...).Run(ctx, userID, sessionID, msg, agent.RunConfig{StreamingMode: SSE})` |
+| `cmd/internal/launcher/web/` | SubLauncher 实现；`Keyword="web"`，挂载 Aranea HTTP server；`web.Sublauncher` 子启动器：`webui`（Quasar SPA）、`api`（Aranea REST）、可选 `adk-api`（叠加 `adkrest.Server`） |
+| `cmd/internal/launcher/full/` | `universal.NewLauncher(console, web(webui, api))`，作为默认入口 |
 | `main.go` 路由策略 | 第一个参数是 launcher keyword 或为空 → 走 `full.NewLauncher().Execute(...)`；否则走 `root.RootCmd.Execute()` |
 
 ### Phase 3：系统管家 Agent + `agent.Loader` + `cli_admin_*` Tool 集
@@ -1316,7 +1316,7 @@ enabled = false
 
 ### 12.5 ADK 对齐
 
-- `aranea/backend/cmd/aranea/internal/launcher/console` 实现满足 ADK `launcher.SubLauncher` 接口（编译期断言：`var _ adklauncher.SubLauncher = (*consoleLauncher)(nil)`）。
+- `aranea/backend/cmd/internal/launcher/console` 实现满足 ADK `launcher.SubLauncher` 接口（编译期断言：`var _ adklauncher.SubLauncher = (*consoleLauncher)(nil)`）。
 - `aranea console` 与 `adk console` 行为一致：同样的 `streaming_mode` 标志、同样的 `User -> ` / `Agent -> ` 提示符、同样的 SSE 增量打印逻辑、同样的 `signal.NotifyContext` 退出。
 - 把 ADK 官方 `console.NewLauncher()` 替换进 `aranea` 的 `full.NewLauncher()` 后仍能跑（验证依赖注入容器与 ADK 一致）。
 

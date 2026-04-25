@@ -122,6 +122,10 @@ func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/l0/preview", h.handleL0Preview)
 	mux.HandleFunc("/api/v1/l0/snapshots/", h.handleL0SnapshotByID)
 
+	// Memory L1 (working memory) schema management. Per-task / per-field
+	// routes are session-scoped and dispatched from handleSessionByID.
+	h.registerMemoryL1Routes(mux)
+
 	// Model usage analytics.
 	mux.HandleFunc("/api/v1/model-usage/overview", h.handleModelUsageOverview)
 	mux.HandleFunc("/api/v1/model-usage/trends", h.handleModelUsageTrends)

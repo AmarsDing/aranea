@@ -702,6 +702,47 @@ func (s *MemoryL1Service) ArchiveIdle(ctx context.Context, before string) (int, 
 	return s.repo.ArchiveIdleL1Tasks(before)
 }
 
+// UpsertSchema stores or updates a schema row. The HTTP layer normalises the
+// ID before calling so repeat POSTs to the same key return 200 instead of
+// 409.
+func (s *MemoryL1Service) UpsertSchema(ctx context.Context, schema domain.MemoryL1Schema) (domain.MemoryL1Schema, error) {
+	_ = ctx
+	if schema.SchemaKey == "" || schema.ScopeType == "" {
+		return domain.MemoryL1Schema{}, validationError("scope_type and schema_key are required")
+	}
+	if schema.ID == "" {
+		schema.ID = newID()
+	}
+	return s.repo.UpsertL1Schema(schema)
+}
+
+// ListSchemas returns every schema for a given scope tuple. Empty filters are
+// treated as "match anything" so the front-end can list everything.
+func (s *MemoryL1Service) ListSchemas(ctx context.Context, scopeType, scopeID string) ([]domain.MemoryL1Schema, error) {
+	_ = ctx
+	return s.repo.ListL1Schemas(scopeType, scopeID)
+}
+
+// GetSchema returns a schema row by ID.
+func (s *MemoryL1Service) GetSchema(ctx context.Context, id string) (domain.MemoryL1Schema, error) {
+	_ = ctx
+	if id == "" {
+		return domain.MemoryL1Schema{}, validationError("id is required")
+	}
+	return s.repo.GetL1SchemaByID(id)
+}
+
+// DeleteSchema removes a schema row. Tasks that pinned to it via
+// l1_default_schema_id keep working — the L0 renderer simply omits the
+// "missing required fields" hint.
+func (s *MemoryL1Service) DeleteSchema(ctx context.Context, id string) error {
+	_ = ctx
+	if id == "" {
+		return validationError("id is required")
+	}
+	return s.repo.DeleteL1Schema(id)
+}
+
 // --- HELPERS -----------------------------------------------------------------
 
 // l1Settings is the resolved subset of agent_runtime_settings that the L1

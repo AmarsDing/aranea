@@ -7,6 +7,10 @@ frontend/.quasar/
 backend/bin/
 backend/tmp/
 backend/data/
+backend/cmd/data/
+backend/cmd/server/
+backend/aranea.exe
+backend/aranea-server.exe
 
 # misc
 .DS_Store

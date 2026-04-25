@@ -22,10 +22,10 @@ import (
 
 	adklauncher "google.golang.org/adk/cmd/launcher"
 
-	"arenea/backend/cmd/aranea/internal/agent"
-	"arenea/backend/cmd/aranea/internal/apiclient"
-	araneal "arenea/backend/cmd/aranea/internal/launcher"
-	"arenea/backend/cmd/aranea/internal/session"
+	"arenea/backend/cmd/internal/agent"
+	"arenea/backend/cmd/internal/apiclient"
+	araneal "arenea/backend/cmd/internal/launcher"
+	"arenea/backend/cmd/internal/session"
 	"arenea/backend/internal/domain"
 	"arenea/backend/internal/service"
 )

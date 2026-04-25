@@ -18,7 +18,7 @@ import (
 
 	adklauncher "google.golang.org/adk/cmd/launcher"
 
-	araneal "arenea/backend/cmd/aranea/internal/launcher"
+	araneal "arenea/backend/cmd/internal/launcher"
 	"arenea/backend/internal/server"
 )
 

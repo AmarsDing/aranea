@@ -12,7 +12,7 @@ package launcher
 import (
 	adklauncher "google.golang.org/adk/cmd/launcher"
 
-	"arenea/backend/cmd/aranea/internal/apiclient"
+	"arenea/backend/cmd/internal/apiclient"
 )
 
 // Config carries everything the Aranea launcher chain needs to run.

@@ -16,7 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"arenea/backend/cmd/aranea/internal/output"
+	"arenea/backend/cmd/internal/output"
 )
 
 // Config models the contents of ~/.aranea/config.toml. The file uses

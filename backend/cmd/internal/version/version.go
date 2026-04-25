@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"arenea/backend/cmd/aranea/internal/apiclient"
-	"arenea/backend/cmd/aranea/internal/output"
+	"arenea/backend/cmd/internal/apiclient"
+	"arenea/backend/cmd/internal/output"
 )
 
 // CLIVersion is the semantic version printed by `aranea version`. It is

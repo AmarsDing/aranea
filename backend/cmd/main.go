@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"os"
 
-	"arenea/backend/cmd/aranea/internal/launcher/full"
-	cliroot "arenea/backend/cmd/aranea/internal/root"
+	"arenea/backend/cmd/internal/launcher/full"
+	cliroot "arenea/backend/cmd/internal/root"
 )
 
 // launcherKeywords are the first-argument tokens that should be routed to

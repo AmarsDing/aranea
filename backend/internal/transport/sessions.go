@@ -73,6 +73,15 @@ func (h *HTTPHandler) handleSessionByID(w http.ResponseWriter, r *http.Request) 
 		h.handleL0Snapshots(w, r, sessionID)
 		return
 	}
+	if strings.Contains(id, "/l1/") || strings.HasSuffix(id, "/l1/tasks") {
+		sessionID, suffix := splitSessionPathSuffix(id, "/l1/")
+		if sessionID == "" {
+			writeErr(w, http.StatusBadRequest, errors.New("session id is required"))
+			return
+		}
+		h.handleL1Routes(w, r, sessionID, suffix)
+		return
+	}
 	if id == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("session id is required"))
 		return
@@ -134,6 +143,17 @@ func parseSessionSearchQuery(r *http.Request) domain.SessionSearchQuery {
 		Limit:         limit,
 		Offset:        offset,
 	}
+}
+
+// splitSessionPathSuffix splits a path of the form `<sessionID><sep><rest>`
+// into (sessionID, rest). When the separator is missing it returns
+// (id, ""). The rest is normalised by trimming the trailing slash.
+func splitSessionPathSuffix(id, sep string) (string, string) {
+	idx := strings.Index(id, sep)
+	if idx < 0 {
+		return id, ""
+	}
+	return id[:idx], strings.Trim(id[idx+len(sep):], "/")
 }
 
 func parsePositiveInt(raw string, fallback int) int {

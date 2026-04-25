@@ -18,6 +18,7 @@ type ChatService struct {
 	runtime       *runtime.ADKRuntimeAdapter
 	teamRunEvents *TeamRunEventBroker
 	memoryL0      *MemoryL0Service
+	memoryL1      *MemoryL1Service
 }
 
 type SendMessageInput struct {
@@ -51,17 +52,25 @@ type SendStreamCallbacks struct {
 }
 
 func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAdapter) *ChatService {
+	memoryL0 := NewMemoryL0Service(repo)
+	memoryL1 := NewMemoryL1Service(repo)
+	memoryL0.SetL1Source(memoryL1)
 	return &ChatService{
 		repo:          repo,
 		runtime:       runtimeAdapter,
 		teamRunEvents: NewTeamRunEventBroker(),
-		memoryL0:      NewMemoryL0Service(repo),
+		memoryL0:      memoryL0,
+		memoryL1:      memoryL1,
 	}
 }
 
 // MemoryL0 exposes the L0 assembly service so HTTP handlers can serve
 // preview / snapshot endpoints without re-wiring dependencies in main.go.
 func (s *ChatService) MemoryL0() *MemoryL0Service { return s.memoryL0 }
+
+// MemoryL1 exposes the L1 working-memory service so HTTP handlers can
+// serve task/field endpoints without re-wiring dependencies in main.go.
+func (s *ChatService) MemoryL1() *MemoryL1Service { return s.memoryL1 }
 
 func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
 	if in.SessionID == "" || in.Content == "" {
@@ -269,6 +278,7 @@ func (s *ChatService) assembleL0Prompt(ctx context.Context, in SendMessageInput,
 	if s.memoryL0 == nil {
 		s.memoryL0 = NewMemoryL0Service(s.repo)
 	}
+	s.ensureL1Task(ctx, session, agent, in.Content)
 	contextWindow := providerContextWindowTokens(providerModel, agent)
 	req := domain.L0AssemblyRequest{
 		SessionID:         in.SessionID,
@@ -514,6 +524,60 @@ func (s *ChatService) recordProviderModelTPS(providerModel domain.PlatformResour
 	providerModel.ConfigJSON = string(raw)
 	_, err = s.repo.UpdatePlatformResource(providerModel)
 	return err
+}
+
+// ensureL1Task starts the default L1 task on the first user message of a
+// session and is otherwise a no-op. The task_goal field is seeded with the
+// first message so the L0 renderer can show a sensible header from turn 1.
+// Failures are logged via the audit trail (best-effort) and never block the
+// chat path because L1 is supplemental memory, not a hard dependency.
+func (s *ChatService) ensureL1Task(ctx context.Context, session domain.Session, agent domain.Agent, userInput string) {
+	if s.memoryL1 == nil || session.ID == "" || agent.ID == "" {
+		return
+	}
+	settings, err := s.repo.GetAgentRuntimeSettings(agent.ID)
+	if err == nil && !settings.L1Enabled {
+		return
+	}
+	taskGoal := strings.TrimSpace(userInput)
+	if existing, err := s.repo.GetL1TaskByKey(session.ID, "default", agent.ID); err == nil {
+		if existing.Status.IsTerminal() {
+			_, _ = s.memoryL1.StartTask(ctx, StartL1TaskInput{
+				SessionID: session.ID,
+				AgentID:   agent.ID,
+				TeamID:    session.TeamID,
+				TaskKey:   "default",
+				TaskGoal:  taskGoal,
+			})
+		}
+		return
+	}
+	_, _ = s.memoryL1.StartTask(ctx, StartL1TaskInput{
+		SessionID: session.ID,
+		AgentID:   agent.ID,
+		TeamID:    session.TeamID,
+		TaskKey:   "default",
+		TaskGoal:  taskGoal,
+	})
+}
+
+// EndSessionL1Tasks marks every active task of a session as completed. It is
+// invoked by the session archive flow / monitor cron so dangling tasks don't
+// keep leaking into prompts after a session is closed.
+func (s *ChatService) EndSessionL1Tasks(ctx context.Context, sessionID string, status domain.L1TaskStatus) {
+	if s.memoryL1 == nil || sessionID == "" {
+		return
+	}
+	if !status.IsTerminal() {
+		status = domain.L1TaskCompleted
+	}
+	tasks, err := s.repo.ListL1TasksBySession(domain.L1TaskListQuery{SessionID: sessionID, IncludeEnded: false})
+	if err != nil {
+		return
+	}
+	for _, t := range tasks {
+		_ = s.memoryL1.EndTask(ctx, t.ID, status)
+	}
 }
 
 func (s *ChatService) ListMessages(sessionID string) ([]domain.Message, error) {

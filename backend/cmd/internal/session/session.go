@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"arenea/backend/cmd/aranea/internal/agent"
-	"arenea/backend/cmd/aranea/internal/apiclient"
-	"arenea/backend/cmd/aranea/internal/output"
+	"arenea/backend/cmd/internal/agent"
+	"arenea/backend/cmd/internal/apiclient"
+	"arenea/backend/cmd/internal/output"
 	"arenea/backend/internal/domain"
 	"arenea/backend/internal/service"
 )

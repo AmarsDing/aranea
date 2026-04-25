@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"arenea/backend/cmd/aranea/internal/apiclient"
-	cliconfig "arenea/backend/cmd/aranea/internal/config"
-	"arenea/backend/cmd/aranea/internal/output"
+	"arenea/backend/cmd/internal/apiclient"
+	cliconfig "arenea/backend/cmd/internal/config"
+	"arenea/backend/cmd/internal/output"
 )
 
 // NewCommand returns the parent command for login/logout.

@@ -11,10 +11,10 @@ import (
 	adklauncher "google.golang.org/adk/cmd/launcher"
 	adkuniversal "google.golang.org/adk/cmd/launcher/universal"
 
-	"arenea/backend/cmd/aranea/internal/apiclient"
-	araneal "arenea/backend/cmd/aranea/internal/launcher"
-	"arenea/backend/cmd/aranea/internal/launcher/console"
-	"arenea/backend/cmd/aranea/internal/launcher/web"
+	"arenea/backend/cmd/internal/apiclient"
+	araneal "arenea/backend/cmd/internal/launcher"
+	"arenea/backend/cmd/internal/launcher/console"
+	"arenea/backend/cmd/internal/launcher/web"
 )
 
 // BuildConfig produces the Aranea launcher.Config consumed by the
