@@ -55,6 +55,7 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 	}
 
 	var finalText string
+	emittedPartial := false
 	for event, runErr := range r.Run(ctx, "aranea-user", runnerSessionID(req), genai.NewContentFromText(req.Input, genai.RoleUser), agent.RunConfig{}) {
 		if runErr != nil {
 			return GenerateResult{}, runErr
@@ -71,12 +72,13 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 			if err = onDelta(text); err != nil {
 				return GenerateResult{}, err
 			}
+			emittedPartial = true
 		}
 	}
 	if strings.TrimSpace(finalText) == "" {
 		return GenerateResult{}, fmt.Errorf("adk runner returned empty response")
 	}
-	if onDelta != nil {
+	if onDelta != nil && !emittedPartial {
 		if err = onDelta(finalText); err != nil {
 			return GenerateResult{}, err
 		}

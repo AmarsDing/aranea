@@ -140,13 +140,44 @@ export type TeamDefinitionMember = {
   sort_order: number;
 };
 
+export type TeamDefinitionGraphNode = {
+  id: string;
+  type: "start" | "agent" | "join" | "end" | string;
+  label: string;
+  agent_id?: string;
+  role?: string;
+  x?: number;
+  y?: number;
+};
+
+export type TeamDefinitionGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  condition?: string;
+};
+
 export type TeamDefinition = {
   version: number;
   description?: string;
-  mode: "sequential" | "parallel" | "coordinator" | "critic_loop" | string;
+  mode: "sequential" | "parallel" | "coordinator" | "critic_loop" | "adaptive" | string;
   max_concurrency?: number;
   timeout_seconds?: number;
   members: TeamDefinitionMember[];
+  a2a?: {
+    enabled?: boolean;
+    envelope_version?: string;
+    message_format?: "markdown_json" | "plain" | string;
+    include_trace?: boolean;
+    max_payload_chars?: number;
+  };
+  graph?: {
+    version?: number;
+    layout?: "linear" | "parallel" | "loop" | "coordinator" | string;
+    nodes: TeamDefinitionGraphNode[];
+    edges: TeamDefinitionGraphEdge[];
+  };
   synthesizer_agent_id?: string;
   critic_loop?: {
     max_iterations?: number;
@@ -165,6 +196,7 @@ export type TeamRun = {
   output_preview: string;
   token_in: number;
   token_out: number;
+  cost_micro_usd: number;
   duration_ms: number;
   error_message: string;
   topology_json: string;
@@ -188,6 +220,7 @@ export type TeamRunStep = {
   output_preview: string;
   token_in: number;
   token_out: number;
+  cost_micro_usd: number;
   duration_ms: number;
   error_message: string;
   started_at: string;

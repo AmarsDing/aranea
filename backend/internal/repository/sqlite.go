@@ -123,11 +123,13 @@ func (r *SQLiteRepository) ensureLegacyColumns() error {
 			"error_message":     "TEXT NOT NULL DEFAULT ''",
 		},
 		"team_runs": {
-			"message_id":    "TEXT NOT NULL DEFAULT ''",
-			"topology_json": "TEXT NOT NULL DEFAULT '{}'",
+			"message_id":     "TEXT NOT NULL DEFAULT ''",
+			"cost_micro_usd": "INTEGER NOT NULL DEFAULT 0",
+			"topology_json":  "TEXT NOT NULL DEFAULT '{}'",
 		},
 		"team_run_steps": {
-			"agent_name": "TEXT NOT NULL DEFAULT ''",
+			"agent_name":     "TEXT NOT NULL DEFAULT ''",
+			"cost_micro_usd": "INTEGER NOT NULL DEFAULT 0",
 		},
 		"avatar_assets": {
 			"image_data":      "BLOB NOT NULL DEFAULT X''",
@@ -603,6 +605,143 @@ func (r *SQLiteRepository) DeletePlatformResource(resource string, id string) er
 	}
 	_, err = r.db.Exec(fmt.Sprintf(`UPDATE %s SET deleted_at = ?, status = 'deleted', updated_at = ? WHERE id = ? AND deleted_at = ''`, table.name), nowISO(), nowISO(), id)
 	return err
+}
+
+func (r *SQLiteRepository) ListChannelCredentials(channelID string) ([]domain.ChannelCredential, error) {
+	rows, err := r.db.Query(`SELECT id, channel_id, credential_key, status, secret_ref, metadata_json, created_at, updated_at, deleted_at FROM channel_credential WHERE channel_id = ? AND deleted_at = '' ORDER BY credential_key ASC`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.ChannelCredential
+	for rows.Next() {
+		item, err := scanChannelCredential(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *SQLiteRepository) UpsertChannelCredential(credential domain.ChannelCredential) (domain.ChannelCredential, error) {
+	if credential.ID == "" || credential.ChannelID == "" || credential.CredentialKey == "" {
+		return domain.ChannelCredential{}, errors.New("id, channel_id and credential_key are required")
+	}
+	now := nowISO()
+	if credential.Status == "" {
+		credential.Status = "active"
+	}
+	if credential.MetadataJSON == "" {
+		credential.MetadataJSON = "{}"
+	}
+	if !json.Valid([]byte(credential.MetadataJSON)) {
+		return domain.ChannelCredential{}, errors.New("credential metadata_json must be valid JSON")
+	}
+	if credential.CreatedAt == "" {
+		credential.CreatedAt = now
+	}
+	credential.UpdatedAt = now
+	_, err := r.db.Exec(`
+		INSERT INTO channel_credential(id, channel_id, credential_key, status, secret_ref, metadata_json, created_at, updated_at, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '')
+		ON CONFLICT(channel_id, credential_key) DO UPDATE SET
+			status = excluded.status,
+			secret_ref = excluded.secret_ref,
+			metadata_json = excluded.metadata_json,
+			updated_at = excluded.updated_at,
+			deleted_at = ''`,
+		credential.ID, credential.ChannelID, credential.CredentialKey, credential.Status, credential.SecretRef, credential.MetadataJSON, credential.CreatedAt, credential.UpdatedAt,
+	)
+	if err != nil {
+		return domain.ChannelCredential{}, err
+	}
+	rows, err := r.db.Query(`SELECT id, channel_id, credential_key, status, secret_ref, metadata_json, created_at, updated_at, deleted_at FROM channel_credential WHERE channel_id = ? AND credential_key = ? AND deleted_at = '' LIMIT 1`, credential.ChannelID, credential.CredentialKey)
+	if err != nil {
+		return domain.ChannelCredential{}, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return scanChannelCredential(rows)
+	}
+	return domain.ChannelCredential{}, sql.ErrNoRows
+}
+
+func (r *SQLiteRepository) DeleteChannelCredential(channelID string, credentialKey string) error {
+	now := nowISO()
+	_, err := r.db.Exec(`UPDATE channel_credential SET deleted_at = ?, updated_at = ? WHERE channel_id = ? AND credential_key = ? AND deleted_at = ''`, now, now, channelID, credentialKey)
+	return err
+}
+
+func (r *SQLiteRepository) AddChannelDelivery(delivery domain.ChannelDelivery) (domain.ChannelDelivery, error) {
+	if delivery.ID == "" || delivery.ChannelID == "" {
+		return domain.ChannelDelivery{}, errors.New("id and channel_id are required")
+	}
+	now := nowISO()
+	if delivery.Status == "" {
+		delivery.Status = "pending"
+	}
+	if delivery.PayloadJSON == "" {
+		delivery.PayloadJSON = "{}"
+	}
+	if !json.Valid([]byte(delivery.PayloadJSON)) {
+		return domain.ChannelDelivery{}, errors.New("delivery payload_json must be valid JSON")
+	}
+	if delivery.CreatedAt == "" {
+		delivery.CreatedAt = now
+	}
+	delivery.UpdatedAt = now
+	_, err := r.db.Exec(`INSERT INTO channel_delivery(id, channel_id, agent_id, status, payload_json, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		delivery.ID, delivery.ChannelID, delivery.AgentID, delivery.Status, delivery.PayloadJSON, delivery.ErrorMessage, delivery.CreatedAt, delivery.UpdatedAt)
+	return delivery, err
+}
+
+func (r *SQLiteRepository) ListChannelDeliveries(channelID string, limit int) ([]domain.ChannelDelivery, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := r.db.Query(`SELECT id, channel_id, agent_id, status, payload_json, error_message, created_at, updated_at FROM channel_delivery WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?`, channelID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.ChannelDelivery
+	for rows.Next() {
+		var item domain.ChannelDelivery
+		if err := rows.Scan(&item.ID, &item.ChannelID, &item.AgentID, &item.Status, &item.PayloadJSON, &item.ErrorMessage, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *SQLiteRepository) ListEnabledChannelRuntimeConfigs() ([]domain.ChannelRuntimeConfig, error) {
+	rows, err := r.db.Query(`SELECT id, channel_key, status, enabled, config_json, metadata_json FROM channel WHERE enabled = 1 AND deleted_at = '' AND status IN ('active', 'pending_auth') ORDER BY sort_order ASC, created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []domain.ChannelRuntimeConfig
+	for rows.Next() {
+		var item domain.ChannelRuntimeConfig
+		if err := rows.Scan(&item.ID, &item.Key, &item.Status, &item.Enabled, &item.ConfigJSON, &item.MetadataJSON); err != nil {
+			return nil, err
+		}
+		var cfg struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal([]byte(item.ConfigJSON), &cfg) == nil {
+			item.Type = cfg.Type
+		}
+		credentials, err := r.ListChannelCredentials(item.ID)
+		if err != nil {
+			return nil, err
+		}
+		item.Credentials = credentials
+		result = append(result, item)
+	}
+	return result, rows.Err()
 }
 
 func (r *SQLiteRepository) SearchPlugins(query domain.PluginListQuery) (domain.PluginListResult, error) {
@@ -1784,8 +1923,8 @@ func (r *SQLiteRepository) AddTeamRun(run domain.TeamRun) (domain.TeamRun, error
 	if run.TopologyJSON == "" {
 		run.TopologyJSON = "{}"
 	}
-	_, err := r.db.Exec(`INSERT INTO team_runs(id, team_id, session_id, message_id, mode, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, topology_json, started_at, finished_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		run.ID, run.TeamID, run.SessionID, run.MessageID, run.Mode, run.Status, run.InputPreview, run.OutputPreview, run.TokenIn, run.TokenOut, run.DurationMS, run.ErrorMessage, run.TopologyJSON, run.StartedAt, run.FinishedAt, run.CreatedAt, run.UpdatedAt)
+	_, err := r.db.Exec(`INSERT INTO team_runs(id, team_id, session_id, message_id, mode, status, input_preview, output_preview, token_in, token_out, cost_micro_usd, duration_ms, error_message, topology_json, started_at, finished_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.TeamID, run.SessionID, run.MessageID, run.Mode, run.Status, run.InputPreview, run.OutputPreview, run.TokenIn, run.TokenOut, run.CostMicroUSD, run.DurationMS, run.ErrorMessage, run.TopologyJSON, run.StartedAt, run.FinishedAt, run.CreatedAt, run.UpdatedAt)
 	return run, err
 }
 
@@ -1794,8 +1933,8 @@ func (r *SQLiteRepository) UpdateTeamRun(run domain.TeamRun) (domain.TeamRun, er
 		return domain.TeamRun{}, errors.New("team run id is required")
 	}
 	run.UpdatedAt = nowISO()
-	_, err := r.db.Exec(`UPDATE team_runs SET message_id = ?, status = ?, output_preview = ?, token_in = ?, token_out = ?, duration_ms = ?, error_message = ?, topology_json = ?, finished_at = ?, updated_at = ? WHERE id = ?`,
-		run.MessageID, run.Status, run.OutputPreview, run.TokenIn, run.TokenOut, run.DurationMS, run.ErrorMessage, run.TopologyJSON, run.FinishedAt, run.UpdatedAt, run.ID)
+	_, err := r.db.Exec(`UPDATE team_runs SET message_id = ?, status = ?, output_preview = ?, token_in = ?, token_out = ?, cost_micro_usd = ?, duration_ms = ?, error_message = ?, topology_json = ?, finished_at = ?, updated_at = ? WHERE id = ?`,
+		run.MessageID, run.Status, run.OutputPreview, run.TokenIn, run.TokenOut, run.CostMicroUSD, run.DurationMS, run.ErrorMessage, run.TopologyJSON, run.FinishedAt, run.UpdatedAt, run.ID)
 	if err != nil {
 		return domain.TeamRun{}, err
 	}
@@ -1828,8 +1967,8 @@ func (r *SQLiteRepository) AddTeamRunStep(step domain.TeamRunStep) (domain.TeamR
 	if step.Status == "" {
 		step.Status = "success"
 	}
-	_, err := r.db.Exec(`INSERT INTO team_run_steps(id, run_id, team_id, agent_id, agent_key, agent_name, role, sort_order, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, started_at, finished_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		step.ID, step.RunID, step.TeamID, step.AgentID, step.AgentKey, step.AgentName, step.Role, step.SortOrder, step.Status, step.InputPreview, step.OutputPreview, step.TokenIn, step.TokenOut, step.DurationMS, step.ErrorMessage, step.StartedAt, step.FinishedAt, step.CreatedAt)
+	_, err := r.db.Exec(`INSERT INTO team_run_steps(id, run_id, team_id, agent_id, agent_key, agent_name, role, sort_order, status, input_preview, output_preview, token_in, token_out, cost_micro_usd, duration_ms, error_message, started_at, finished_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		step.ID, step.RunID, step.TeamID, step.AgentID, step.AgentKey, step.AgentName, step.Role, step.SortOrder, step.Status, step.InputPreview, step.OutputPreview, step.TokenIn, step.TokenOut, step.CostMicroUSD, step.DurationMS, step.ErrorMessage, step.StartedAt, step.FinishedAt, step.CreatedAt)
 	return step, err
 }
 
@@ -1844,7 +1983,7 @@ func (r *SQLiteRepository) ListTeamRuns(teamID string, limit int) ([]domain.Team
 		args = append(args, teamID)
 	}
 	args = append(args, limit)
-	rows, err := r.db.Query(`SELECT id, team_id, session_id, message_id, mode, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, topology_json, started_at, finished_at, created_at, updated_at FROM team_runs WHERE `+where+` ORDER BY created_at DESC LIMIT ?`, args...)
+	rows, err := r.db.Query(`SELECT id, team_id, session_id, message_id, mode, status, input_preview, output_preview, token_in, token_out, cost_micro_usd, duration_ms, error_message, topology_json, started_at, finished_at, created_at, updated_at FROM team_runs WHERE `+where+` ORDER BY created_at DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1852,7 +1991,7 @@ func (r *SQLiteRepository) ListTeamRuns(teamID string, limit int) ([]domain.Team
 	items := []domain.TeamRun{}
 	for rows.Next() {
 		var item domain.TeamRun
-		if err = rows.Scan(&item.ID, &item.TeamID, &item.SessionID, &item.MessageID, &item.Mode, &item.Status, &item.InputPreview, &item.OutputPreview, &item.TokenIn, &item.TokenOut, &item.DurationMS, &item.ErrorMessage, &item.TopologyJSON, &item.StartedAt, &item.FinishedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err = rows.Scan(&item.ID, &item.TeamID, &item.SessionID, &item.MessageID, &item.Mode, &item.Status, &item.InputPreview, &item.OutputPreview, &item.TokenIn, &item.TokenOut, &item.CostMicroUSD, &item.DurationMS, &item.ErrorMessage, &item.TopologyJSON, &item.StartedAt, &item.FinishedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -1861,7 +2000,7 @@ func (r *SQLiteRepository) ListTeamRuns(teamID string, limit int) ([]domain.Team
 }
 
 func (r *SQLiteRepository) ListTeamRunSteps(runID string) ([]domain.TeamRunStep, error) {
-	rows, err := r.db.Query(`SELECT id, run_id, team_id, agent_id, agent_key, agent_name, role, sort_order, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, started_at, finished_at, created_at FROM team_run_steps WHERE run_id = ? ORDER BY sort_order ASC, created_at ASC`, runID)
+	rows, err := r.db.Query(`SELECT id, run_id, team_id, agent_id, agent_key, agent_name, role, sort_order, status, input_preview, output_preview, token_in, token_out, cost_micro_usd, duration_ms, error_message, started_at, finished_at, created_at FROM team_run_steps WHERE run_id = ? ORDER BY sort_order ASC, created_at ASC`, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -1869,7 +2008,7 @@ func (r *SQLiteRepository) ListTeamRunSteps(runID string) ([]domain.TeamRunStep,
 	items := []domain.TeamRunStep{}
 	for rows.Next() {
 		var item domain.TeamRunStep
-		if err = rows.Scan(&item.ID, &item.RunID, &item.TeamID, &item.AgentID, &item.AgentKey, &item.AgentName, &item.Role, &item.SortOrder, &item.Status, &item.InputPreview, &item.OutputPreview, &item.TokenIn, &item.TokenOut, &item.DurationMS, &item.ErrorMessage, &item.StartedAt, &item.FinishedAt, &item.CreatedAt); err != nil {
+		if err = rows.Scan(&item.ID, &item.RunID, &item.TeamID, &item.AgentID, &item.AgentKey, &item.AgentName, &item.Role, &item.SortOrder, &item.Status, &item.InputPreview, &item.OutputPreview, &item.TokenIn, &item.TokenOut, &item.CostMicroUSD, &item.DurationMS, &item.ErrorMessage, &item.StartedAt, &item.FinishedAt, &item.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -2031,14 +2170,17 @@ func (r *SQLiteRepository) AddMessage(m domain.Message) (domain.Message, error) 
 		m.TurnIndex = next
 	}
 	m.CreatedAt = nowISO()
-	_, err := r.db.Exec(
-		`INSERT INTO messages(id, session_id, parent_message_id, turn_index, role, content_markdown, model_name, token_in, token_out, latency_ms, status, attachments_count, options_json, error_message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.SessionID, m.ParentMessageID, m.TurnIndex, m.Role, m.Content, m.ModelName, m.TokenIn, m.TokenOut, m.LatencyMS, m.Status, m.AttachmentsCount, m.OptionsJSON, m.ErrorMessage, m.CreatedAt,
-	)
+	tx, err := r.db.Begin()
 	if err != nil {
 		return domain.Message{}, err
 	}
-	_, _ = r.db.Exec(`UPDATE sessions SET message_count = message_count + 1, last_message_at = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, m.CreatedAt, m.CreatedAt, m.SessionID)
+	defer tx.Rollback()
+	if err = addMessageTx(tx, m); err != nil {
+		return domain.Message{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return domain.Message{}, err
+	}
 	return m, nil
 }
 
@@ -2182,42 +2324,19 @@ func (r *SQLiteRepository) AddModelTokenUsageEvent(event domain.ModelTokenUsageE
 	if event.StreamEnabled {
 		streamEnabled = 1
 	}
-	_, err := r.db.Exec(
-		`INSERT INTO model_token_usage_events(
-		 id, occurred_at, date_key, hour_key, workspace_id, user_id, team_id, agent_id, agent_key, session_id, message_id, request_id,
-		 provider_code, provider_type, provider_display_name, model_api_id, model_display_name, model_category_json, usage_kind, call_count,
-		 input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, embedding_tokens, total_tokens,
-		 input_price_micro_usd_per_1k, output_price_micro_usd_per_1k, cached_input_price_micro_usd_per_1k, reasoning_price_micro_usd_per_1k, embedding_price_micro_usd_per_1k,
-		 input_cost_micro_usd, output_cost_micro_usd, cached_input_cost_micro_usd, reasoning_cost_micro_usd, embedding_cost_micro_usd, total_cost_micro_usd,
-		 latency_ms, time_to_first_token_ms, tokens_per_second, status, error_code, error_message, retry_count,
-		 prompt_mode, max_output_tokens, context_window_k, stream_enabled, metadata_json, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		event.ID, event.OccurredAt, event.DateKey, event.HourKey, event.WorkspaceID, event.UserID, event.TeamID, event.AgentID, event.AgentKey, event.SessionID, event.MessageID, event.RequestID,
-		event.ProviderCode, event.ProviderType, event.ProviderDisplayName, event.ModelAPIID, event.ModelDisplayName, event.ModelCategoryJSON, event.UsageKind, event.CallCount,
-		event.InputTokens, event.OutputTokens, event.CachedInputTokens, event.ReasoningTokens, event.EmbeddingTokens, event.TotalTokens,
-		event.InputPriceMicroUSDPer1K, event.OutputPriceMicroUSDPer1K, event.CachedInputPriceMicroUSDPer1K, event.ReasoningPriceMicroUSDPer1K, event.EmbeddingPriceMicroUSDPer1K,
-		event.InputCostMicroUSD, event.OutputCostMicroUSD, event.CachedInputCostMicroUSD, event.ReasoningCostMicroUSD, event.EmbeddingCostMicroUSD, event.TotalCostMicroUSD,
-		event.LatencyMS, event.TimeToFirstTokenMS, event.TokensPerSecond, event.Status, event.ErrorCode, event.ErrorMessage, event.RetryCount,
-		event.PromptMode, event.MaxOutputTokens, event.ContextWindowK, streamEnabled, event.MetadataJSON, event.CreatedAt,
-	)
+	tx, err := r.db.Begin()
 	if err != nil {
 		return domain.ModelTokenUsageEvent{}, err
 	}
-	if event.SessionID != "" {
-		_, _ = r.db.Exec(
-			`UPDATE sessions
-			 SET model_call_count = model_call_count + ?,
-			     input_tokens = input_tokens + ?,
-			     output_tokens = output_tokens + ?,
-			     total_tokens = total_tokens + ?,
-			     total_cost_micro_usd = total_cost_micro_usd + ?,
-			     provider = ?,
-			     model = ?,
-			     updated_at = ?
-			 WHERE id = ? AND deleted_at = ''`,
-			event.CallCount, event.InputTokens, event.OutputTokens, event.TotalTokens, event.TotalCostMicroUSD,
-			event.ProviderCode, event.ModelAPIID, nowISO(), event.SessionID,
-		)
+	defer tx.Rollback()
+	if err = addModelTokenUsageEventTx(tx, event, streamEnabled); err != nil {
+		return domain.ModelTokenUsageEvent{}, err
+	}
+	if err = updateSessionModelUsageTx(tx, event); err != nil {
+		return domain.ModelTokenUsageEvent{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return domain.ModelTokenUsageEvent{}, err
 	}
 	return event, nil
 }
@@ -2601,6 +2720,25 @@ func scanPlatformResource(resource string, row scanner) (domain.PlatformResource
 	v.Resource = resource
 	err := row.Scan(&v.ID, &v.Key, &v.Name, &v.Description, &v.Status, &v.Enabled, &v.SortOrder, &v.ParentID, &v.Level, &v.AgentID, &v.Provider, &v.Model, &v.ConfigJSON, &v.MetadataJSON, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt)
 	return v, err
+}
+
+func scanChannelCredential(row scanner) (domain.ChannelCredential, error) {
+	var v domain.ChannelCredential
+	err := row.Scan(&v.ID, &v.ChannelID, &v.CredentialKey, &v.Status, &v.SecretRef, &v.MetadataJSON, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt)
+	v.Configured = strings.TrimSpace(v.SecretRef) != ""
+	v.MaskedPreview = maskedSecretRef(v.SecretRef)
+	return v, err
+}
+
+func maskedSecretRef(secretRef string) string {
+	secretRef = strings.TrimSpace(secretRef)
+	if secretRef == "" {
+		return ""
+	}
+	if len(secretRef) <= 8 {
+		return "********"
+	}
+	return secretRef[:4] + "..." + secretRef[len(secretRef)-4:]
 }
 
 func scanPlatformRows(resource string, rows *sql.Rows) ([]domain.PlatformResource, error) {

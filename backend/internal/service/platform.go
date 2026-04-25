@@ -75,7 +75,7 @@ func (s *PlatformService) Create(resource string, in domain.PlatformResource) (d
 	in.Key = strings.TrimSpace(in.Key)
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Key == "" || in.Name == "" {
-		return domain.PlatformResource{}, errors.New("key and name are required")
+		return domain.PlatformResource{}, validationError("key and name are required")
 	}
 	if in.ID == "" {
 		in.ID = newID()
@@ -102,7 +102,7 @@ func (s *PlatformService) Create(resource string, in domain.PlatformResource) (d
 
 func (s *PlatformService) Update(resource string, id string, in domain.PlatformResource) (domain.PlatformResource, error) {
 	if id == "" {
-		return domain.PlatformResource{}, errors.New("id is required")
+		return domain.PlatformResource{}, validationError("id is required")
 	}
 	in.ID = id
 	in.Resource = resource
@@ -125,7 +125,7 @@ func (s *PlatformService) Update(resource string, id string, in domain.PlatformR
 
 func (s *PlatformService) Delete(resource string, id string) error {
 	if id == "" {
-		return errors.New("id is required")
+		return validationError("id is required")
 	}
 	return s.repo.DeletePlatformResource(resource, id)
 }
@@ -140,21 +140,21 @@ func (s *PlatformService) GetAvatarImage(id string, thumbnail bool) (domain.Avat
 
 func (s *PlatformService) UploadAvatar(file multipart.File, header *multipart.FileHeader, workspaceID string, ownerUserID string) (domain.AvatarAsset, error) {
 	if file == nil || header == nil {
-		return domain.AvatarAsset{}, errors.New("avatar file is required")
+		return domain.AvatarAsset{}, validationError("avatar file is required")
 	}
 	if header.Size > 2*1024*1024 {
-		return domain.AvatarAsset{}, errors.New("avatar file must be <= 2MB")
+		return domain.AvatarAsset{}, validationError("avatar file must be <= 2MB")
 	}
 	data, err := io.ReadAll(io.LimitReader(file, 2*1024*1024+1))
 	if err != nil {
 		return domain.AvatarAsset{}, err
 	}
 	if len(data) > 2*1024*1024 {
-		return domain.AvatarAsset{}, errors.New("avatar file must be <= 2MB")
+		return domain.AvatarAsset{}, validationError("avatar file must be <= 2MB")
 	}
 	mimeType := http.DetectContentType(data)
 	if mimeType != "image/png" && mimeType != "image/jpeg" && mimeType != "image/webp" {
-		return domain.AvatarAsset{}, fmt.Errorf("unsupported avatar type: %s", mimeType)
+		return domain.AvatarAsset{}, validationError("unsupported avatar type: %s", mimeType)
 	}
 	id := newID()
 	asset := domain.AvatarAsset{

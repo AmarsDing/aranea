@@ -16,6 +16,7 @@ import PluginsPage from "../pages/PluginsPage.vue";
 import ToolsPage from "../pages/ToolsPage.vue";
 import ToolRunsPage from "../pages/ToolRunsPage.vue";
 import SessionsPage from "../pages/SessionsPage.vue";
+import ChannelsPage from "../pages/ChannelsPage.vue";
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -40,7 +41,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "channels",
         name: "channels",
-        component: ResourceManagerPage,
+        component: ChannelsPage,
         meta: { resource: "channels", title: "Channel 管理", subtitle: "管理外部消息渠道、凭据引用与 Agent 绑定配置。" }
       },
       {

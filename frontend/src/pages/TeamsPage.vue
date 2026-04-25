@@ -60,6 +60,7 @@
       :is-dark="isDark"
       @add-member="addMember"
       @remove-member="removeMember"
+      @apply-template="applyTemplate"
       @save="save"
     />
 
@@ -88,7 +89,7 @@ import TeamCard from "../features/teams/TeamCard.vue";
 import TeamEditorDialog from "../features/teams/TeamEditorDialog.vue";
 import TeamRunsDialog from "../features/teams/TeamRunsDialog.vue";
 import TeamToolbar from "../features/teams/TeamToolbar.vue";
-import { defaultDefinition, parseDefinition } from "../features/teams/teamUtils";
+import { buildGraphFromDefinition, defaultDefinition, definitionFromTemplate, parseDefinition, type TeamTemplateKey } from "../features/teams/teamUtils";
 
 const $q = useQuasar();
 const isDark = computed(() => $q.dark.isActive);
@@ -129,7 +130,7 @@ const definition = reactive<TeamDefinition>({
 });
 
 const agentOptions = computed(() => agents.value.map((agent) => ({ label: agent.display_name, value: agent.id })));
-const definitionJSON = computed(() => JSON.stringify(definition, null, 2));
+const definitionJSON = computed(() => JSON.stringify({ ...definition, graph: buildGraphFromDefinition(definition) }, null, 2));
 const canSave = computed(() => Boolean(form.team_key && form.display_name && definition.members.some((member) => member.enabled)));
 const filteredTeams = computed(() => {
   const q = search.value.trim().toLowerCase();
@@ -188,6 +189,15 @@ function addMember() {
 
 function removeMember(index: number) {
   definition.members.splice(index, 1);
+}
+
+function applyTemplate(template: TeamTemplateKey) {
+  if (agents.value.length === 0) {
+    $q.notify({ type: "warning", message: "请先创建或加载 Agent 后再应用模板" });
+    return;
+  }
+  Object.assign(definition, definitionFromTemplate(template, agents.value));
+  $q.notify({ type: "positive", message: "Team 模板已应用" });
 }
 
 async function save() {

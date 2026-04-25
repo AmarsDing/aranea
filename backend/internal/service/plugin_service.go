@@ -46,10 +46,16 @@ func (s *PluginService) List(query domain.PluginListQuery) (domain.PluginListRes
 }
 
 func (s *PluginService) ToggleEnabled(id string, enabled bool) (domain.Plugin, error) {
+	if strings.TrimSpace(id) == "" {
+		return domain.Plugin{}, validationError("plugin id is required")
+	}
 	return s.repo.UpdatePluginEnabled(id, enabled)
 }
 
 func (s *PluginService) UpdateConfig(id string, configJSON string) (domain.Plugin, error) {
+	if strings.TrimSpace(id) == "" {
+		return domain.Plugin{}, validationError("plugin id is required")
+	}
 	return s.repo.UpdatePluginConfig(id, configJSON)
 }
 

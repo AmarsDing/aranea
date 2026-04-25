@@ -17,9 +17,10 @@ type HTTPHandler struct {
 	skillSvc    *service.SkillService
 	toolSvc     *service.ToolService
 	pluginSvc   *service.PluginService
+	channelSvc  *service.ChannelService
 }
 
-func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService, sessionSvc *service.SessionService, chatSvc *service.ChatService, auditSvc *service.AuditService, platformSvc *service.PlatformService, usageSvc *service.UsageService, skillSvc *service.SkillService, toolSvc *service.ToolService, pluginSvc *service.PluginService) http.Handler {
+func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService, sessionSvc *service.SessionService, chatSvc *service.ChatService, auditSvc *service.AuditService, platformSvc *service.PlatformService, usageSvc *service.UsageService, skillSvc *service.SkillService, toolSvc *service.ToolService, pluginSvc *service.PluginService, channelSvc *service.ChannelService) http.Handler {
 	h := &HTTPHandler{
 		agentSvc:    agentSvc,
 		teamSvc:     teamSvc,
@@ -31,6 +32,7 @@ func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService
 		skillSvc:    skillSvc,
 		toolSvc:     toolSvc,
 		pluginSvc:   pluginSvc,
+		channelSvc:  channelSvc,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", h.healthz)
@@ -52,8 +54,9 @@ func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService
 	mux.HandleFunc("/api/v1/avatar-assets/", h.handleAvatarAssetByID)
 	mux.HandleFunc("/api/v1/hooks", h.handlePlatformCollection("hooks"))
 	mux.HandleFunc("/api/v1/hooks/", h.handlePlatformItem("hooks", "/api/v1/hooks/"))
-	mux.HandleFunc("/api/v1/channels", h.handlePlatformCollection("channels"))
-	mux.HandleFunc("/api/v1/channels/", h.handlePlatformItem("channels", "/api/v1/channels/"))
+	mux.HandleFunc("/api/v1/channels/catalog", h.handleChannelCatalog)
+	mux.HandleFunc("/api/v1/channels", h.handleChannels)
+	mux.HandleFunc("/api/v1/channels/", h.handleChannelByID)
 	mux.HandleFunc("/api/v1/mcp-servers", h.handlePlatformCollection("mcp-servers"))
 	mux.HandleFunc("/api/v1/mcp-servers/", h.handlePlatformItem("mcp-servers", "/api/v1/mcp-servers/"))
 	mux.HandleFunc("/api/v1/skills/import", h.handleSkillImport)

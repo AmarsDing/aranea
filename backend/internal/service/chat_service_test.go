@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"arenea/backend/internal/domain"
@@ -100,5 +101,55 @@ func TestChatServiceSendRejectsAgentSessionMismatch(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected mismatch error")
+	}
+}
+
+func TestChatServiceRunTeamParallelRecordsPartialFailure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	repo, err := repository.NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("new repo failed: %v", err)
+	}
+	defer repo.Close()
+
+	if err = repo.Migrate(); err != nil {
+		t.Fatalf("migrate failed: %v", err)
+	}
+	if _, err = repo.CreateAgent(domain.Agent{ID: "a1", AgentKey: "one", DisplayName: "One", Provider: "openrouter", Model: "gpt-4.1-mini"}); err != nil {
+		t.Fatalf("create agent failed: %v", err)
+	}
+
+	svc := NewChatService(repo, runtime.NewADKRuntimeAdapter())
+	run := domain.TeamRun{ID: "run1", TeamID: "team1", SessionID: "s1", InputPreview: "hello", TopologyJSON: `{"mode":"parallel"}`}
+	members := []teamMember{
+		{AgentID: "a1", Role: "writer", Name: "Writer", SortOrder: 1},
+		{AgentID: "missing", Role: "reviewer", Name: "Reviewer", SortOrder: 2},
+	}
+
+	steps, err := svc.runTeamParallel(context.Background(), run, members, SendMessageInput{SessionID: "s1", Content: "hello"}, domain.Session{ID: "s1"}, nil, 2)
+	if err != nil {
+		t.Fatalf("expected partial success to return nil error, got %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(steps))
+	}
+	if !hasSuccessfulTeamSteps(steps) || !hasFailedTeamSteps(steps) {
+		t.Fatalf("expected mixed success/failure steps, got %#v", steps)
+	}
+	recorded, err := repo.ListTeamRunSteps("run1")
+	if err != nil {
+		t.Fatalf("list team run steps failed: %v", err)
+	}
+	if len(recorded) != 2 {
+		t.Fatalf("expected 2 recorded steps, got %d", len(recorded))
+	}
+	var failed domain.TeamRunStep
+	for _, item := range recorded {
+		if item.Status != "success" {
+			failed = item
+		}
+	}
+	if failed.AgentID != "missing" || !strings.Contains(failed.ErrorMessage, "no rows") {
+		t.Fatalf("expected missing agent failure to be recorded, got %#v", failed)
 	}
 }

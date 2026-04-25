@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 
 	"arenea/backend/internal/domain"
@@ -29,7 +28,7 @@ func (s *TeamService) Create(in domain.Team) (domain.Team, error) {
 	in.TeamKey = strings.TrimSpace(in.TeamKey)
 	in.DisplayName = strings.TrimSpace(in.DisplayName)
 	if in.TeamKey == "" || in.DisplayName == "" {
-		return domain.Team{}, errors.New("team_key and display_name are required")
+		return domain.Team{}, validationError("team_key and display_name are required")
 	}
 	if in.ID == "" {
 		in.ID = newID()
@@ -71,7 +70,7 @@ func (s *TeamService) Delete(id string) error {
 		return err
 	}
 	if team.IsDefault {
-		return errors.New("default team cannot be deleted")
+		return conflictError("default team cannot be deleted")
 	}
 	return s.repo.DeleteTeam(id)
 }
@@ -101,21 +100,22 @@ func validateTeamDefinition(raw string) error {
 		return nil
 	}
 	var body struct {
-		Mode    string `json:"mode"`
-		Members []struct {
+		Mode             string `json:"mode"`
+		SynthesizerAgent string `json:"synthesizer_agent_id"`
+		Members          []struct {
 			AgentID string `json:"agent_id"`
 			Role    string `json:"role"`
 			Enabled *bool  `json:"enabled"`
 		} `json:"members"`
 	}
 	if err := json.Unmarshal([]byte(raw), &body); err != nil {
-		return errors.New("definition_json must be valid JSON")
+		return validationError("definition_json must be valid JSON")
 	}
 	mode := firstNonEmptyString(body.Mode, "sequential")
 	switch mode {
-	case "sequential", "parallel", "coordinator", "critic_loop":
+	case "sequential", "parallel", "coordinator", "critic_loop", "adaptive":
 	default:
-		return errors.New("unsupported team orchestration mode")
+		return validationError("unsupported team orchestration mode")
 	}
 	if len(body.Members) == 0 {
 		return nil
@@ -126,7 +126,7 @@ func validateTeamDefinition(raw string) error {
 	hasCritic := false
 	for _, member := range body.Members {
 		if strings.TrimSpace(member.AgentID) == "" {
-			return errors.New("team member agent_id is required")
+			return validationError("team member agent_id is required")
 		}
 		if member.Enabled == nil || *member.Enabled {
 			enabledCount++
@@ -141,13 +141,13 @@ func validateTeamDefinition(raw string) error {
 		}
 	}
 	if enabledCount == 0 {
-		return errors.New("team must have at least one enabled member")
+		return validationError("team must have at least one enabled member")
 	}
-	if mode == "parallel" && !hasSynthesizer && enabledCount > 1 {
-		return errors.New("parallel mode requires a synthesizer member")
+	if mode == "parallel" && !hasSynthesizer && strings.TrimSpace(body.SynthesizerAgent) == "" && enabledCount > 1 {
+		return validationError("parallel mode requires a synthesizer member or synthesizer_agent_id")
 	}
 	if mode == "critic_loop" && (!hasGenerator || !hasCritic) {
-		return errors.New("critic_loop mode requires generator and critic members")
+		return validationError("critic_loop mode requires generator and critic members")
 	}
 	return nil
 }

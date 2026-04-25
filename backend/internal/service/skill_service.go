@@ -71,32 +71,32 @@ func (s *SkillService) Search(query domain.SkillListQuery) (domain.SkillListResu
 	query.Limit, query.Offset = normalizeLimitOffset(query.Limit, query.Offset, 20)
 	query.Enabled = strings.TrimSpace(query.Enabled)
 	if query.Enabled != "" && query.Enabled != "true" && query.Enabled != "false" {
-		return domain.SkillListResult{}, errors.New("enabled must be true or false")
+		return domain.SkillListResult{}, validationError("enabled must be true or false")
 	}
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Status != "" && query.Status != "draft" && query.Status != "published" && query.Status != "archived" {
-		return domain.SkillListResult{}, errors.New("unsupported skill status")
+		return domain.SkillListResult{}, validationError("unsupported skill status")
 	}
 	return s.store.SearchSkills(query)
 }
 
 func (s *SkillService) ToggleEnabled(id string, enabled bool) (domain.Skill, error) {
 	if strings.TrimSpace(id) == "" {
-		return domain.Skill{}, errors.New("skill id is required")
+		return domain.Skill{}, validationError("skill id is required")
 	}
 	return s.store.UpdateSkillEnabled(id, enabled)
 }
 
 func (s *SkillService) Duplicate(id string) (domain.Skill, error) {
 	if strings.TrimSpace(id) == "" {
-		return domain.Skill{}, errors.New("skill id is required")
+		return domain.Skill{}, validationError("skill id is required")
 	}
 	return s.store.DuplicateSkill(id)
 }
 
 func (s *SkillService) Delete(id string) error {
 	if strings.TrimSpace(id) == "" {
-		return errors.New("skill id is required")
+		return validationError("skill id is required")
 	}
 	return s.store.DeleteSkill(id)
 }
@@ -141,10 +141,10 @@ func (s *SkillService) ReadFile(id string, relPath string) (domain.SkillFileCont
 		return domain.SkillFileContent{}, err
 	}
 	if info.IsDir() {
-		return domain.SkillFileContent{}, errors.New("skill file path points to a directory")
+		return domain.SkillFileContent{}, validationError("skill file path points to a directory")
 	}
 	if info.Size() > 2*1024*1024 {
-		return domain.SkillFileContent{}, errors.New("skill file is too large to edit")
+		return domain.SkillFileContent{}, validationError("skill file is too large to edit")
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -170,17 +170,17 @@ func (s *SkillService) SearchRuns(query domain.SkillRunQuery) (domain.SkillRunRe
 	query.Limit, query.Offset = normalizeLimitOffset(query.Limit, query.Offset, 20)
 	query.Status = strings.TrimSpace(query.Status)
 	if query.Status != "" && query.Status != "success" && query.Status != "failure" && query.Status != "pending" {
-		return domain.SkillRunResult{}, errors.New("unsupported run status")
+		return domain.SkillRunResult{}, validationError("unsupported run status")
 	}
 	return s.store.SearchSkillInvocations(query)
 }
 
 func (s *SkillService) Import(ctx context.Context, file multipart.File, header *multipart.FileHeader) (domain.SkillImportJob, error) {
 	if file == nil || header == nil {
-		return domain.SkillImportJob{}, errors.New("skill zip file is required")
+		return domain.SkillImportJob{}, validationError("skill zip file is required")
 	}
 	if !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
-		return domain.SkillImportJob{}, errors.New("skill upload must be a .zip file")
+		return domain.SkillImportJob{}, validationError("skill upload must be a .zip file")
 	}
 	const maxZipBytes = 20 * 1024 * 1024
 	data, err := io.ReadAll(io.LimitReader(file, maxZipBytes+1))
@@ -188,7 +188,7 @@ func (s *SkillService) Import(ctx context.Context, file multipart.File, header *
 		return domain.SkillImportJob{}, err
 	}
 	if len(data) > maxZipBytes {
-		return domain.SkillImportJob{}, errors.New("skill zip must be <= 20MB")
+		return domain.SkillImportJob{}, validationError("skill zip must be <= 20MB")
 	}
 	job := &skillImportJobState{
 		public: domain.SkillImportJob{
@@ -223,7 +223,7 @@ func (s *SkillService) GetImportJob(jobID string) (domain.SkillImportJob, error)
 	defer s.importJobsM.RUnlock()
 	job := s.importJobs[strings.TrimSpace(jobID)]
 	if job == nil {
-		return domain.SkillImportJob{}, errors.New("import job not found")
+		return domain.SkillImportJob{}, fmt.Errorf("%w: import job not found", domain.ErrNotFound)
 	}
 	return job.public, nil
 }
@@ -264,10 +264,10 @@ func (s *SkillService) ApplyImport(jobID string, in domain.SkillImportApplyReque
 	job := s.importJobs[strings.TrimSpace(jobID)]
 	s.importJobsM.RUnlock()
 	if job == nil {
-		return domain.SkillImportApplyResult{}, errors.New("import job not found")
+		return domain.SkillImportApplyResult{}, fmt.Errorf("%w: import job not found", domain.ErrNotFound)
 	}
 	if job.public.Status != "completed" {
-		return domain.SkillImportApplyResult{}, errors.New("import job is not completed")
+		return domain.SkillImportApplyResult{}, validationError("import job is not completed")
 	}
 	result := domain.SkillImportApplyResult{CreatedSkillIDs: []string{}, SkippedCandidateIDs: []string{}}
 	for _, decision := range in.Decisions {
@@ -300,12 +300,12 @@ func (s *SkillService) ApplyImport(jobID string, in domain.SkillImportApplyReque
 			result.CreatedSkillIDs = append(result.CreatedSkillIDs, created.ID)
 		case "reject_risky_upload":
 			if strings.TrimSpace(decision.CandidateID) == "" {
-				return result, errors.New("candidate_id is required")
+				return result, validationError("candidate_id is required")
 			}
 			result.SkippedCandidateIDs = append(result.SkippedCandidateIDs, decision.CandidateID)
 		case "merge_group_with_ai":
 			if strings.TrimSpace(decision.MergedBody) == "" {
-				return result, errors.New("merged_body is required")
+				return result, validationError("merged_body is required")
 			}
 			slug := slugify(decision.MergedName)
 			files := map[string][]byte{"SKILL.md": []byte(decision.MergedBody)}
@@ -497,7 +497,7 @@ func (s *SkillService) safeSkillFilePath(id string, relPath string) (string, str
 	}
 	relPath = strings.TrimSpace(filepath.ToSlash(relPath))
 	if relPath == "" || strings.Contains(relPath, "..") || strings.HasPrefix(relPath, "/") {
-		return "", "", errors.New("unsafe skill file path")
+		return "", "", validationError("unsafe skill file path")
 	}
 	path := filepath.Join(root, filepath.FromSlash(relPath))
 	absRoot, err := filepath.Abs(root)
@@ -509,7 +509,7 @@ func (s *SkillService) safeSkillFilePath(id string, relPath string) (string, str
 		return "", "", err
 	}
 	if absPath != absRoot && !strings.HasPrefix(absPath, absRoot+string(os.PathSeparator)) {
-		return "", "", errors.New("skill file path escapes skill directory")
+		return "", "", validationError("skill file path escapes skill directory")
 	}
 	return absRoot, absPath, nil
 }
@@ -818,7 +818,7 @@ func candidateIDsForGroup(groups []domain.SkillConflictGroup, groupID string) []
 func (s *SkillService) inspectSkillZip(ctx context.Context, data []byte, job *skillImportJobState) error {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return errors.New("invalid zip file")
+		return validationError("invalid zip file")
 	}
 	filesByDir := map[string]map[string][]byte{}
 	for _, file := range reader.File {
@@ -903,7 +903,7 @@ func (s *SkillService) inspectSkillZip(ctx context.Context, data []byte, job *sk
 		job.public.Candidates = append(job.public.Candidates, candidate)
 	}
 	if len(job.public.Candidates) == 0 {
-		return errors.New("zip must contain at least one SKILL.md")
+		return validationError("zip must contain at least one SKILL.md")
 	}
 	return s.inspectSimilarity(ctx, job, existing)
 }
@@ -1017,7 +1017,7 @@ func (s *SkillService) conflictGroupContext(jobID string, groupID string) (*skil
 	job := s.importJobs[strings.TrimSpace(jobID)]
 	s.importJobsM.RUnlock()
 	if job == nil {
-		return nil, domain.SkillConflictGroup{}, nil, errors.New("import job not found")
+		return nil, domain.SkillConflictGroup{}, nil, fmt.Errorf("%w: import job not found", domain.ErrNotFound)
 	}
 	for _, group := range job.public.ConflictGroups {
 		if group.GroupID != groupID {
@@ -1031,7 +1031,7 @@ func (s *SkillService) conflictGroupContext(jobID string, groupID string) (*skil
 		}
 		return job, group, candidates, nil
 	}
-	return nil, domain.SkillConflictGroup{}, nil, errors.New("conflict group not found")
+	return nil, domain.SkillConflictGroup{}, nil, fmt.Errorf("%w: conflict group not found", domain.ErrNotFound)
 }
 
 func (s *SkillService) createImportedSkill(name string, slug string, description string, body string, tags []domain.SkillTag, files map[string][]byte) (domain.Skill, error) {

@@ -106,6 +106,7 @@ type TeamRun struct {
 	OutputPreview string `json:"output_preview"`
 	TokenIn       int    `json:"token_in"`
 	TokenOut      int    `json:"token_out"`
+	CostMicroUSD  int64  `json:"cost_micro_usd"`
 	DurationMS    int    `json:"duration_ms"`
 	ErrorMessage  string `json:"error_message"`
 	TopologyJSON  string `json:"topology_json"`
@@ -129,6 +130,7 @@ type TeamRunStep struct {
 	OutputPreview string `json:"output_preview"`
 	TokenIn       int    `json:"token_in"`
 	TokenOut      int    `json:"token_out"`
+	CostMicroUSD  int64  `json:"cost_micro_usd"`
 	DurationMS    int    `json:"duration_ms"`
 	ErrorMessage  string `json:"error_message"`
 	StartedAt     string `json:"started_at"`
@@ -416,6 +418,73 @@ type PlatformResource struct {
 type PlatformResourceTreeNode struct {
 	PlatformResource
 	Children []PlatformResourceTreeNode `json:"children"`
+}
+
+type ChannelCatalogItem struct {
+	Type             string         `json:"type"`
+	Label            string         `json:"label"`
+	Description      string         `json:"description"`
+	Group            string         `json:"group"`
+	ReceiveModes     []string       `json:"receive_modes"`
+	Icon             string         `json:"icon"`
+	Bundled          bool           `json:"bundled"`
+	SupportsTest     bool           `json:"supports_test"`
+	SupportsWebhook  bool           `json:"supports_webhook"`
+	ConfigSchema     map[string]any `json:"config_schema"`
+	CredentialSchema map[string]any `json:"credential_schema"`
+	UIHints          map[string]any `json:"ui_hints"`
+	SortOrder        int            `json:"sort_order"`
+}
+
+type ChannelCredential struct {
+	ID            string `json:"id"`
+	ChannelID     string `json:"channel_id"`
+	CredentialKey string `json:"credential_key"`
+	Status        string `json:"status"`
+	SecretRef     string `json:"secret_ref,omitempty"`
+	MetadataJSON  string `json:"metadata_json"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+	DeletedAt     string `json:"deleted_at"`
+	Configured    bool   `json:"configured"`
+	MaskedPreview string `json:"masked_preview,omitempty"`
+}
+
+type ChannelCredentialInput struct {
+	CredentialKey string `json:"credential_key"`
+	Secret        string `json:"secret,omitempty"`
+	SecretRef     string `json:"secret_ref,omitempty"`
+	Status        string `json:"status,omitempty"`
+	MetadataJSON  string `json:"metadata_json,omitempty"`
+}
+
+type ChannelDelivery struct {
+	ID           string `json:"id"`
+	ChannelID    string `json:"channel_id"`
+	AgentID      string `json:"agent_id"`
+	Status       string `json:"status"`
+	PayloadJSON  string `json:"payload_json"`
+	ErrorMessage string `json:"error_message"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type ChannelRuntimeConfig struct {
+	ID           string              `json:"id"`
+	Key          string              `json:"key"`
+	Type         string              `json:"type"`
+	Enabled      bool                `json:"enabled"`
+	Status       string              `json:"status"`
+	ConfigJSON   string              `json:"config_json"`
+	MetadataJSON string              `json:"metadata_json"`
+	Credentials  []ChannelCredential `json:"credentials"`
+}
+
+type ChannelTestResult struct {
+	OK      bool           `json:"ok"`
+	Status  string         `json:"status"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 type PluginPermissions struct {

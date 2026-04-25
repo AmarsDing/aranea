@@ -23,7 +23,7 @@
               </q-item-section>
               <q-item-section>
                 <q-item-label>{{ run.mode }} · {{ run.duration_ms }}ms</q-item-label>
-                <q-item-label caption>{{ formatDate(run.created_at) }} · in {{ run.token_in }} / out {{ run.token_out }}</q-item-label>
+                <q-item-label caption>{{ formatDate(run.created_at) }} · in {{ run.token_in }} / out {{ run.token_out }} · {{ formatCost(run.cost_micro_usd) }}</q-item-label>
               </q-item-section>
             </template>
             <div class="run-detail q-pa-md">
@@ -38,7 +38,7 @@
                   <div class="text-weight-medium">{{ step.agent_name || step.agent_key || agentName(agents, step.agent_id) }}</div>
                   <q-badge rounded :color="step.status === 'success' ? 'positive' : 'negative'">{{ step.status }}</q-badge>
                 </div>
-                <div class="text-caption text-grey-7">{{ step.role || "worker" }} · {{ step.duration_ms }}ms · in {{ step.token_in }} / out {{ step.token_out }}</div>
+                <div class="text-caption text-grey-7">{{ step.role || "worker" }} · {{ step.duration_ms }}ms · in {{ step.token_in }} / out {{ step.token_out }} · {{ formatCost(step.cost_micro_usd) }}</div>
                 <div class="run-preview q-mt-sm">{{ step.output_preview || step.error_message || "-" }}</div>
               </div>
               <div v-if="!stepsLoading[run.id] && !(stepsByRun[run.id] || []).length" class="text-caption text-grey-7">暂无步骤记录。</div>
@@ -73,6 +73,10 @@ defineEmits<{
   refresh: [];
   showSteps: [runID: string];
 }>();
+
+function formatCost(value?: number) {
+  return `$${((value ?? 0) / 1_000_000).toFixed(4)}`;
+}
 </script>
 
 <style scoped>

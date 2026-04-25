@@ -22,7 +22,14 @@ type teamDefinition struct {
 	TimeoutSeconds   int          `json:"timeout_seconds"`
 	Members          []teamMember `json:"members"`
 	SynthesizerAgent string       `json:"synthesizer_agent_id"`
-	CriticLoop       struct {
+	A2A              struct {
+		Enabled         *bool  `json:"enabled"`
+		EnvelopeVersion string `json:"envelope_version"`
+		MessageFormat   string `json:"message_format"`
+		IncludeTrace    *bool  `json:"include_trace"`
+		MaxPayloadChars int    `json:"max_payload_chars"`
+	} `json:"a2a"`
+	CriticLoop struct {
 		MaxIterations  int     `json:"max_iterations"`
 		ScoreThreshold float64 `json:"score_threshold"`
 	} `json:"critic_loop"`
@@ -37,16 +44,17 @@ type teamMember struct {
 }
 
 type teamStepResult struct {
-	Member    teamMember
-	Agent     domain.Agent
-	Generated runtime.GenerateResult
-	Err       error
+	Member       teamMember
+	Agent        domain.Agent
+	Generated    runtime.GenerateResult
+	CostMicroUSD int64
+	Err          error
 }
 
 func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session domain.Session, callbacks *SendStreamCallbacks) (SendMessageResult, error) {
 	teamID := firstNonEmptyString(session.TeamID, in.TeamID)
 	if teamID == "" {
-		return SendMessageResult{}, errors.New("team_id is required")
+		return SendMessageResult{}, validationError("team_id is required")
 	}
 	team, err := s.repo.GetTeamByID(teamID)
 	if err != nil {
@@ -55,7 +63,7 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 	def := parseTeamDefinition(team.DefinitionJSON)
 	members := enabledTeamMembers(def)
 	if len(members) == 0 {
-		return SendMessageResult{}, errors.New("team has no enabled members")
+		return SendMessageResult{}, validationError("team has no enabled members")
 	}
 	optionsJSON := ""
 	if in.Options.DialogMode != "" || in.Options.Provider != "" || in.Options.Model != "" || len(in.Options.Attachments) > 0 {
@@ -92,6 +100,9 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 	if mode == "" {
 		mode = "sequential"
 	}
+	if mode == "adaptive" {
+		mode = selectAdaptiveTeamMode(def, members, in.Content)
+	}
 	runCtx := ctx
 	cancelRun := func() {}
 	if def.TimeoutSeconds > 0 {
@@ -123,6 +134,7 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 		run.ErrorMessage = runErr.Error()
 		run.TokenIn = sumTeamPromptTokens(steps)
 		run.TokenOut = sumTeamCompletionTokens(steps)
+		run.CostMicroUSD = sumTeamCostMicroUSD(steps)
 		run.DurationMS = sumTeamLatency(steps)
 		run.FinishedAt = nowUTC()
 		_, _ = s.repo.UpdateTeamRun(run)
@@ -135,6 +147,7 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 		run.ErrorMessage = err.Error()
 		run.TokenIn = sumTeamPromptTokens(steps)
 		run.TokenOut = sumTeamCompletionTokens(steps)
+		run.CostMicroUSD = sumTeamCostMicroUSD(steps)
 		run.DurationMS = sumTeamLatency(steps)
 		run.FinishedAt = nowUTC()
 		_, _ = s.repo.UpdateTeamRun(run)
@@ -171,6 +184,7 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 	run.OutputPreview = previewText(content, 300)
 	run.TokenIn = agentMsg.TokenIn
 	run.TokenOut = agentMsg.TokenOut
+	run.CostMicroUSD = sumTeamCostMicroUSD(steps)
 	run.DurationMS = agentMsg.LatencyMS
 	run.FinishedAt = nowUTC()
 	_, _ = s.repo.UpdateTeamRun(run)
@@ -192,8 +206,43 @@ func (s *ChatService) runTeamTopology(ctx context.Context, run domain.TeamRun, d
 	case "critic_loop":
 		return s.runTeamCriticLoop(ctx, run, def, members, in, session, history)
 	default:
-		return s.runTeamSequential(ctx, run, members, in, session, history, in.Content)
+		return s.runTeamSequential(ctx, run, def, members, in, session, history, in.Content)
 	}
+}
+
+func selectAdaptiveTeamMode(def teamDefinition, members []teamMember, task string) string {
+	normalized := strings.ToLower(task)
+	hasCoordinator := hasTeamRole(members, "coordinator")
+	hasGenerator := hasTeamRole(members, "generator")
+	hasCritic := hasTeamRole(members, "critic")
+	if hasGenerator && hasCritic && containsAny(normalized, []string{"评审", "审核", "修改", "优化", "review", "revise", "critique"}) {
+		return "critic_loop"
+	}
+	if hasCoordinator && containsAny(normalized, []string{"规划", "计划", "拆解", "分解", "复杂", "多步骤", "plan", "coordinate", "breakdown"}) {
+		return "coordinator"
+	}
+	if len(members) >= 3 {
+		return "parallel"
+	}
+	return "sequential"
+}
+
+func hasTeamRole(members []teamMember, role string) bool {
+	for _, member := range members {
+		if strings.EqualFold(member.Role, role) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAny(value string, terms []string) bool {
+	for _, term := range terms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseTeamDefinition(raw string) teamDefinition {
@@ -222,9 +271,9 @@ func enabledTeamMembers(def teamDefinition) []teamMember {
 	return items
 }
 
-func (s *ChatService) runTeamSequential(ctx context.Context, run domain.TeamRun, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, input string) ([]teamStepResult, error) {
+func (s *ChatService) runTeamSequential(ctx context.Context, run domain.TeamRun, def teamDefinition, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, input string) ([]teamStepResult, error) {
 	steps := make([]teamStepResult, 0, len(members))
-	current := input
+	current := buildA2AEnvelope(def, teamMember{Name: "User", Role: "user"}, members[0], "task", in.Content, input, run.ID)
 	for index, member := range members {
 		if err := ctx.Err(); err != nil {
 			step := teamStepResult{Member: member, Err: err}
@@ -238,7 +287,9 @@ func (s *ChatService) runTeamSequential(ctx context.Context, run domain.TeamRun,
 		if err != nil {
 			return steps, err
 		}
-		current = step.Generated.Content
+		if index+1 < len(members) {
+			current = buildA2AEnvelope(def, member, members[index+1], "handoff", in.Content, step.Generated.Content, run.ID)
+		}
 	}
 	return steps, nil
 }
@@ -267,7 +318,11 @@ func (s *ChatService) runTeamParallel(ctx context.Context, run domain.TeamRun, m
 				_, _ = s.recordTeamRunStep(run, steps[index], index)
 				return
 			}
-			step, _ := s.generateTeamStep(ctx, item, in, session, history, in.Content)
+			input := buildA2AEnvelope(parseTeamDefinition(run.TopologyJSON), teamMember{Name: "User", Role: "user"}, item, "parallel_task", in.Content, in.Content, run.ID)
+			step, err := s.generateTeamStep(ctx, item, in, session, history, input)
+			if err != nil && step.Err == nil {
+				step.Err = err
+			}
 			steps[index] = step
 			_, _ = s.recordTeamRunStep(run, step, index)
 		}(i, member)
@@ -290,7 +345,7 @@ func (s *ChatService) runTeamCoordinator(ctx context.Context, run domain.TeamRun
 		coordinator = members[0]
 		workers = members[1:]
 	}
-	planPrompt := "你是 Team 的 coordinator。请把用户任务拆解为可执行计划，明确每个成员应完成的工作、依赖和最终汇总口径。\n\n用户任务：" + in.Content
+	planPrompt := buildA2AEnvelope(parseTeamDefinition(run.TopologyJSON), teamMember{Name: "User", Role: "user"}, coordinator, "plan_request", in.Content, "请把用户任务拆解为可执行计划，明确每个成员应完成的工作、依赖和最终汇总口径。", run.ID)
 	planStep, err := s.generateTeamStep(ctx, coordinator, in, session, history, planPrompt)
 	steps := []teamStepResult{planStep}
 	_, _ = s.recordTeamRunStep(run, planStep, 0)
@@ -302,7 +357,8 @@ func (s *ChatService) runTeamCoordinator(ctx context.Context, run domain.TeamRun
 	}
 	current := fmt.Sprintf("用户任务：%s\n\nCoordinator 计划：\n%s\n\n请按你的角色完成计划中分配给你的部分。", in.Content, planStep.Generated.Content)
 	for index, member := range workers {
-		step, err := s.generateTeamStep(ctx, member, in, session, history, current)
+		workerInput := buildA2AEnvelope(parseTeamDefinition(run.TopologyJSON), coordinator, member, "delegation", in.Content, current, run.ID)
+		step, err := s.generateTeamStep(ctx, member, in, session, history, workerInput)
 		steps = append(steps, step)
 		_, _ = s.recordTeamRunStep(run, step, index+1)
 		if err != nil {
@@ -332,7 +388,8 @@ func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun,
 	}
 
 	steps := []teamStepResult{}
-	draftPrompt := "你是 generator。请先产出可评审的初稿。\n\n用户任务：" + in.Content
+	defForEnvelope := parseTeamDefinition(run.TopologyJSON)
+	draftPrompt := buildA2AEnvelope(defForEnvelope, teamMember{Name: "User", Role: "user"}, generator, "draft_request", in.Content, "请先产出可评审的初稿。", run.ID)
 	draft, err := s.generateTeamStep(ctx, generator, in, session, history, draftPrompt)
 	steps = append(steps, draft)
 	_, _ = s.recordTeamRunStep(run, draft, 0)
@@ -341,7 +398,8 @@ func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun,
 	}
 	currentDraft := draft.Generated.Content
 	for iteration := 1; iteration <= maxIterations; iteration++ {
-		criticPrompt := fmt.Sprintf("你是 critic。请评审第 %d 轮初稿，指出是否通过、关键问题和修改建议。\n\n用户任务：%s\n\n初稿：\n%s", iteration, in.Content, currentDraft)
+		criticPayload := fmt.Sprintf("请评审第 %d 轮初稿，指出是否通过、关键问题和修改建议。\n\n初稿：\n%s", iteration, currentDraft)
+		criticPrompt := buildA2AEnvelope(defForEnvelope, generator, critic, "review_request", in.Content, criticPayload, run.ID)
 		review, err := s.generateTeamStep(ctx, critic, in, session, history, criticPrompt)
 		steps = append(steps, review)
 		_, _ = s.recordTeamRunStep(run, review, len(steps)-1)
@@ -351,7 +409,8 @@ func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun,
 		if iteration == maxIterations || !criticNeedsRevision(review.Generated.Content) {
 			break
 		}
-		revisionPrompt := fmt.Sprintf("你是 generator。请根据 critic 意见修订初稿，输出完整最终稿。\n\n用户任务：%s\n\n当前初稿：\n%s\n\nCritic 意见：\n%s", in.Content, currentDraft, review.Generated.Content)
+		revisionPayload := fmt.Sprintf("请根据 critic 意见修订初稿，输出完整最终稿。\n\n当前初稿：\n%s\n\nCritic 意见：\n%s", currentDraft, review.Generated.Content)
+		revisionPrompt := buildA2AEnvelope(defForEnvelope, critic, generator, "revision_request", in.Content, revisionPayload, run.ID)
 		revision, err := s.generateTeamStep(ctx, generator, in, session, history, revisionPrompt)
 		steps = append(steps, revision)
 		_, _ = s.recordTeamRunStep(run, revision, len(steps)-1)
@@ -423,8 +482,9 @@ func (s *ChatService) generateTeamStep(ctx context.Context, member teamMember, i
 		_ = s.recordModelTokenUsage(agent, session, providerModel, in.Options, runtime.GenerateResult{}, domain.Message{}, false, teamErrorStatus(err), err)
 		return teamStepResult{Member: member, Agent: agent, Err: err}, err
 	}
+	costMicroUSD := s.estimateGeneratedCost(providerModel, generated)
 	_ = s.recordModelTokenUsage(agent, session, providerModel, in.Options, generated, domain.Message{}, false, "success", nil)
-	return teamStepResult{Member: member, Agent: agent, Generated: generated}, nil
+	return teamStepResult{Member: member, Agent: agent, Generated: generated, CostMicroUSD: costMicroUSD}, nil
 }
 
 func (s *ChatService) recordTeamRunStep(run domain.TeamRun, step teamStepResult, index int) (domain.TeamRunStep, error) {
@@ -453,6 +513,7 @@ func (s *ChatService) recordTeamRunStep(run domain.TeamRun, step teamStepResult,
 		OutputPreview: previewText(step.Generated.Content, 300),
 		TokenIn:       step.Generated.PromptTokens,
 		TokenOut:      step.Generated.CompletionTokens,
+		CostMicroUSD:  step.CostMicroUSD,
 		DurationMS:    step.Generated.LatencyMS,
 		ErrorMessage:  errorMessage,
 		StartedAt:     now,
@@ -514,6 +575,55 @@ func buildSynthesizerPrompt(team domain.Team, mode string, userInput string, ste
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func buildA2AEnvelope(def teamDefinition, sender teamMember, receiver teamMember, intent string, userTask string, payload string, runID string) string {
+	if def.A2A.Enabled != nil && !*def.A2A.Enabled {
+		return payload
+	}
+	maxPayloadChars := def.A2A.MaxPayloadChars
+	if maxPayloadChars <= 0 {
+		maxPayloadChars = 6000
+	}
+	payload = previewText(payload, maxPayloadChars)
+	version := firstNonEmptyString(def.A2A.EnvelopeVersion, "a2a.v1")
+	format := firstNonEmptyString(def.A2A.MessageFormat, "markdown_json")
+	if format == "plain" {
+		return fmt.Sprintf("A2A %s\nFrom: %s\nTo: %s\nIntent: %s\nRun: %s\n\nUser Task:\n%s\n\nPayload:\n%s", version, a2aActorLabel(sender), a2aActorLabel(receiver), intent, runID, userTask, payload)
+	}
+	body := map[string]any{
+		"version": version,
+		"run_id":  runID,
+		"intent":  intent,
+		"sender": map[string]string{
+			"agent_id": sender.AgentID,
+			"role":     sender.Role,
+			"name":     sender.Name,
+		},
+		"receiver": map[string]string{
+			"agent_id": receiver.AgentID,
+			"role":     receiver.Role,
+			"name":     receiver.Name,
+		},
+		"user_task": userTask,
+		"payload":   payload,
+	}
+	includeTrace := true
+	if def.A2A.IncludeTrace != nil {
+		includeTrace = *def.A2A.IncludeTrace
+	}
+	if includeTrace {
+		body["trace"] = map[string]string{"protocol": "team.a2a", "format": format}
+	}
+	raw, err := json.MarshalIndent(body, "", "  ")
+	if err != nil {
+		return payload
+	}
+	return "请读取以下 A2A 消息信封，并仅以接收方角色完成任务。\n\n```json\n" + string(raw) + "\n```"
+}
+
+func a2aActorLabel(member teamMember) string {
+	return firstNonEmptyString(member.Name, member.Role, member.AgentID, "unknown")
 }
 
 func hasSuccessfulTeamSteps(steps []teamStepResult) bool {
@@ -626,10 +736,28 @@ func sumTeamCompletionTokens(steps []teamStepResult) int {
 	return total
 }
 
+func sumTeamCostMicroUSD(steps []teamStepResult) int64 {
+	var total int64
+	for _, step := range steps {
+		total += step.CostMicroUSD
+	}
+	return total
+}
+
 func sumTeamLatency(steps []teamStepResult) int {
 	total := 0
 	for _, step := range steps {
 		total += step.Generated.LatencyMS
 	}
 	return total
+}
+
+func (s *ChatService) estimateGeneratedCost(providerModel domain.PlatformResource, generated runtime.GenerateResult) int64 {
+	pricing, err := s.repo.GetActiveModelPricingRule(providerModel.Provider, providerModel.Model, nowUTC())
+	if err != nil {
+		return 0
+	}
+	inputCost := costMicroUSD(generated.PromptTokens, pricing.InputPriceMicroUSDPer1K)
+	outputCost := costMicroUSD(generated.CompletionTokens, pricing.OutputPriceMicroUSDPer1K)
+	return inputCost + outputCost
 }

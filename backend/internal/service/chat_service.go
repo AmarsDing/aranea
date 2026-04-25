@@ -55,7 +55,7 @@ func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAda
 
 func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
 	if in.SessionID == "" || in.Content == "" {
-		return SendMessageResult{}, errors.New("session_id and content are required")
+		return SendMessageResult{}, validationError("session_id and content are required")
 	}
 	session, err := s.repo.GetSessionByID(in.SessionID)
 	if err != nil {
@@ -65,17 +65,17 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 		return s.sendTeam(ctx, in, session, nil)
 	}
 	if in.AgentKey == "" {
-		return SendMessageResult{}, errors.New("agent_key is required")
+		return SendMessageResult{}, validationError("agent_key is required")
 	}
 	agent, err := s.repo.GetAgentByKey(in.AgentKey)
 	if err != nil {
 		return SendMessageResult{}, err
 	}
 	if session.OwnerType != "" && session.OwnerType != "agent" {
-		return SendMessageResult{}, errors.New("chat send currently requires an agent-owned session")
+		return SendMessageResult{}, validationError("chat send currently requires an agent-owned session")
 	}
 	if session.AgentID != agent.ID {
-		return SendMessageResult{}, errors.New("session does not belong to agent")
+		return SendMessageResult{}, conflictError("session does not belong to agent")
 	}
 	provider, model := resolveProviderModel(in.Options, session, agent)
 	providerModel, err := s.repo.GetProviderModel(provider, model)
@@ -157,7 +157,7 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 
 func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callbacks SendStreamCallbacks) error {
 	if in.SessionID == "" || in.Content == "" {
-		return errors.New("session_id and content are required")
+		return validationError("session_id and content are required")
 	}
 	session, err := s.repo.GetSessionByID(in.SessionID)
 	if err != nil {
@@ -168,17 +168,17 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 		return err
 	}
 	if in.AgentKey == "" {
-		return errors.New("agent_key is required")
+		return validationError("agent_key is required")
 	}
 	agent, err := s.repo.GetAgentByKey(in.AgentKey)
 	if err != nil {
 		return err
 	}
 	if session.OwnerType != "" && session.OwnerType != "agent" {
-		return errors.New("chat send currently requires an agent-owned session")
+		return validationError("chat send currently requires an agent-owned session")
 	}
 	if session.AgentID != agent.ID {
-		return errors.New("session does not belong to agent")
+		return conflictError("session does not belong to agent")
 	}
 	provider, model := resolveProviderModel(in.Options, session, agent)
 	providerModel, err := s.repo.GetProviderModel(provider, model)

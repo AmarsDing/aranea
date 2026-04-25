@@ -50,7 +50,7 @@ func (m *providerModelLLM) GenerateContent(ctx context.Context, req *model.LLMRe
 		var result GenerateResult
 		var err error
 		if stream {
-			result, err = m.adapter.streamGenerateDirect(ctx, generateReq, nil)
+			result, err = m.adapter.streamDirect(ctx, generateReq, nil)
 		} else {
 			result, err = m.adapter.generateDirect(ctx, generateReq)
 		}

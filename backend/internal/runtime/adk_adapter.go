@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"arenea/backend/internal/domain"
@@ -19,15 +20,22 @@ import (
 // ADKRuntimeAdapter 是对 adk-go 的适配边界。
 // 当前实现支持 OpenAI Compatible / Anthropic 直连，未配置连接信息时保留可运行 stub。
 type ADKRuntimeAdapter struct {
-	client       *http.Client
-	backend      runtimeBackend
-	direct       *directRuntimeBackend
-	runner       runtimeBackend
-	pluginSource PluginSource
+	client        *http.Client
+	backend       runtimeBackend
+	direct        *directRuntimeBackend
+	runner        runtimeBackend
+	pluginSource  PluginSource
+	channelSource ChannelSource
+	channelMu     sync.RWMutex
+	channels      []domain.ChannelRuntimeConfig
 }
 
 type PluginSource interface {
 	EnabledPluginKeys(context.Context) ([]string, error)
+}
+
+type ChannelSource interface {
+	EnabledChannelConfigs(context.Context) ([]domain.ChannelRuntimeConfig, error)
 }
 
 type runtimeBackend interface {
@@ -84,11 +92,38 @@ func (a *ADKRuntimeAdapter) SetPluginSource(source PluginSource) {
 	a.pluginSource = source
 }
 
+func (a *ADKRuntimeAdapter) SetChannelSource(source ChannelSource) {
+	a.channelSource = source
+}
+
+func (a *ADKRuntimeAdapter) ReloadChannels(ctx context.Context) error {
+	if a.channelSource == nil {
+		a.channelMu.Lock()
+		a.channels = nil
+		a.channelMu.Unlock()
+		return nil
+	}
+	channels, err := a.channelSource.EnabledChannelConfigs(ctx)
+	if err != nil {
+		return err
+	}
+	a.channelMu.Lock()
+	a.channels = append([]domain.ChannelRuntimeConfig{}, channels...)
+	a.channelMu.Unlock()
+	return nil
+}
+
+func (a *ADKRuntimeAdapter) ChannelConfigs() []domain.ChannelRuntimeConfig {
+	a.channelMu.RLock()
+	defer a.channelMu.RUnlock()
+	return append([]domain.ChannelRuntimeConfig{}, a.channels...)
+}
+
 func (a *ADKRuntimeAdapter) Generate(ctx context.Context, req GenerateRequest) (GenerateResult, error) {
 	return a.activeBackend().Generate(ctx, req)
 }
 
-func (a *ADKRuntimeAdapter) streamGenerateDirect(ctx context.Context, req GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
+func (a *ADKRuntimeAdapter) StreamGenerate(ctx context.Context, req GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
 	return a.activeBackend().StreamGenerate(ctx, req, onDelta)
 }
 
@@ -107,7 +142,7 @@ func (b *directRuntimeBackend) Generate(ctx context.Context, req GenerateRequest
 }
 
 func (b *directRuntimeBackend) StreamGenerate(ctx context.Context, req GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
-	return b.adapter.streamGenerateDirect(ctx, req, onDelta)
+	return b.adapter.streamDirect(ctx, req, onDelta)
 }
 
 func (a *ADKRuntimeAdapter) generateDirect(ctx context.Context, req GenerateRequest) (GenerateResult, error) {
@@ -155,7 +190,7 @@ func (a *ADKRuntimeAdapter) generateDirect(ctx context.Context, req GenerateRequ
 	return result, nil
 }
 
-func (a *ADKRuntimeAdapter) StreamGenerate(ctx context.Context, req GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
+func (a *ADKRuntimeAdapter) streamDirect(ctx context.Context, req GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
 	trimmed := strings.TrimSpace(req.Input)
 	if trimmed == "" {
 		return GenerateResult{}, fmt.Errorf("empty input")

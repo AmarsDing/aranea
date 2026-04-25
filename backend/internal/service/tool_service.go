@@ -30,14 +30,14 @@ func (s *ToolService) Search(query domain.ToolListQuery) (domain.ToolListResult,
 	query.Limit, query.Offset = normalizeLimitOffset(query.Limit, query.Offset, 20)
 	query.Enabled = strings.TrimSpace(query.Enabled)
 	if query.Enabled != "" && query.Enabled != "true" && query.Enabled != "false" {
-		return domain.ToolListResult{}, errors.New("enabled must be true or false")
+		return domain.ToolListResult{}, validationError("enabled must be true or false")
 	}
 	return s.store.SearchTools(query)
 }
 
 func (s *ToolService) Get(id string) (domain.Tool, error) {
 	if strings.TrimSpace(id) == "" {
-		return domain.Tool{}, errors.New("tool id is required")
+		return domain.Tool{}, validationError("tool id is required")
 	}
 	return s.store.GetToolByID(id)
 }
@@ -61,7 +61,7 @@ func (s *ToolService) SearchRuns(query domain.ToolRunQuery) (domain.ToolRunResul
 
 func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTools, error) {
 	if strings.TrimSpace(agentID) == "" {
-		return domain.AgentEffectiveTools{}, errors.New("agent id is required")
+		return domain.AgentEffectiveTools{}, validationError("agent id is required")
 	}
 	settings, err := s.store.GetAgentRuntimeSettings(agentID)
 	if err != nil {
@@ -135,7 +135,7 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 
 func (s *ToolService) UpdateAgentPolicy(agentID string, input domain.AgentEffectiveTools) (domain.AgentEffectiveTools, error) {
 	if strings.TrimSpace(agentID) == "" {
-		return domain.AgentEffectiveTools{}, errors.New("agent id is required")
+		return domain.AgentEffectiveTools{}, validationError("agent id is required")
 	}
 	settings, err := s.store.GetAgentRuntimeSettings(agentID)
 	if err != nil {

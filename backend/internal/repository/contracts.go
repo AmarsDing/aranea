@@ -67,6 +67,12 @@ type Store interface {
 	CreatePlatformResource(v domain.PlatformResource) (domain.PlatformResource, error)
 	UpdatePlatformResource(v domain.PlatformResource) (domain.PlatformResource, error)
 	DeletePlatformResource(resource string, id string) error
+	ListChannelCredentials(channelID string) ([]domain.ChannelCredential, error)
+	UpsertChannelCredential(credential domain.ChannelCredential) (domain.ChannelCredential, error)
+	DeleteChannelCredential(channelID string, credentialKey string) error
+	AddChannelDelivery(delivery domain.ChannelDelivery) (domain.ChannelDelivery, error)
+	ListChannelDeliveries(channelID string, limit int) ([]domain.ChannelDelivery, error)
+	ListEnabledChannelRuntimeConfigs() ([]domain.ChannelRuntimeConfig, error)
 	SearchPlugins(query domain.PluginListQuery) (domain.PluginListResult, error)
 	UpsertPlugin(plugin domain.Plugin) (domain.Plugin, error)
 	UpdatePluginEnabled(id string, enabled bool) (domain.Plugin, error)

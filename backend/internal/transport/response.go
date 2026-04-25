@@ -1,9 +1,14 @@
 package transport
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+
+	"arenea/backend/internal/domain"
 )
 
 type listResponse[T any] struct {
@@ -21,7 +26,8 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 }
 
 func writeErr(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, errorResponse{Error: err.Error()})
+	status, message := publicError(status, err)
+	writeJSON(w, status, errorResponse{Error: message})
 }
 
 func methodNotAllowed(w http.ResponseWriter) {
@@ -30,4 +36,46 @@ func methodNotAllowed(w http.ResponseWriter) {
 
 func idFromPath(path, prefix string) string {
 	return strings.Trim(strings.TrimPrefix(path, prefix), "/")
+}
+
+func publicError(fallbackStatus int, err error) (int, string) {
+	if err == nil {
+		return fallbackStatus, http.StatusText(fallbackStatus)
+	}
+	status := statusForError(fallbackStatus, err)
+	switch {
+	case status >= http.StatusInternalServerError:
+		return status, "internal server error"
+	case status == http.StatusNotFound:
+		return status, "resource not found"
+	case status == http.StatusUnauthorized:
+		return status, "unauthorized"
+	case status == http.StatusConflict:
+		return status, "conflict"
+	case status == 499:
+		return status, "request cancelled"
+	default:
+		return status, err.Error()
+	}
+}
+
+func statusForError(fallbackStatus int, err error) int {
+	switch {
+	case errors.Is(err, domain.ErrValidation):
+		return http.StatusBadRequest
+	case errors.Is(err, domain.ErrNotFound), errors.Is(err, sql.ErrNoRows):
+		return http.StatusNotFound
+	case errors.Is(err, domain.ErrConflict):
+		return http.StatusConflict
+	case errors.Is(err, domain.ErrUnauthorized):
+		return http.StatusUnauthorized
+	case errors.Is(err, domain.ErrInternal):
+		return http.StatusInternalServerError
+	case errors.Is(err, context.Canceled):
+		return 499
+	}
+	if fallbackStatus <= 0 {
+		return http.StatusInternalServerError
+	}
+	return fallbackStatus
 }

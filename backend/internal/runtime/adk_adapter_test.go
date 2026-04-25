@@ -45,6 +45,31 @@ func TestADKRuntimeAdapterRunnerBackendStub(t *testing.T) {
 	}
 }
 
+func TestADKRuntimeAdapterStreamUsesActiveBackend(t *testing.T) {
+	t.Setenv("RUNTIME_BACKEND", "adk_runner")
+	adapter := NewADKRuntimeAdapter()
+	backend := &fakeRuntimeBackend{result: GenerateResult{Content: "runner stream", ModelName: "fake"}}
+	adapter.runner = backend
+
+	var deltas []string
+	result, err := adapter.StreamGenerate(context.Background(), GenerateRequest{Input: "hello"}, func(delta string) error {
+		deltas = append(deltas, delta)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("StreamGenerate() failed: %v", err)
+	}
+	if !backend.streamCalled {
+		t.Fatalf("expected StreamGenerate() to use active backend")
+	}
+	if result.Content != "runner stream" {
+		t.Fatalf("unexpected result content %q", result.Content)
+	}
+	if strings.Join(deltas, "") != "runner stream" {
+		t.Fatalf("unexpected deltas %v", deltas)
+	}
+}
+
 func TestNormalizeBuiltinPluginKeys(t *testing.T) {
 	keys, err := normalizeBuiltinPluginKeys("logging,redaction,confirm,retry,skill_usage,cost,router")
 	if err != nil {
@@ -243,3 +268,24 @@ type fakeTool struct {
 func (f fakeTool) Name() string        { return f.name }
 func (f fakeTool) Description() string { return "fake tool" }
 func (f fakeTool) IsLongRunning() bool { return false }
+
+type fakeRuntimeBackend struct {
+	result         GenerateResult
+	generateCalled bool
+	streamCalled   bool
+}
+
+func (f *fakeRuntimeBackend) Generate(context.Context, GenerateRequest) (GenerateResult, error) {
+	f.generateCalled = true
+	return f.result, nil
+}
+
+func (f *fakeRuntimeBackend) StreamGenerate(_ context.Context, _ GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
+	f.streamCalled = true
+	if onDelta != nil {
+		if err := onDelta(f.result.Content); err != nil {
+			return GenerateResult{}, err
+		}
+	}
+	return f.result, nil
+}

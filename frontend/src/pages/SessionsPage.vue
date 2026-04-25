@@ -1,5 +1,5 @@
 <template>
-  <q-page class="q-pa-md sessions-page">
+  <q-page class="app-page-cream q-pa-md sessions-page">
     <section class="sessions-hero q-mb-md">
       <div>
         <div class="text-overline text-primary">Session history</div>
@@ -23,7 +23,7 @@
       </div>
     </div>
 
-    <q-card flat bordered class="q-mb-md">
+    <q-card flat bordered class="q-mb-md session-filter-card">
       <q-card-section class="row q-col-gutter-sm items-center">
         <div class="col-12 col-md-4">
           <q-input v-model="keyword" dense outlined clearable debounce="350" placeholder="搜索标题、摘要或 Session ID">
@@ -102,6 +102,7 @@
     <q-table
       flat
       bordered
+      class="session-table"
       row-key="id"
       :rows="rows"
       :columns="columns"
@@ -332,7 +333,7 @@ function formatDate(value: string) {
 
 <style scoped>
 .sessions-page {
-  background: #f8f5ef;
+  min-height: 100%;
 }
 
 .sessions-hero {
@@ -351,5 +352,35 @@ function formatDate(value: string) {
 
 .session-detail-header {
   border-color: rgba(25, 118, 210, 0.25);
+}
+
+:global(body.body--dark) .sessions-page {
+  background: linear-gradient(160deg, #0b1220 0%, #111827 48%, #0f172a 100%);
+  color: #e5e7eb;
+}
+
+:global(body.body--dark) .sessions-page .q-card,
+:global(body.body--dark) .sessions-page .session-table {
+  background: rgba(17, 24, 39, 0.88) !important;
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
+}
+
+:global(body.body--dark) .sessions-page .q-table th {
+  background: rgba(15, 23, 42, 0.86);
+  color: #cbd5e1;
+}
+
+:global(body.body--dark) .sessions-page .q-table tbody tr:hover {
+  background: rgba(51, 65, 85, 0.46);
+}
+
+:global(body.body--dark) .sessions-page .text-grey-7 {
+  color: #94a3b8 !important;
+}
+
+:global(body.body--dark) .sessions-page .q-field__control {
+  background: rgba(30, 41, 59, 0.72);
+  border-color: rgba(148, 163, 184, 0.16);
 }
 </style>
