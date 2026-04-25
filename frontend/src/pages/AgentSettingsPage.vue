@@ -152,7 +152,7 @@
                       <q-select v-model="config.tools.allow" dense outlined multiple use-chips label="允许" :options="toolOptions" />
                       <q-select v-model="config.tools.deny" dense outlined multiple use-chips label="拒绝" :options="toolOptions" />
                       <q-select v-model="config.tools.concurrent_allow" dense outlined multiple use-chips label="同时允许" :options="toolOptions" />
-                      <q-banner v-if="toolConflicts.length" rounded class="bg-orange-1 text-orange-10">
+                      <q-banner v-if="toolConflicts.length" rounded class="settings-warning-banner">
                         以下工具同时出现在允许与拒绝中，运行时按拒绝优先：{{ toolConflicts.join(", ") }}
                       </q-banner>
                     </q-card-section>
@@ -195,7 +195,7 @@
         </q-tab-panel>
 
         <q-tab-panel name="permissions">
-          <q-banner rounded class="bg-grey-1">权限与用户可见范围将按独立 PRD 接入。当前保留入口。</q-banner>
+          <q-banner rounded class="settings-placeholder-banner">权限与用户可见范围将按独立 PRD 接入。当前保留入口。</q-banner>
         </q-tab-panel>
 
         <q-tab-panel name="evolution">
@@ -203,11 +203,11 @@
         </q-tab-panel>
 
         <q-tab-panel name="hooks">
-          <q-banner rounded class="bg-grey-1">Hook 绑定入口已保留。全局 Hook 管理见左侧 Tools / Hook 页面。</q-banner>
+          <q-banner rounded class="settings-placeholder-banner">Hook 绑定入口已保留。全局 Hook 管理见左侧 Tools / Hook 页面。</q-banner>
         </q-tab-panel>
 
         <q-tab-panel name="instances">
-          <q-banner rounded class="bg-grey-1">用户实例用于按用户覆盖 USER.md、权限与默认上下文；当前保留入口。</q-banner>
+          <q-banner rounded class="settings-placeholder-banner">用户实例用于按用户覆盖 USER.md、权限与默认上下文；当前保留入口。</q-banner>
         </q-tab-panel>
       </q-tab-panels>
     </q-card>
@@ -781,6 +781,16 @@ async function copyKey() {
   color: #344054;
 }
 
+.settings-warning-banner {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.settings-placeholder-banner {
+  background: #f2f4f7;
+  color: #344054;
+}
+
 .prompt-dialog {
   width: 860px;
   max-width: 94vw;
@@ -804,6 +814,89 @@ async function copyKey() {
 
 .min-width-0 {
   min-width: 0;
+}
+
+body.body--dark .agent-settings {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(25, 118, 210, 0.18), transparent 32%),
+    radial-gradient(circle at 90% 12%, rgba(255, 152, 0, 0.12), transparent 28%),
+    linear-gradient(180deg, #0f172a 0%, #111827 48%, #0b1120 100%);
+}
+
+body.body--dark .settings-shell {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(17, 24, 39, 0.86);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.32);
+}
+
+body.body--dark .settings-tabs {
+  background: rgba(17, 24, 39, 0.82);
+}
+
+body.body--dark .settings-section {
+  border-color: rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.92)),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 32%);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
+}
+
+body.body--dark .prompt-mode-card,
+body.body--dark .capability-card {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.9);
+}
+
+body.body--dark .prompt-mode-card:hover {
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.28);
+}
+
+body.body--dark .prompt-mode-card.is-active {
+  border-color: rgba(96, 165, 250, 0.88);
+  background: rgba(30, 64, 175, 0.32);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.28), 0 16px 34px rgba(37, 99, 235, 0.2);
+}
+
+body.body--dark .prompt-mode-card__token {
+  background: rgba(30, 41, 59, 0.94);
+  color: #cbd5e1;
+}
+
+body.body--dark .capability-card :deep(.q-card__section:first-child) {
+  background: rgba(30, 41, 59, 0.86);
+}
+
+body.body--dark .settings-section :deep(.q-field__control) {
+  background: rgba(15, 23, 42, 0.72);
+}
+
+body.body--dark .settings-section :deep(.q-toggle__label) {
+  color: #e2e8f0;
+}
+
+body.body--dark .settings-section :deep(.text-grey-7) {
+  color: #94a3b8 !important;
+}
+
+body.body--dark .settings-warning-banner {
+  background: rgba(154, 52, 18, 0.22);
+  color: #fed7aa;
+}
+
+body.body--dark .settings-placeholder-banner {
+  background: rgba(30, 41, 59, 0.82);
+  color: #cbd5e1;
+}
+
+body.body--dark .prompt-dialog {
+  background: #111827;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+}
+
+body.body--dark .agent-prompt-preview {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: #0f172a;
+  color: #e2e8f0;
 }
 
 @media (max-width: 599px) {

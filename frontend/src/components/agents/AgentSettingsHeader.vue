@@ -108,4 +108,38 @@ const avatarIcon = computed(() => (avatarSrc.value ? undefined : props.agent.ico
 .min-width-0 {
   min-width: 0;
 }
+
+body.body--dark .settings-header {
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 30%),
+    linear-gradient(180deg, #1f2937, #111827);
+}
+
+body.body--dark .header-icon-btn {
+  background: rgba(15, 23, 42, 0.74);
+}
+
+body.body--dark .settings-status {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+
+body.body--dark .settings-status.is-active {
+  background: rgba(16, 185, 129, 0.18);
+  color: #86efac;
+}
+
+body.body--dark .settings-chip {
+  border-color: rgba(251, 191, 36, 0.24);
+  background: rgba(120, 53, 15, 0.32);
+  color: #fcd34d;
+}
+
+body.body--dark .settings-chip.is-evolving {
+  background: rgba(146, 64, 14, 0.32);
+}
+
+body.body--dark .settings-header :deep(.text-grey-7) {
+  color: #94a3b8 !important;
+}
 </style>
