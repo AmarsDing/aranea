@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,6 +29,13 @@ func NewPlatformService(repo repository.Store) *PlatformService {
 
 func (s *PlatformService) List(resource string) ([]domain.PlatformResource, error) {
 	return s.repo.ListPlatformResources(resource)
+}
+
+func (s *PlatformService) Get(resource string, id string) (domain.PlatformResource, error) {
+	if id == "" {
+		return domain.PlatformResource{}, validationError("id is required")
+	}
+	return s.repo.GetPlatformResource(resource, id)
 }
 
 func (s *PlatformService) Tree(resource string) ([]domain.PlatformResourceTreeNode, error) {
@@ -128,6 +137,165 @@ func (s *PlatformService) Delete(resource string, id string) error {
 		return validationError("id is required")
 	}
 	return s.repo.DeletePlatformResource(resource, id)
+}
+
+func (s *PlatformService) TestMCPServer(id string) (domain.MCPServerTestResult, error) {
+	row, err := s.Get("mcp-servers", id)
+	if err != nil {
+		return domain.MCPServerTestResult{}, err
+	}
+	result := evaluateMCPServer(row)
+	if updateErr := s.updateMCPHealthMetadata(row, result); updateErr != nil {
+		return result, updateErr
+	}
+	return result, nil
+}
+
+func (s *PlatformService) ListCronTaskRuns(query domain.CronTaskRunQuery) ([]domain.CronTaskRun, error) {
+	if query.Limit <= 0 {
+		query.Limit = 200
+	}
+	return s.repo.ListCronTaskRuns(query)
+}
+
+func (s *PlatformService) updateMCPHealthMetadata(row domain.PlatformResource, result domain.MCPServerTestResult) error {
+	var metadata map[string]any
+	if json.Unmarshal([]byte(defaultJSON(row.MetadataJSON)), &metadata) != nil {
+		metadata = map[string]any{}
+	}
+	metadata["health_status"] = result.Status
+	metadata["last_health_at"] = nowUTCString()
+	if result.OK {
+		metadata["last_error_message"] = ""
+		row.Status = "active"
+	} else {
+		metadata["last_error_message"] = result.Message
+		row.Status = "error"
+	}
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	row.MetadataJSON = string(raw)
+	_, err = s.repo.UpdatePlatformResource(row)
+	return err
+}
+
+type mcpServerConfig struct {
+	Transport              string            `json:"transport"`
+	URL                    string            `json:"url"`
+	Command                string            `json:"command"`
+	Args                   []string          `json:"args"`
+	Headers                map[string]string `json:"headers"`
+	Env                    map[string]string `json:"env"`
+	ToolPrefix             string            `json:"tool_prefix"`
+	TimeoutSec             int               `json:"timeout_sec"`
+	RequireUserCredentials bool              `json:"require_user_credentials"`
+}
+
+func evaluateMCPServer(row domain.PlatformResource) domain.MCPServerTestResult {
+	if !row.Enabled {
+		return domain.MCPServerTestResult{OK: false, Status: "unknown", Message: "MCP 服务器已停用，未执行连接测试"}
+	}
+	var cfg mcpServerConfig
+	if err := json.Unmarshal([]byte(defaultJSON(row.ConfigJSON)), &cfg); err != nil {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "config_json 格式错误: " + err.Error()}
+	}
+	switch cfg.Transport {
+	case "stdio":
+		return evaluateMCPStdio(cfg)
+	case "sse", "streamable_http":
+		return evaluateMCPHTTP(cfg)
+	default:
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "transport 必须是 stdio、sse 或 streamable_http"}
+	}
+}
+
+func evaluateMCPStdio(cfg mcpServerConfig) domain.MCPServerTestResult {
+	command := strings.TrimSpace(cfg.Command)
+	if command == "" {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "stdio 传输需要填写 command"}
+	}
+	if _, err := exec.LookPath(command); err != nil {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "command 不可执行或不在 PATH 中: " + err.Error()}
+	}
+	return domain.MCPServerTestResult{
+		OK:      true,
+		Status:  "ok",
+		Message: "stdio 命令校验通过，未在测试中启动子进程",
+		Details: map[string]any{"command": command, "args": cfg.Args},
+	}
+}
+
+func evaluateMCPHTTP(cfg mcpServerConfig) domain.MCPServerTestResult {
+	rawURL := strings.TrimSpace(cfg.URL)
+	if rawURL == "" {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "HTTP 传输需要填写 URL"}
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "URL 格式错误"}
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "URL 仅支持 http 或 https"}
+	}
+	if err := validatePublicHost(parsed.Hostname()); err != nil {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "URL 校验失败: " + err.Error()}
+	}
+
+	timeout := time.Duration(cfg.TimeoutSec) * time.Second
+	if timeout <= 0 || timeout > 10*time.Second {
+		timeout = 10 * time.Second
+	}
+	client := http.Client{Timeout: timeout}
+	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "创建测试请求失败: " + err.Error()}
+	}
+	for key, value := range cfg.Headers {
+		if strings.TrimSpace(key) != "" {
+			req.Header.Set(key, value)
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return domain.MCPServerTestResult{OK: false, Status: "error", Message: "连接失败: " + err.Error()}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return domain.MCPServerTestResult{
+			OK:      true,
+			Status:  "ok",
+			Message: "连接测试成功",
+			Details: map[string]any{"status_code": resp.StatusCode},
+		}
+	}
+	return domain.MCPServerTestResult{
+		OK:      false,
+		Status:  "error",
+		Message: fmt.Sprintf("连接返回非成功状态: HTTP %d", resp.StatusCode),
+		Details: map[string]any{"status_code": resp.StatusCode},
+	}
+}
+
+func validatePublicHost(host string) error {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "" {
+		return validationError("host is required")
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return validationError("localhost is not allowed")
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return validationError("private or local address is not allowed")
+		}
+	}
+	return nil
 }
 
 func (s *PlatformService) ListAvatarAssets(scope string, workspaceID string, ownerUserID string) ([]domain.AvatarAsset, error) {

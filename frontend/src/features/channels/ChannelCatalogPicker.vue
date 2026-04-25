@@ -1,21 +1,21 @@
 <template>
-  <div class="row q-col-gutter-sm">
-    <div v-for="item in catalog" :key="item.type" class="col-12 col-sm-6 col-md-4">
+  <div class="row q-col-gutter-xs">
+    <div v-for="item in catalog" :key="item.type" class="col-6 col-sm-4 col-md-3 col-lg-2">
       <q-card
         flat
         bordered
         :class="['catalog-card cursor-pointer', { selected: item.type === modelValue }]"
         @click="$emit('update:modelValue', item.type)"
       >
-        <q-card-section>
-          <div class="row items-start no-wrap q-gutter-sm">
-            <q-avatar color="primary" text-color="white" size="34px">{{ item.label.slice(0, 1) }}</q-avatar>
-            <div>
-              <div class="text-weight-bold">{{ item.label }}</div>
-              <div class="text-caption text-grey-7">{{ item.group }} · {{ item.receive_modes.join(", ") }}</div>
+        <q-card-section class="q-pa-sm">
+          <div class="row items-center no-wrap q-gutter-xs">
+            <q-avatar color="primary" text-color="white" size="26px">{{ item.label.slice(0, 1) }}</q-avatar>
+            <div class="catalog-main">
+              <div class="text-weight-bold catalog-title">{{ item.label }}</div>
+              <div class="text-caption text-grey-7 ellipsis">{{ item.group }}</div>
             </div>
           </div>
-          <div class="text-caption text-grey-7 q-mt-sm catalog-desc">{{ item.description }}</div>
+          <div class="text-caption text-grey-7 q-mt-xs catalog-desc">{{ item.receive_modes.join(", ") }}</div>
         </q-card-section>
       </q-card>
     </div>
@@ -38,7 +38,8 @@ defineEmits<{
 <style scoped>
 .catalog-card {
   height: 100%;
-  border-radius: 16px;
+  min-height: 84px;
+  border-radius: 12px;
   transition: border-color 0.16s ease, transform 0.16s ease;
 }
 
@@ -49,6 +50,18 @@ defineEmits<{
 }
 
 .catalog-desc {
-  min-height: 36px;
+  line-height: 1.25;
+}
+
+.catalog-main {
+  min-width: 0;
+}
+
+.catalog-title {
+  font-size: 13px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

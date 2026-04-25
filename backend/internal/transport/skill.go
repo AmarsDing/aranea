@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -95,8 +94,7 @@ func (h *HTTPHandler) handleSkillImportApply(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var in domain.SkillImportApplyRequest
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &in) {
 		return
 	}
 	result, err := h.skillSvc.ApplyImport(jobID, in)
@@ -114,8 +112,7 @@ func (h *HTTPHandler) handleSkillConflictGroupRefine(w http.ResponseWriter, r *h
 		return
 	}
 	var in domain.SkillRefineRequest
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &in) {
 		return
 	}
 	result, err := h.skillSvc.RefineConflictGroup(r.Context(), jobID, groupID, in)
@@ -168,8 +165,7 @@ func (h *HTTPHandler) handleSkillEnabled(w http.ResponseWriter, r *http.Request,
 	var in struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &in) {
 		return
 	}
 	updated, err := h.skillSvc.ToggleEnabled(id, in.Enabled)
@@ -219,8 +215,7 @@ func (h *HTTPHandler) handleSkillFileContent(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusOK, content)
 	case http.MethodPut:
 		var in domain.SkillFileUpdateInput
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		content, err := h.skillSvc.UpdateFile(id, in)

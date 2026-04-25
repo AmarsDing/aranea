@@ -21,7 +21,7 @@ func TestChannelCatalogRoute(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	channelSvc := service.NewChannelService(repo)
-	handler := NewHTTPHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, channelSvc)
+	handler := NewHTTPHandler(Services{Channel: channelSvc})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/channels/catalog", nil)
 	rec := httptest.NewRecorder()

@@ -30,6 +30,17 @@ func writeErr(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, errorResponse{Error: message})
 }
 
+// decodeBody reads a JSON body into target and writes a 400 error response when
+// the payload is invalid. The boolean return signals success so callers can
+// `return` immediately on failure without re-checking the error.
+func decodeBody(w http.ResponseWriter, r *http.Request, target any) bool {
+	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return false
+	}
+	return true
+}
+
 func methodNotAllowed(w http.ResponseWriter) {
 	writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
 }

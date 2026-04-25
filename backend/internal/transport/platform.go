@@ -1,9 +1,9 @@
 package transport
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"arenea/backend/internal/domain"
 )
@@ -20,8 +20,7 @@ func (h *HTTPHandler) handlePlatformCollection(resource string) http.HandlerFunc
 			writeJSON(w, http.StatusOK, listResponse[domain.PlatformResource]{Items: items})
 		case http.MethodPost:
 			var in domain.PlatformResource
-			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+			if !decodeBody(w, r, &in) {
 				return
 			}
 			created, err := h.platformSvc.Create(resource, in)
@@ -59,11 +58,31 @@ func (h *HTTPHandler) handlePlatformItem(resource string, prefix string) http.Ha
 			writeErr(w, http.StatusBadRequest, errors.New("resource id is required"))
 			return
 		}
+		if resource == "mcp-servers" && strings.HasSuffix(id, "/test") {
+			if r.Method != http.MethodPost {
+				methodNotAllowed(w)
+				return
+			}
+			result, err := h.platformSvc.TestMCPServer(strings.TrimSuffix(id, "/test"))
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, err)
+				return
+			}
+			_ = h.auditSvc.Log("test", resource, strings.TrimSuffix(id, "/test"), r.Header.Get("X-Request-Id"), result.Status)
+			writeJSON(w, http.StatusOK, result)
+			return
+		}
 		switch r.Method {
+		case http.MethodGet:
+			item, err := h.platformSvc.Get(resource, id)
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, item)
 		case http.MethodPatch:
 			var in domain.PlatformResource
-			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-				writeErr(w, http.StatusBadRequest, err)
+			if !decodeBody(w, r, &in) {
 				return
 			}
 			updated, err := h.platformSvc.Update(resource, id, in)
@@ -92,8 +111,7 @@ func (h *HTTPHandler) handleValidateModel(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var in domain.ValidateModelInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &in) {
 		return
 	}
 	result, err := h.platformSvc.ValidateModel(in)
@@ -110,8 +128,7 @@ func (h *HTTPHandler) handleInspectProviderModel(w http.ResponseWriter, r *http.
 		return
 	}
 	var in domain.InspectProviderModelInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &in) {
 		return
 	}
 	result, err := h.platformSvc.InspectProviderModel(in)

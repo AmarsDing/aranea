@@ -33,11 +33,12 @@ export const sideNavGroups: NavGroup[] = [
     items: [
       { to: "/models", icon: "model_training", labelKey: "menu.models" },
       { to: "/channels", icon: "hub", labelKey: "menu.channels" },
-      { to: "/mcp", icon: "extension", labelKey: "menu.mcp" },
+      { to: "/mcp-servers", icon: "extension", labelKey: "menu.mcp" },
       { to: "/skills", icon: "psychology", labelKey: "menu.skills" },
       { to: "/plugins", icon: "tune", labelKey: "menu.plugins" },
       { to: "/tools", icon: "handyman", labelKey: "menu.tools" },
-      { to: "/cron", icon: "schedule", labelKey: "menu.cron" }
+      { to: "/cron", icon: "schedule", labelKey: "menu.cron" },
+      { to: "/cron/runs", icon: "history", labelKey: "menu.cronRuns" }
     ]
   },
   {

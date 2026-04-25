@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -44,8 +43,7 @@ func (h *HTTPHandler) handlePluginByID(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Enabled bool `json:"enabled"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &body) {
 			return
 		}
 		updated, err := h.pluginSvc.ToggleEnabled(id, body.Enabled)
@@ -56,8 +54,7 @@ func (h *HTTPHandler) handlePluginByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, updated)
 	case r.Method == http.MethodPut && parts[1] == "config":
 		var body domain.PluginConfigUpdate
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &body) {
 			return
 		}
 		updated, err := h.pluginSvc.UpdateConfig(id, body.ConfigJSON)

@@ -33,7 +33,12 @@
       <q-table flat :rows="filteredRows" :columns="columns" row-key="id" :loading="loading" :pagination="{ rowsPerPage: 12 }">
         <template #body-cell-name="props">
           <q-td :props="props">
-            <div class="text-weight-bold">{{ props.row.name }}</div>
+            <div class="row items-center no-wrap q-gutter-xs">
+              <q-icon v-if="isConnected(props.row)" name="circle" color="positive" size="10px">
+                <q-tooltip>连接正常</q-tooltip>
+              </q-icon>
+              <div class="text-weight-bold">{{ props.row.name }}</div>
+            </div>
             <div class="text-caption text-grey-7">{{ props.row.key }}</div>
           </q-td>
         </template>
@@ -45,9 +50,12 @@
         </template>
         <template #body-cell-status="props">
           <q-td :props="props">
-            <q-badge :color="props.row.enabled ? statusColor(props.row.status) : 'grey'">
-              {{ props.row.enabled ? props.row.status : "disabled" }}
-            </q-badge>
+            <div class="row items-center no-wrap q-gutter-xs">
+              <q-icon v-if="isConnected(props.row)" name="circle" color="positive" size="10px" />
+              <q-badge :color="props.row.enabled ? statusColor(props.row.status) : 'grey'">
+                {{ props.row.enabled ? statusText(props.row) : "disabled" }}
+              </q-badge>
+            </div>
             <div v-if="metadata(props.row).last_error_message" class="text-caption text-negative ellipsis">
               {{ metadata(props.row).last_error_message }}
             </div>
@@ -83,6 +91,7 @@
       :row="editingRow"
       :credentials="editingCredentials"
       @saved="onSaved"
+      @tested="loadAll"
     />
   </q-page>
 </template>
@@ -238,6 +247,16 @@ function statusColor(status: string) {
   if (status === "error") return "negative";
   if (status === "pending_auth") return "warning";
   return "grey";
+}
+
+function statusText(row: ChannelRow) {
+  if (isConnected(row)) return "connected";
+  return row.status || "unknown";
+}
+
+function isConnected(row: ChannelRow) {
+  const meta = metadata(row);
+  return row.enabled && row.status === "active" && !meta.last_error_message;
 }
 
 function formatDate(value: string) {

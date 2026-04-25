@@ -125,6 +125,7 @@ export default {
     plugins: "Plugin 管理",
     tools: "Tools 管理",
     cron: "Cron 管理",
+    cronRuns: "Cron 执行历史",
     monitor: "监控",
     shop: "商城",
     settings: "系统设置"

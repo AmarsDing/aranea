@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -22,8 +21,7 @@ func (h *HTTPHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, result)
 	case http.MethodPost:
 		var in domain.Session
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		created, err := h.sessionSvc.Create(in)
@@ -86,8 +84,7 @@ func (h *HTTPHandler) handleSessionByID(w http.ResponseWriter, r *http.Request) 
 		var in struct {
 			Title string `json:"title"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		if in.Title == "" {

@@ -67,7 +67,19 @@ func main() {
 		skillSvc.StartDirectorySync(rootCtx, 1)
 	}()
 
-	handler := transport.NewHTTPHandler(agentSvc, teamSvc, sessionSvc, chatSvc, auditSvc, platformSvc, usageSvc, skillSvc, toolSvc, pluginSvc, channelSvc)
+	handler := transport.NewHTTPHandler(transport.Services{
+		Agent:    agentSvc,
+		Team:     teamSvc,
+		Session:  sessionSvc,
+		Chat:     chatSvc,
+		Audit:    auditSvc,
+		Platform: platformSvc,
+		Usage:    usageSvc,
+		Skill:    skillSvc,
+		Tool:     toolSvc,
+		Plugin:   pluginSvc,
+		Channel:  channelSvc,
+	})
 	handler = middleware.CORS(handler)
 	handler = middleware.RequestID(handler)
 	handler = middleware.AccessLog(handler)

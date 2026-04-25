@@ -17,6 +17,9 @@ import ToolsPage from "../pages/ToolsPage.vue";
 import ToolRunsPage from "../pages/ToolRunsPage.vue";
 import SessionsPage from "../pages/SessionsPage.vue";
 import ChannelsPage from "../pages/ChannelsPage.vue";
+import McpServersPage from "../pages/McpServersPage.vue";
+import CronTasksPage from "../pages/CronTasksPage.vue";
+import CronRunsPage from "../pages/CronRunsPage.vue";
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -47,8 +50,12 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "mcp",
         name: "mcp",
-        component: ResourceManagerPage,
-        meta: { resource: "mcp-servers", title: "MCP 管理", subtitle: "登记 MCP Server、连接配置与启用状态。" }
+        redirect: "/mcp-servers"
+      },
+      {
+        path: "mcp-servers",
+        name: "mcp-servers",
+        component: McpServersPage
       },
       {
         path: "skills",
@@ -78,9 +85,9 @@ export const routes: RouteRecordRaw[] = [
       {
         path: "cron",
         name: "cron",
-        component: ResourceManagerPage,
-        meta: { resource: "cron-tasks", title: "Cron 管理", subtitle: "管理定时任务、Agent 关联与执行配置。" }
+        component: CronTasksPage
       },
+      { path: "cron/runs", name: "cron-runs", component: CronRunsPage },
       { path: "monitor/logs", name: "monitor-logs", component: MonitorPage },
       { path: "shop", name: "shop", component: EcosystemPage },
       { path: "settings", name: "settings", component: GenericPage, meta: { titleKey: "menu.settings" } }

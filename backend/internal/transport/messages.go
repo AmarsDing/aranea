@@ -21,8 +21,7 @@ func (h *HTTPHandler) handleChatMessages(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusOK, listResponse[domain.Message]{Items: items})
 	case http.MethodPost:
 		var in service.SendMessageInput
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		out, err := h.chatSvc.Send(r.Context(), in)
@@ -48,8 +47,7 @@ func (h *HTTPHandler) handleChatMessagesStream(w http.ResponseWriter, r *http.Re
 		return
 	}
 	var in service.SendMessageInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &in) {
 		return
 	}
 

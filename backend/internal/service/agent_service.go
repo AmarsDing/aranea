@@ -194,57 +194,47 @@ func defaultRuntimeSettings() domain.AgentRuntimeSettings {
 	}
 }
 
+// withSettingDefaults fills in missing numeric/string values on a partial
+// AgentRuntimeSettings payload. Boolean flags are intentionally NOT defaulted
+// here so that explicitly disabling a feature is preserved through
+// create/update calls.
 func withSettingDefaults(v domain.AgentRuntimeSettings) domain.AgentRuntimeSettings {
-	defaults := defaultRuntimeSettings()
-	if v.SubagentsMaxConcurrency == 0 {
-		v.SubagentsMaxConcurrency = defaults.SubagentsMaxConcurrency
-	}
-	if v.SubagentsMaxGenerationDepth == 0 {
-		v.SubagentsMaxGenerationDepth = defaults.SubagentsMaxGenerationDepth
-	}
-	if v.SubagentsMaxChildrenPerAgent == 0 {
-		v.SubagentsMaxChildrenPerAgent = defaults.SubagentsMaxChildrenPerAgent
-	}
-	if v.SubagentsArchiveAfterMinutes == 0 {
-		v.SubagentsArchiveAfterMinutes = defaults.SubagentsArchiveAfterMinutes
-	}
-	if v.SubagentsMaxRetries == 0 {
-		v.SubagentsMaxRetries = defaults.SubagentsMaxRetries
-	}
-	if strings.TrimSpace(v.ToolsProfile) == "" {
-		v.ToolsProfile = defaults.ToolsProfile
-	}
-	if strings.TrimSpace(v.ToolsAllowJSON) == "" {
-		v.ToolsAllowJSON = defaults.ToolsAllowJSON
-	}
-	if strings.TrimSpace(v.ToolsDenyJSON) == "" {
-		v.ToolsDenyJSON = defaults.ToolsDenyJSON
-	}
-	if strings.TrimSpace(v.ToolsConcurrentAllowJSON) == "" {
-		v.ToolsConcurrentAllowJSON = defaults.ToolsConcurrentAllowJSON
-	}
-	if v.MemoryMaxChunkLength == 0 {
-		v.MemoryMaxChunkLength = defaults.MemoryMaxChunkLength
-	}
-	if v.MemoryMaxResults == 0 {
-		v.MemoryMaxResults = defaults.MemoryMaxResults
-	}
-	if v.MemoryMinScore == 0 {
-		v.MemoryMinScore = defaults.MemoryMinScore
-	}
-	if v.HeartbeatIntervalMinutes == 0 {
-		v.HeartbeatIntervalMinutes = defaults.HeartbeatIntervalMinutes
-	}
-	if v.GuardrailMaxChangePerPeriod == 0 {
-		v.GuardrailMaxChangePerPeriod = defaults.GuardrailMaxChangePerPeriod
-	}
-	if v.GuardrailMinDataPoints == 0 {
-		v.GuardrailMinDataPoints = defaults.GuardrailMinDataPoints
-	}
-	if v.GuardrailRollbackOnDeclinePercent == 0 {
-		v.GuardrailRollbackOnDeclinePercent = defaults.GuardrailRollbackOnDeclinePercent
-	}
+	d := defaultRuntimeSettings()
+	defaultInt(&v.SubagentsMaxConcurrency, d.SubagentsMaxConcurrency)
+	defaultInt(&v.SubagentsMaxGenerationDepth, d.SubagentsMaxGenerationDepth)
+	defaultInt(&v.SubagentsMaxChildrenPerAgent, d.SubagentsMaxChildrenPerAgent)
+	defaultInt(&v.SubagentsArchiveAfterMinutes, d.SubagentsArchiveAfterMinutes)
+	defaultInt(&v.SubagentsMaxRetries, d.SubagentsMaxRetries)
+	defaultString(&v.ToolsProfile, d.ToolsProfile)
+	defaultString(&v.ToolsAllowJSON, d.ToolsAllowJSON)
+	defaultString(&v.ToolsDenyJSON, d.ToolsDenyJSON)
+	defaultString(&v.ToolsConcurrentAllowJSON, d.ToolsConcurrentAllowJSON)
+	defaultInt(&v.MemoryMaxChunkLength, d.MemoryMaxChunkLength)
+	defaultInt(&v.MemoryMaxResults, d.MemoryMaxResults)
+	defaultFloat(&v.MemoryMinScore, d.MemoryMinScore)
+	defaultInt(&v.HeartbeatIntervalMinutes, d.HeartbeatIntervalMinutes)
+	defaultFloat(&v.GuardrailMaxChangePerPeriod, d.GuardrailMaxChangePerPeriod)
+	defaultInt(&v.GuardrailMinDataPoints, d.GuardrailMinDataPoints)
+	defaultInt(&v.GuardrailRollbackOnDeclinePercent, d.GuardrailRollbackOnDeclinePercent)
 	return v
+}
+
+func defaultInt(target *int, fallback int) {
+	if *target == 0 {
+		*target = fallback
+	}
+}
+
+func defaultFloat(target *float64, fallback float64) {
+	if *target == 0 {
+		*target = fallback
+	}
+}
+
+func defaultString(target *string, fallback string) {
+	if strings.TrimSpace(*target) == "" {
+		*target = fallback
+	}
 }
 
 func settingsFromLegacyConfig(raw string) domain.AgentRuntimeSettings {

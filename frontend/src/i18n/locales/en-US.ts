@@ -125,6 +125,7 @@ export default {
     plugins: "Plugin management",
     tools: "Tools management",
     cron: "Cron management",
+    cronRuns: "Cron run history",
     monitor: "Monitoring",
     shop: "Marketplace",
     settings: "System settings"

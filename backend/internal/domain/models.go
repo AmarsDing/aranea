@@ -420,6 +420,33 @@ type PlatformResourceTreeNode struct {
 	Children []PlatformResourceTreeNode `json:"children"`
 }
 
+type MCPServerTestResult struct {
+	OK      bool           `json:"ok"`
+	Status  string         `json:"status"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
+}
+
+type CronTaskRunQuery struct {
+	TaskID string `json:"cron_task_id"`
+	Status string `json:"status"`
+	Limit  int    `json:"limit"`
+}
+
+type CronTaskRun struct {
+	ID           string `json:"id"`
+	TaskID       string `json:"task_id"`
+	TaskName     string `json:"task_name"`
+	Status       string `json:"status"`
+	StartedAt    string `json:"started_at"`
+	FinishedAt   string `json:"finished_at"`
+	Trigger      string `json:"trigger"`
+	RunID        string `json:"run_id"`
+	OutputJSON   string `json:"output_json"`
+	ErrorMessage string `json:"error_message"`
+	CreatedAt    string `json:"created_at"`
+}
+
 type ChannelCatalogItem struct {
 	Type             string         `json:"type"`
 	Label            string         `json:"label"`

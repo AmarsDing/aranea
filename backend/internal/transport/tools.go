@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -70,8 +69,7 @@ func (h *HTTPHandler) handleToolEnabled(w http.ResponseWriter, r *http.Request, 
 	var in struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &in) {
 		return
 	}
 	updated, err := h.toolSvc.ToggleEnabled(id, in.Enabled)

@@ -133,8 +133,7 @@ func (h *HTTPHandler) handleChannelToggle(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &body) {
 		return
 	}
 	updated, err := h.channelSvc.Toggle(id, body.Enabled)
@@ -172,8 +171,7 @@ func (h *HTTPHandler) handleChannelCredentials(w http.ResponseWriter, r *http.Re
 		var body struct {
 			Credentials []domain.ChannelCredentialInput `json:"credentials"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &body) {
 			return
 		}
 		items, err := h.channelSvc.UpsertCredentials(id, body.Credentials)

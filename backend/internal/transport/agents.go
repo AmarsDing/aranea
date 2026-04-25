@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -21,8 +20,7 @@ func (h *HTTPHandler) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, list)
 	case http.MethodPost:
 		var in domain.Agent
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		created, err := h.agentSvc.Create(in)
@@ -88,8 +86,7 @@ func (h *HTTPHandler) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, agent)
 	case http.MethodPatch:
 		var in domain.Agent
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		updated, err := h.agentSvc.Update(id, in)
@@ -147,8 +144,7 @@ func (h *HTTPHandler) handleAgentToolPolicy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input domain.AgentEffectiveTools
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+	if !decodeBody(w, r, &input) {
 		return
 	}
 	result, err := h.toolSvc.UpdateAgentPolicy(id, input)

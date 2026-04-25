@@ -22,8 +22,7 @@ func (h *HTTPHandler) handleTeams(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, listResponse[domain.Team]{Items: items})
 	case http.MethodPost:
 		var in domain.Team
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		created, err := h.teamSvc.Create(in)
@@ -73,8 +72,7 @@ func (h *HTTPHandler) handleTeamByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, team)
 	case http.MethodPatch:
 		var in domain.Team
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
+		if !decodeBody(w, r, &in) {
 			return
 		}
 		updated, err := h.teamSvc.Update(id, in)
