@@ -17,6 +17,7 @@ type ChatService struct {
 	repo          repository.Store
 	runtime       *runtime.ADKRuntimeAdapter
 	teamRunEvents *TeamRunEventBroker
+	memoryL0      *MemoryL0Service
 }
 
 type SendMessageInput struct {
@@ -50,8 +51,17 @@ type SendStreamCallbacks struct {
 }
 
 func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAdapter) *ChatService {
-	return &ChatService{repo: repo, runtime: runtimeAdapter, teamRunEvents: NewTeamRunEventBroker()}
+	return &ChatService{
+		repo:          repo,
+		runtime:       runtimeAdapter,
+		teamRunEvents: NewTeamRunEventBroker(),
+		memoryL0:      NewMemoryL0Service(repo),
+	}
 }
+
+// MemoryL0 exposes the L0 assembly service so HTTP handlers can serve
+// preview / snapshot endpoints without re-wiring dependencies in main.go.
+func (s *ChatService) MemoryL0() *MemoryL0Service { return s.memoryL0 }
 
 func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
 	if in.SessionID == "" || in.Content == "" {
@@ -82,10 +92,6 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 	if err != nil {
 		return SendMessageResult{}, err
 	}
-	history, err := s.repo.ListMessages(in.SessionID)
-	if err != nil {
-		return SendMessageResult{}, err
-	}
 	optionsJSON := ""
 	if in.Options.DialogMode != "" || in.Options.Provider != "" || in.Options.Model != "" || len(in.Options.Attachments) > 0 {
 		raw, err := json.Marshal(in.Options)
@@ -110,14 +116,10 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 		return SendMessageResult{}, err
 	}
 
-	modelMessages := make([]runtime.ChatMessage, 0, len(history)+1)
-	for _, item := range history {
-		if item.Role != "user" && item.Role != "assistant" {
-			continue
-		}
-		modelMessages = append(modelMessages, runtime.ChatMessage{Role: item.Role, Content: item.Content})
+	modelMessages, l0Result, err := s.assembleL0Prompt(ctx, in, session, agent, providerModel, userMsg)
+	if err != nil {
+		return SendMessageResult{}, err
 	}
-	modelMessages = append(modelMessages, runtime.ChatMessage{Role: "user", Content: in.Content})
 
 	generated, err := s.runtime.Generate(ctx, runtime.GenerateRequest{
 		Agent:         agent,
@@ -147,6 +149,7 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 	}
 	_ = s.recordModelTokenUsage(agent, session, providerModel, in.Options, generated, agentMsg, false, "success", nil)
 	_ = s.updateSessionContextRatio(in.SessionID, agent, providerModel, generated)
+	_ = s.recordL0Actual(ctx, in.SessionID, agent, providerModel, l0Result, generated)
 	_ = s.recordProviderModelTPS(providerModel, generated)
 
 	return SendMessageResult{
@@ -185,10 +188,6 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 	if err != nil {
 		return err
 	}
-	history, err := s.repo.ListMessages(in.SessionID)
-	if err != nil {
-		return err
-	}
 	optionsJSON := ""
 	if in.Options.DialogMode != "" || in.Options.Provider != "" || in.Options.Model != "" || len(in.Options.Attachments) > 0 {
 		raw, err := json.Marshal(in.Options)
@@ -217,14 +216,10 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 		}
 	}
 
-	modelMessages := make([]runtime.ChatMessage, 0, len(history)+1)
-	for _, item := range history {
-		if item.Role != "user" && item.Role != "assistant" {
-			continue
-		}
-		modelMessages = append(modelMessages, runtime.ChatMessage{Role: item.Role, Content: item.Content})
+	modelMessages, l0Result, err := s.assembleL0Prompt(ctx, in, session, agent, providerModel, userMsg)
+	if err != nil {
+		return err
 	}
-	modelMessages = append(modelMessages, runtime.ChatMessage{Role: "user", Content: in.Content})
 
 	generated, err := s.runtime.StreamGenerate(ctx, runtime.GenerateRequest{
 		Agent:         agent,
@@ -258,11 +253,59 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 	}
 	_ = s.recordModelTokenUsage(agent, session, providerModel, in.Options, generated, agentMsg, true, "success", nil)
 	_ = s.updateSessionContextRatio(in.SessionID, agent, providerModel, generated)
+	_ = s.recordL0Actual(ctx, in.SessionID, agent, providerModel, l0Result, generated)
 	_ = s.recordProviderModelTPS(providerModel, generated)
 	if callbacks.OnAgentMessage != nil {
 		return callbacks.OnAgentMessage(agentMsg)
 	}
 	return nil
+}
+
+// assembleL0Prompt builds the prompt through MemoryL0Service and translates
+// the result into the runtime adapter's ChatMessage shape. Falling back to a
+// raw `(history + user)` prompt would leak L0 logic into ChatService, so any
+// L0 failure is propagated up.
+func (s *ChatService) assembleL0Prompt(ctx context.Context, in SendMessageInput, session domain.Session, agent domain.Agent, providerModel domain.PlatformResource, userMsg domain.Message) ([]runtime.ChatMessage, domain.L0AssemblyResult, error) {
+	if s.memoryL0 == nil {
+		s.memoryL0 = NewMemoryL0Service(s.repo)
+	}
+	contextWindow := providerContextWindowTokens(providerModel, agent)
+	req := domain.L0AssemblyRequest{
+		SessionID:         in.SessionID,
+		AgentID:           agent.ID,
+		TeamID:            session.TeamID,
+		Provider:          providerModel.Provider,
+		Model:             providerModel.Model,
+		ContextWindow:     contextWindow,
+		ReservedForOutput: 0,
+		UserMessage:       in.Content,
+		UserMessageID:     userMsg.ID,
+	}
+	result, err := s.memoryL0.Assemble(ctx, req)
+	if err != nil {
+		return nil, domain.L0AssemblyResult{}, err
+	}
+	messages := make([]runtime.ChatMessage, 0, len(result.PromptMessages))
+	for _, m := range result.PromptMessages {
+		messages = append(messages, runtime.ChatMessage{Role: m.Role, Content: m.Content})
+	}
+	return messages, result, nil
+}
+
+// recordL0Actual closes the loop on a successful model call by writing real
+// prompt-token usage back to both the snapshot and the session row. It is a
+// best-effort path: snapshot/session updates must not fail user-visible
+// requests, so callers wrap this in `_ = ...`.
+func (s *ChatService) recordL0Actual(ctx context.Context, sessionID string, agent domain.Agent, providerModel domain.PlatformResource, l0Result domain.L0AssemblyResult, generated runtime.GenerateResult) error {
+	if s.memoryL0 == nil {
+		return nil
+	}
+	contextWindow := providerContextWindowTokens(providerModel, agent)
+	actual := generated.PromptTokens
+	if actual <= 0 {
+		actual = l0Result.PromptTokenEstimate
+	}
+	return s.memoryL0.RecordActual(ctx, sessionID, l0Result.SnapshotID, actual, contextWindow)
 }
 
 func resolveProviderModel(options SendMessageOptions, session domain.Session, agent domain.Agent) (string, string) {

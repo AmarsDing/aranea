@@ -74,6 +74,9 @@ func (r *SQLiteRepository) Migrate() error {
 	if err = r.seedBuiltinTools(); err != nil {
 		return err
 	}
+	if err = r.seedSystemAdminAgent(); err != nil {
+		return err
+	}
 	return r.seedAvatarAssets()
 }
 
@@ -95,12 +98,14 @@ func (r *SQLiteRepository) ensureLegacyColumns() error {
 			"deleted_at":           "TEXT NOT NULL DEFAULT ''",
 		},
 		"sessions": {
-			"owner_type":             "TEXT NOT NULL DEFAULT 'agent'",
-			"team_id":                "TEXT NOT NULL DEFAULT ''",
-			"summary":                "TEXT NOT NULL DEFAULT ''",
-			"context_used_ratio":     "REAL NOT NULL DEFAULT 0",
-			"max_context_used_ratio": "REAL NOT NULL DEFAULT 0",
-			"context_status":         "TEXT NOT NULL DEFAULT 'normal'",
+			"owner_type":                 "TEXT NOT NULL DEFAULT 'agent'",
+			"team_id":                    "TEXT NOT NULL DEFAULT ''",
+			"summary":                    "TEXT NOT NULL DEFAULT ''",
+			"context_used_ratio":         "REAL NOT NULL DEFAULT 0",
+			"context_used_tokens":        "INTEGER NOT NULL DEFAULT 0",
+			"max_context_used_ratio":     "REAL NOT NULL DEFAULT 0",
+			"last_context_window_tokens": "INTEGER NOT NULL DEFAULT 0",
+			"context_status":             "TEXT NOT NULL DEFAULT 'normal'",
 			"dialog_mode":            "TEXT NOT NULL DEFAULT ''",
 			"provider":               "TEXT NOT NULL DEFAULT ''",
 			"model":                  "TEXT NOT NULL DEFAULT ''",
@@ -287,6 +292,23 @@ func (r *SQLiteRepository) ensureLegacyColumns() error {
 			"guardrail_max_change_per_period":       "REAL NOT NULL DEFAULT 0.1",
 			"guardrail_min_data_points":             "INTEGER NOT NULL DEFAULT 100",
 			"guardrail_rollback_on_decline_percent": "INTEGER NOT NULL DEFAULT 20",
+			"l0_recent_window_turns":                "INTEGER NOT NULL DEFAULT 12",
+			"l0_recent_window_tokens":               "INTEGER NOT NULL DEFAULT 0",
+			"l0_summary_threshold":                  "REAL NOT NULL DEFAULT 0.6",
+			"l0_summary_keep_turns":                 "INTEGER NOT NULL DEFAULT 4",
+			"l0_truncate_strategy":                  "TEXT NOT NULL DEFAULT 'summary'",
+			"l0_inject_l1":                          "INTEGER NOT NULL DEFAULT 1",
+			"l0_inject_l3":                          "INTEGER NOT NULL DEFAULT 1",
+			"l0_inject_l4":                          "INTEGER NOT NULL DEFAULT 0",
+			"l0_l3_max_chunks":                      "INTEGER NOT NULL DEFAULT 5",
+			"l0_l4_max_paths":                       "INTEGER NOT NULL DEFAULT 3",
+			"l0_snapshot_mode":                      "TEXT NOT NULL DEFAULT 'on_warning'",
+			"l1_enabled":                            "INTEGER NOT NULL DEFAULT 1",
+			"l1_budget_tokens":                      "INTEGER NOT NULL DEFAULT 8192",
+			"l1_field_max_tokens":                   "INTEGER NOT NULL DEFAULT 2048",
+			"l1_history_keep_revisions":             "INTEGER NOT NULL DEFAULT 10",
+			"l1_default_schema_id":                  "TEXT NOT NULL DEFAULT ''",
+			"l1_archive_on_idle_minutes":            "INTEGER NOT NULL DEFAULT 60",
 			"created_at":                            "TEXT NOT NULL DEFAULT ''",
 			"updated_at":                            "TEXT NOT NULL DEFAULT ''",
 		},

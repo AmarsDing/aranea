@@ -52,6 +52,23 @@ type AgentRuntimeSettings struct {
 	GuardrailMaxChangePerPeriod       float64 `json:"guardrail_max_change_per_period"`
 	GuardrailMinDataPoints            int     `json:"guardrail_min_data_points"`
 	GuardrailRollbackOnDeclinePercent int     `json:"guardrail_rollback_on_decline_percent"`
+	L0RecentWindowTurns               int     `json:"l0_recent_window_turns"`
+	L0RecentWindowTokens              int     `json:"l0_recent_window_tokens"`
+	L0SummaryThreshold                float64 `json:"l0_summary_threshold"`
+	L0SummaryKeepTurns                int     `json:"l0_summary_keep_turns"`
+	L0TruncateStrategy                string  `json:"l0_truncate_strategy"`
+	L0InjectL1                        bool    `json:"l0_inject_l1"`
+	L0InjectL3                        bool    `json:"l0_inject_l3"`
+	L0InjectL4                        bool    `json:"l0_inject_l4"`
+	L0L3MaxChunks                     int     `json:"l0_l3_max_chunks"`
+	L0L4MaxPaths                      int     `json:"l0_l4_max_paths"`
+	L0SnapshotMode                    string  `json:"l0_snapshot_mode"`
+	L1Enabled                         bool    `json:"l1_enabled"`
+	L1BudgetTokens                    int     `json:"l1_budget_tokens"`
+	L1FieldMaxTokens                  int     `json:"l1_field_max_tokens"`
+	L1HistoryKeepRevisions            int     `json:"l1_history_keep_revisions"`
+	L1DefaultSchemaID                 string  `json:"l1_default_schema_id"`
+	L1ArchiveOnIdleMinutes            int     `json:"l1_archive_on_idle_minutes"`
 	CreatedAt                         string  `json:"created_at,omitempty"`
 	UpdatedAt                         string  `json:"updated_at,omitempty"`
 }
@@ -139,15 +156,17 @@ type TeamRunStep struct {
 }
 
 type Session struct {
-	ID                  string  `json:"id"`
-	OwnerType           string  `json:"owner_type"`
-	AgentID             string  `json:"agent_id"`
-	TeamID              string  `json:"team_id"`
-	Title               string  `json:"title"`
-	Summary             string  `json:"summary"`
-	ContextUsedRatio    float64 `json:"context_used_ratio"`
-	MaxContextUsedRatio float64 `json:"max_context_used_ratio"`
-	ContextStatus       string  `json:"context_status"`
+	ID                      string  `json:"id"`
+	OwnerType               string  `json:"owner_type"`
+	AgentID                 string  `json:"agent_id"`
+	TeamID                  string  `json:"team_id"`
+	Title                   string  `json:"title"`
+	Summary                 string  `json:"summary"`
+	ContextUsedRatio        float64 `json:"context_used_ratio"`
+	ContextUsedTokens       int     `json:"context_used_tokens"`
+	MaxContextUsedRatio     float64 `json:"max_context_used_ratio"`
+	LastContextWindowTokens int     `json:"last_context_window_tokens"`
+	ContextStatus           string  `json:"context_status"`
 	DialogMode          string  `json:"dialog_mode"`
 	Provider            string  `json:"provider"`
 	Model               string  `json:"model"`

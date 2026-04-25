@@ -68,6 +68,11 @@ func (h *HTTPHandler) handleSessionByID(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if strings.HasSuffix(id, "/l0/snapshots") {
+		sessionID := strings.TrimSuffix(id, "/l0/snapshots")
+		h.handleL0Snapshots(w, r, sessionID)
+		return
+	}
 	if id == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("session id is required"))
 		return

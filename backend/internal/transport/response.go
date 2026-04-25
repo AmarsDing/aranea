@@ -62,7 +62,17 @@ func publicError(fallbackStatus int, err error) (int, string) {
 	case status == http.StatusUnauthorized:
 		return status, "unauthorized"
 	case status == http.StatusConflict:
-		return status, "conflict"
+		// L1 overflow / revision conflict / task-not-writable carry actionable
+		// detail (which field, which revision, which task) that the front-end
+		// surfaces in toasts.
+		switch {
+		case errors.Is(err, domain.ErrL1Overflow),
+			errors.Is(err, domain.ErrRevisionConflict),
+			errors.Is(err, domain.ErrTaskNotWritable):
+			return status, err.Error()
+		default:
+			return status, "conflict"
+		}
 	case status == 499:
 		return status, "request cancelled"
 	default:
@@ -72,11 +82,18 @@ func publicError(fallbackStatus int, err error) (int, string) {
 
 func statusForError(fallbackStatus int, err error) int {
 	switch {
-	case errors.Is(err, domain.ErrValidation):
+	case errors.Is(err, domain.ErrValidation),
+		errors.Is(err, domain.ErrInvalidFieldPath),
+		errors.Is(err, domain.ErrInvalidFieldValue):
 		return http.StatusBadRequest
 	case errors.Is(err, domain.ErrNotFound), errors.Is(err, sql.ErrNoRows):
 		return http.StatusNotFound
-	case errors.Is(err, domain.ErrConflict):
+	case errors.Is(err, domain.ErrFieldTooLarge):
+		return http.StatusUnprocessableEntity
+	case errors.Is(err, domain.ErrConflict),
+		errors.Is(err, domain.ErrL1Overflow),
+		errors.Is(err, domain.ErrRevisionConflict),
+		errors.Is(err, domain.ErrTaskNotWritable):
 		return http.StatusConflict
 	case errors.Is(err, domain.ErrUnauthorized):
 		return http.StatusUnauthorized

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"arenea/backend/internal/domain"
+	"arenea/backend/internal/repository"
 )
 
 type toolStore interface {
@@ -181,10 +182,14 @@ var toolGroups = map[string][]string{
 	"skill":      {"skill_search", "use_skill"},
 	"media":      {"read_image", "read_document", "create_image", "tts"},
 	"runtime":    {"shell_exec"},
+	// cli_admin is populated lazily from the cli_admin_* tool seeds so
+	// the group automatically expands when new admin tools are added.
+	"cli_admin": repository.CLIAdminToolKeys(),
 }
 
 var toolProfiles = map[string][]string{
-	"minimal":  {"datetime"},
-	"coding":   {"group:filesystem", "group:web", "group:skill", "datetime"},
-	"research": {"web_search", "web_fetch", "read_file", "skill_search", "memory_search", "datetime"},
+	"minimal":      {"datetime"},
+	"coding":       {"group:filesystem", "group:web", "group:skill", "datetime"},
+	"research":     {"web_search", "web_fetch", "read_file", "skill_search", "memory_search", "datetime"},
+	"system_admin": {"group:cli_admin", "web_fetch", "datetime"},
 }

@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS agent_runtime_settings (
   guardrail_max_change_per_period REAL NOT NULL DEFAULT 0.1,
   guardrail_min_data_points INTEGER NOT NULL DEFAULT 100,
   guardrail_rollback_on_decline_percent INTEGER NOT NULL DEFAULT 20,
+  l1_enabled INTEGER NOT NULL DEFAULT 1,
+  l1_budget_tokens INTEGER NOT NULL DEFAULT 8192,
+  l1_field_max_tokens INTEGER NOT NULL DEFAULT 2048,
+  l1_history_keep_revisions INTEGER NOT NULL DEFAULT 10,
+  l1_default_schema_id TEXT NOT NULL DEFAULT '',
+  l1_archive_on_idle_minutes INTEGER NOT NULL DEFAULT 60,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -412,6 +418,40 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS memory_l0_assembly_snapshots (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  run_id TEXT NOT NULL DEFAULT '',
+  turn_id TEXT NOT NULL DEFAULT '',
+  span_id TEXT NOT NULL DEFAULT '',
+  agent_id TEXT NOT NULL DEFAULT '',
+  team_id TEXT NOT NULL DEFAULT '',
+  provider TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  context_window_tokens INTEGER NOT NULL DEFAULT 0,
+  budget_tokens INTEGER NOT NULL DEFAULT 0,
+  recent_window_turns INTEGER NOT NULL DEFAULT 0,
+  recent_window_tokens INTEGER NOT NULL DEFAULT 0,
+  summary_token_estimate INTEGER NOT NULL DEFAULT 0,
+  l1_field_count INTEGER NOT NULL DEFAULT 0,
+  l1_token_estimate INTEGER NOT NULL DEFAULT 0,
+  l3_chunk_count INTEGER NOT NULL DEFAULT 0,
+  l3_token_estimate INTEGER NOT NULL DEFAULT 0,
+  l4_path_count INTEGER NOT NULL DEFAULT 0,
+  l4_token_estimate INTEGER NOT NULL DEFAULT 0,
+  prompt_token_estimate INTEGER NOT NULL DEFAULT 0,
+  prompt_token_actual INTEGER NOT NULL DEFAULT 0,
+  used_ratio REAL NOT NULL DEFAULT 0,
+  truncate_strategy TEXT NOT NULL DEFAULT '',
+  truncated_message_count INTEGER NOT NULL DEFAULT 0,
+  summarized_turn_from INTEGER NOT NULL DEFAULT 0,
+  summarized_turn_to INTEGER NOT NULL DEFAULT 0,
+  segments_json TEXT NOT NULL DEFAULT '[]',
+  warning_codes_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS memory_items (
   id TEXT PRIMARY KEY,
   scope_type TEXT NOT NULL,
@@ -701,6 +741,10 @@ CREATE INDEX IF NOT EXISTS idx_team_runs_session ON team_runs(session_id, create
 CREATE INDEX IF NOT EXISTS idx_team_run_steps_run ON team_run_steps(run_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_sessions_last_message ON sessions(last_message_at);
 CREATE INDEX IF NOT EXISTS idx_messages_session_turn ON messages(session_id, turn_index);
+CREATE INDEX IF NOT EXISTS idx_session_summaries_session_range ON session_summaries(session_id, to_turn);
+CREATE INDEX IF NOT EXISTS idx_memory_l0_snapshots_session ON memory_l0_assembly_snapshots(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_l0_snapshots_span ON memory_l0_assembly_snapshots(span_id);
+CREATE INDEX IF NOT EXISTS idx_memory_l0_snapshots_agent ON memory_l0_assembly_snapshots(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_events_time ON model_token_usage_events(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_usage_events_date_model ON model_token_usage_events(date_key, provider_code, model_api_id);
 CREATE INDEX IF NOT EXISTS idx_usage_events_agent_time ON model_token_usage_events(agent_id, occurred_at);
@@ -738,3 +782,96 @@ CREATE INDEX IF NOT EXISTS idx_cron_task_agent ON cron_task(agent_id, deleted_at
 CREATE INDEX IF NOT EXISTS idx_cron_run_task ON cron_task_run(task_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_monitor_events_created ON monitor_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_monitor_traces_created ON monitor_traces(created_at);
+
+-- L1 working memory (aranea/docs/13 memory-L1-working.md §3)
+
+CREATE TABLE IF NOT EXISTS memory_l1_tasks (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  run_id TEXT NOT NULL DEFAULT '',
+  team_id TEXT NOT NULL DEFAULT '',
+  agent_id TEXT NOT NULL DEFAULT '',
+  task_key TEXT NOT NULL DEFAULT '',
+  task_title TEXT NOT NULL DEFAULT '',
+  task_goal TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active',
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  budget_tokens INTEGER NOT NULL DEFAULT 8192,
+  used_tokens INTEGER NOT NULL DEFAULT 0,
+  parent_task_id TEXT NOT NULL DEFAULT '',
+  shared_with_json TEXT NOT NULL DEFAULT '[]',
+  started_at TEXT NOT NULL,
+  ended_at TEXT NOT NULL DEFAULT '',
+  archived_at TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(session_id, task_key, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_l1_fields (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL DEFAULT '',
+  field_path TEXT NOT NULL,
+  field_kind TEXT NOT NULL DEFAULT 'string',
+  visibility TEXT NOT NULL DEFAULT 'prompt',
+  pin_to_prompt INTEGER NOT NULL DEFAULT 1,
+  is_required INTEGER NOT NULL DEFAULT 0,
+  value_text TEXT NOT NULL DEFAULT '',
+  value_json TEXT NOT NULL DEFAULT '',
+  value_ref TEXT NOT NULL DEFAULT '',
+  preview TEXT NOT NULL DEFAULT '',
+  token_estimate INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'agent',
+  source_ref TEXT NOT NULL DEFAULT '',
+  ttl_seconds INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL DEFAULT '',
+  revision INTEGER NOT NULL DEFAULT 1,
+  last_read_at TEXT NOT NULL DEFAULT '',
+  read_count INTEGER NOT NULL DEFAULT 0,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(task_id, field_path)
+);
+
+CREATE TABLE IF NOT EXISTS memory_l1_field_history (
+  id TEXT PRIMARY KEY,
+  field_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  value_text TEXT NOT NULL DEFAULT '',
+  value_json TEXT NOT NULL DEFAULT '',
+  value_ref TEXT NOT NULL DEFAULT '',
+  preview TEXT NOT NULL DEFAULT '',
+  token_estimate INTEGER NOT NULL DEFAULT 0,
+  changed_by TEXT NOT NULL DEFAULT '',
+  change_reason TEXT NOT NULL DEFAULT '',
+  diff_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(field_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS memory_l1_schemas (
+  id TEXT PRIMARY KEY,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL DEFAULT '',
+  schema_key TEXT NOT NULL,
+  schema_version INTEGER NOT NULL DEFAULT 1,
+  schema_json TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(scope_type, scope_id, schema_key, schema_version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_l1_tasks_session ON memory_l1_tasks(session_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_l1_tasks_agent ON memory_l1_tasks(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_memory_l1_fields_task ON memory_l1_fields(task_id, visibility, pin_to_prompt);
+CREATE INDEX IF NOT EXISTS idx_memory_l1_fields_session ON memory_l1_fields(session_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_l1_field_history_field ON memory_l1_field_history(field_id, revision DESC);

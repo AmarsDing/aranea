@@ -191,6 +191,22 @@ func defaultRuntimeSettings() domain.AgentRuntimeSettings {
 		GuardrailMaxChangePerPeriod:       0.1,
 		GuardrailMinDataPoints:            100,
 		GuardrailRollbackOnDeclinePercent: 20,
+		L0RecentWindowTurns:               12,
+		L0RecentWindowTokens:              0,
+		L0SummaryThreshold:                0.6,
+		L0SummaryKeepTurns:                4,
+		L0TruncateStrategy:                "summary",
+		L0InjectL1:                        true,
+		L0InjectL3:                        true,
+		L0InjectL4:                        false,
+		L0L3MaxChunks:                     5,
+		L0L4MaxPaths:                      3,
+		L0SnapshotMode:                    "on_warning",
+		L1Enabled:                         true,
+		L1BudgetTokens:                    8192,
+		L1FieldMaxTokens:                  2048,
+		L1HistoryKeepRevisions:            10,
+		L1ArchiveOnIdleMinutes:            60,
 	}
 }
 
@@ -216,6 +232,17 @@ func withSettingDefaults(v domain.AgentRuntimeSettings) domain.AgentRuntimeSetti
 	defaultFloat(&v.GuardrailMaxChangePerPeriod, d.GuardrailMaxChangePerPeriod)
 	defaultInt(&v.GuardrailMinDataPoints, d.GuardrailMinDataPoints)
 	defaultInt(&v.GuardrailRollbackOnDeclinePercent, d.GuardrailRollbackOnDeclinePercent)
+	defaultInt(&v.L0RecentWindowTurns, d.L0RecentWindowTurns)
+	defaultFloat(&v.L0SummaryThreshold, d.L0SummaryThreshold)
+	defaultInt(&v.L0SummaryKeepTurns, d.L0SummaryKeepTurns)
+	defaultString(&v.L0TruncateStrategy, d.L0TruncateStrategy)
+	defaultInt(&v.L0L3MaxChunks, d.L0L3MaxChunks)
+	defaultInt(&v.L0L4MaxPaths, d.L0L4MaxPaths)
+	defaultString(&v.L0SnapshotMode, d.L0SnapshotMode)
+	defaultInt(&v.L1BudgetTokens, d.L1BudgetTokens)
+	defaultInt(&v.L1FieldMaxTokens, d.L1FieldMaxTokens)
+	defaultInt(&v.L1HistoryKeepRevisions, d.L1HistoryKeepRevisions)
+	defaultInt(&v.L1ArchiveOnIdleMinutes, d.L1ArchiveOnIdleMinutes)
 	return v
 }
 
@@ -435,6 +462,19 @@ func configJSONFromSettings(settings domain.AgentRuntimeSettings, files []domain
 			"max_change_per_period":       settings.GuardrailMaxChangePerPeriod,
 			"min_data_points":             settings.GuardrailMinDataPoints,
 			"rollback_on_decline_percent": settings.GuardrailRollbackOnDeclinePercent,
+		},
+		"l0": map[string]any{
+			"recent_window_turns":  settings.L0RecentWindowTurns,
+			"recent_window_tokens": settings.L0RecentWindowTokens,
+			"summary_threshold":    settings.L0SummaryThreshold,
+			"summary_keep_turns":   settings.L0SummaryKeepTurns,
+			"truncate_strategy":    settings.L0TruncateStrategy,
+			"inject_l1":            settings.L0InjectL1,
+			"inject_l3":            settings.L0InjectL3,
+			"inject_l4":            settings.L0InjectL4,
+			"l3_max_chunks":        settings.L0L3MaxChunks,
+			"l4_max_paths":         settings.L0L4MaxPaths,
+			"snapshot_mode":        settings.L0SnapshotMode,
 		},
 		"files": files,
 	}

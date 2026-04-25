@@ -118,6 +118,10 @@ func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/chat/messages", h.handleChatMessages)
 	mux.HandleFunc("/api/v1/chat/options", h.handleChatOptions)
 
+	// Memory L0 (sensory / context-window) debug surface.
+	mux.HandleFunc("/api/v1/l0/preview", h.handleL0Preview)
+	mux.HandleFunc("/api/v1/l0/snapshots/", h.handleL0SnapshotByID)
+
 	// Model usage analytics.
 	mux.HandleFunc("/api/v1/model-usage/overview", h.handleModelUsageOverview)
 	mux.HandleFunc("/api/v1/model-usage/trends", h.handleModelUsageTrends)

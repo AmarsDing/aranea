@@ -32,11 +32,11 @@ func (r *SQLiteRepository) CreateSession(s domain.Session) (domain.Session, erro
 	}
 	_, err := r.db.Exec(
 		`INSERT INTO sessions(
-		 id, owner_type, agent_id, team_id, title, summary, context_used_ratio, max_context_used_ratio, context_status,
+		 id, owner_type, agent_id, team_id, title, summary, context_used_ratio, context_used_tokens, max_context_used_ratio, last_context_window_tokens, context_status,
 		 dialog_mode, provider, model, status, message_count, run_count, model_call_count, tool_call_count, skill_call_count,
 		 mcp_call_count, input_tokens, output_tokens, total_tokens, total_cost_micro_usd, last_message_at, created_at, updated_at, archived_at, deleted_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.OwnerType, s.AgentID, s.TeamID, s.Title, s.Summary, s.ContextUsedRatio, s.MaxContextUsedRatio, s.ContextStatus,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.OwnerType, s.AgentID, s.TeamID, s.Title, s.Summary, s.ContextUsedRatio, s.ContextUsedTokens, s.MaxContextUsedRatio, s.LastContextWindowTokens, s.ContextStatus,
 		s.DialogMode, s.Provider, s.Model, s.Status, s.MessageCount, s.RunCount, s.ModelCallCount, s.ToolCallCount, s.SkillCallCount,
 		s.MCPCallCount, s.InputTokens, s.OutputTokens, s.TotalTokens, s.TotalCostMicroUSD, s.LastMessageAt, s.CreatedAt, s.UpdatedAt, s.ArchivedAt, s.DeletedAt,
 	)
@@ -129,6 +129,28 @@ func (r *SQLiteRepository) UpdateSessionContextUsedRatio(sessionID string, ratio
 	return err
 }
 
+// UpdateSessionL0Context records both the prompt-level token usage and the
+// effective model context window. It mirrors UpdateSessionContextUsedRatio but
+// keeps the L0 metrics in sync so the front-end "context" tab can render the
+// real numbers behind the ratio.
+func (r *SQLiteRepository) UpdateSessionL0Context(sessionID string, promptTokens int, contextWindow int, ratio float64) error {
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	if promptTokens < 0 {
+		promptTokens = 0
+	}
+	if contextWindow < 0 {
+		contextWindow = 0
+	}
+	_, err := r.db.Exec(`UPDATE sessions SET context_used_ratio = ?, context_used_tokens = ?, last_context_window_tokens = ?, max_context_used_ratio = MAX(max_context_used_ratio, ?), context_status = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`,
+		ratio, promptTokens, contextWindow, ratio, contextStatusForRatio(ratio), nowISO(), sessionID)
+	return err
+}
+
 func (r *SQLiteRepository) ArchiveSession(id string) error {
 	now := nowISO()
 	_, err := r.db.Exec(`UPDATE sessions SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, now, now, id)
@@ -208,7 +230,7 @@ func (r *SQLiteRepository) ListMessages(sessionID string) ([]domain.Message, err
 }
 
 func sessionSelectSQL() string {
-	return `SELECT id, owner_type, agent_id, team_id, title, summary, context_used_ratio, max_context_used_ratio, context_status,
+	return `SELECT id, owner_type, agent_id, team_id, title, summary, context_used_ratio, context_used_tokens, max_context_used_ratio, last_context_window_tokens, context_status,
 	 dialog_mode, provider, model, status, message_count, run_count, model_call_count, tool_call_count, skill_call_count,
 	 mcp_call_count, input_tokens, output_tokens, total_tokens, total_cost_micro_usd, last_message_at, created_at, updated_at, archived_at, deleted_at FROM sessions`
 }
@@ -228,7 +250,7 @@ func contextStatusForRatio(ratio float64) string {
 
 func scanSession(row scanner) (domain.Session, error) {
 	var v domain.Session
-	err := row.Scan(&v.ID, &v.OwnerType, &v.AgentID, &v.TeamID, &v.Title, &v.Summary, &v.ContextUsedRatio, &v.MaxContextUsedRatio, &v.ContextStatus, &v.DialogMode, &v.Provider, &v.Model, &v.Status, &v.MessageCount, &v.RunCount, &v.ModelCallCount, &v.ToolCallCount, &v.SkillCallCount, &v.MCPCallCount, &v.InputTokens, &v.OutputTokens, &v.TotalTokens, &v.TotalCostMicroUSD, &v.LastMessageAt, &v.CreatedAt, &v.UpdatedAt, &v.ArchivedAt, &v.DeletedAt)
+	err := row.Scan(&v.ID, &v.OwnerType, &v.AgentID, &v.TeamID, &v.Title, &v.Summary, &v.ContextUsedRatio, &v.ContextUsedTokens, &v.MaxContextUsedRatio, &v.LastContextWindowTokens, &v.ContextStatus, &v.DialogMode, &v.Provider, &v.Model, &v.Status, &v.MessageCount, &v.RunCount, &v.ModelCallCount, &v.ToolCallCount, &v.SkillCallCount, &v.MCPCallCount, &v.InputTokens, &v.OutputTokens, &v.TotalTokens, &v.TotalCostMicroUSD, &v.LastMessageAt, &v.CreatedAt, &v.UpdatedAt, &v.ArchivedAt, &v.DeletedAt)
 	return v, err
 }
 

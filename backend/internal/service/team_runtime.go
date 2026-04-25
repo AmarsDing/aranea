@@ -462,16 +462,46 @@ func (s *ChatService) generateTeamStep(ctx context.Context, member teamMember, i
 	if err != nil {
 		return teamStepResult{Member: member, Agent: agent, Err: err}, err
 	}
-	messages := make([]runtime.ChatMessage, 0, len(history)+1)
-	for _, item := range history {
-		if item.Role != "user" && item.Role != "assistant" {
-			continue
-		}
-		messages = append(messages, runtime.ChatMessage{Role: item.Role, Content: item.Content})
-	}
 	roleName := firstNonEmptyString(member.Name, member.Role, agent.DisplayName)
 	prompt := fmt.Sprintf("你是 Team 成员「%s」。请基于你的专业角色处理以下任务，并输出清晰结果。\n\n%s", roleName, input)
-	messages = append(messages, runtime.ChatMessage{Role: "user", Content: prompt})
+
+	// Each sub-agent gets its own L0 assembly so its prompt window, summaries
+	// and L1/L3/L4 toggles are independent (spec F10). When the L0 service is
+	// unavailable we still keep the legacy plain-history assembly so team runs
+	// don't regress.
+	var (
+		messages []runtime.ChatMessage
+		l0Result domain.L0AssemblyResult
+	)
+	if s.memoryL0 != nil {
+		req := domain.L0AssemblyRequest{
+			SessionID:     session.ID,
+			AgentID:       agent.ID,
+			TeamID:        session.TeamID,
+			Provider:      providerModel.Provider,
+			Model:         providerModel.Model,
+			ContextWindow: providerContextWindowTokens(providerModel, agent),
+			UserMessage:   prompt,
+		}
+		if res, l0Err := s.memoryL0.Assemble(ctx, req); l0Err == nil {
+			l0Result = res
+			messages = make([]runtime.ChatMessage, 0, len(res.PromptMessages))
+			for _, m := range res.PromptMessages {
+				messages = append(messages, runtime.ChatMessage{Role: m.Role, Content: m.Content})
+			}
+		}
+	}
+	if messages == nil {
+		messages = make([]runtime.ChatMessage, 0, len(history)+1)
+		for _, item := range history {
+			if item.Role != "user" && item.Role != "assistant" {
+				continue
+			}
+			messages = append(messages, runtime.ChatMessage{Role: item.Role, Content: item.Content})
+		}
+		messages = append(messages, runtime.ChatMessage{Role: "user", Content: prompt})
+	}
+
 	generated, err := s.runtime.Generate(ctx, runtime.GenerateRequest{
 		Agent:         agent,
 		ProviderModel: providerModel,
@@ -484,6 +514,7 @@ func (s *ChatService) generateTeamStep(ctx context.Context, member teamMember, i
 	}
 	costMicroUSD := s.estimateGeneratedCost(providerModel, generated)
 	_ = s.recordModelTokenUsage(agent, session, providerModel, in.Options, generated, domain.Message{}, false, "success", nil)
+	_ = s.recordL0Actual(ctx, session.ID, agent, providerModel, l0Result, generated)
 	return teamStepResult{Member: member, Agent: agent, Generated: generated, CostMicroUSD: costMicroUSD}, nil
 }
 

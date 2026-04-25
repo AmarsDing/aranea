@@ -33,11 +33,20 @@ type Store interface {
 	ListTeamSessions(teamID string) ([]domain.Session, error)
 	UpdateSessionTitle(id string, title string) (domain.Session, error)
 	UpdateSessionContextUsedRatio(sessionID string, ratio float64) error
+	UpdateSessionL0Context(sessionID string, promptTokens int, contextWindow int, ratio float64) error
 	ArchiveSession(id string) error
 	DeleteSession(id string) error
 	DeleteSessionsByAgentID(agentID string) error
 	AddMessage(m domain.Message) (domain.Message, error)
 	ListMessages(sessionID string) ([]domain.Message, error)
+	ListLatestMessagesByTokens(sessionID string, maxTokens int, hardCap int) ([]domain.Message, error)
+	ListSessionSummaries(sessionID string, limit int) ([]domain.SessionSummary, error)
+	AddSessionSummary(summary domain.SessionSummary) (domain.SessionSummary, error)
+	InsertL0AssemblySnapshot(snap domain.L0AssemblySnapshot) error
+	UpdateL0AssemblySnapshotActualTokens(snapshotID string, actualPromptTokens int, usedRatio float64) error
+	GetL0AssemblySnapshotByID(id string) (domain.L0AssemblySnapshot, error)
+	ListL0AssemblySnapshotsBySession(sessionID string, limit int) ([]domain.L0AssemblySnapshot, error)
+	ListL0AssemblySnapshotsBySpan(spanID string) ([]domain.L0AssemblySnapshot, error)
 	GetActiveModelPricingRule(provider string, model string, at string) (domain.ModelPricingRule, error)
 	UpsertModelPricingRule(rule domain.ModelPricingRule) (domain.ModelPricingRule, error)
 	AddModelTokenUsageEvent(event domain.ModelTokenUsageEvent) (domain.ModelTokenUsageEvent, error)
@@ -87,4 +96,32 @@ type Store interface {
 	ValidateProviderModel(provider string, model string) (bool, error)
 	AddAuditLog(l domain.AuditLog) error
 	ListAuditLogs(limit int) ([]domain.AuditLog, error)
+
+	// L1 working memory (aranea/docs/13 memory-L1-working.md §4.2). All methods
+	// are synchronous; the service wraps them into the higher-level lifecycle
+	// hooks consumed by ChatService and the HTTP layer.
+	CreateL1Task(t domain.MemoryL1Task) (domain.MemoryL1Task, error)
+	UpdateL1TaskStatus(taskID string, status domain.L1TaskStatus, endedAt string, archivedAt string) error
+	UpdateL1TaskUsedTokens(taskID string, usedTokens int) error
+	UpdateL1TaskShared(taskID string, shared []domain.L1FieldShare) error
+	UpdateL1TaskBudget(taskID string, budgetTokens int) error
+	GetL1TaskByID(taskID string) (domain.MemoryL1Task, error)
+	GetL1TaskByKey(sessionID, taskKey, agentID string) (domain.MemoryL1Task, error)
+	ListL1TasksBySession(query domain.L1TaskListQuery) ([]domain.MemoryL1Task, error)
+	ArchiveIdleL1Tasks(before string) (int, error)
+
+	UpsertL1Field(f domain.MemoryL1Field, history domain.MemoryL1FieldHistory, keepRevisions int) (domain.MemoryL1Field, error)
+	GetL1Field(taskID, fieldPath string) (domain.MemoryL1Field, error)
+	GetL1FieldByID(fieldID string) (domain.MemoryL1Field, error)
+	ListL1FieldsByTask(taskID string, includeInternal bool) ([]domain.MemoryL1Field, error)
+	DeleteL1Field(fieldID string) error
+	BumpL1FieldRead(fieldID string, atISO string) error
+
+	ListL1FieldHistory(fieldID string, limit int) ([]domain.MemoryL1FieldHistory, error)
+	GetL1FieldHistory(fieldID string, revision int) (domain.MemoryL1FieldHistory, error)
+
+	UpsertL1Schema(s domain.MemoryL1Schema) (domain.MemoryL1Schema, error)
+	ListL1Schemas(scopeType, scopeID string) ([]domain.MemoryL1Schema, error)
+	GetL1SchemaByID(id string) (domain.MemoryL1Schema, error)
+	DeleteL1Schema(id string) error
 }

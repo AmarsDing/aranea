@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"strings"
 
 	"arenea/backend/internal/domain"
@@ -48,9 +49,15 @@ func (r *SQLiteRepository) seedPlatformDefaults() error {
 
 // seedBuiltinTools upserts the curated set of system-provided tools so that
 // fresh deployments have a usable tool catalog without manual onboarding.
+// The cli_admin_* toolkit (aranea/docs/25 cli.md §6) is appended here so
+// every boot leaves the tools table in a known shape, no matter whether
+// new deliverables landed since last upgrade.
 func (r *SQLiteRepository) seedBuiltinTools() error {
 	now := nowISO()
-	for _, row := range builtinToolSeeds {
+	allSeeds := make([]domain.Tool, 0, len(builtinToolSeeds)+len(cliAdminToolSeeds))
+	allSeeds = append(allSeeds, builtinToolSeeds...)
+	allSeeds = append(allSeeds, cliAdminToolSeeds...)
+	for _, row := range allSeeds {
 		applyBuiltinToolDefaults(&row)
 		_, err := r.db.Exec(
 			`INSERT INTO tools(
@@ -116,6 +123,139 @@ func applyBuiltinToolDefaults(row *domain.Tool) {
 	if row.MetadataJSON == "" {
 		row.MetadataJSON = "{}"
 	}
+}
+
+// seedSystemAdminAgent inserts the built-in `__system_admin__` agent
+// that backs the Aranea CLI's interactive REPL (see 前端/25 cli.md §1.2
+// & §3). The row is upserted on every boot so newly added columns or
+// system-prompt revisions roll out automatically without disturbing
+// operator-defined agents.
+func (r *SQLiteRepository) seedSystemAdminAgent() error {
+	const id = "agent_system_admin"
+	const key = "__system_admin__"
+	now := nowISO()
+
+	systemPrompt := `你是 Aranea 平台的"系统管家" Agent，运行在命令行的交互式控制台中。
+
+职责：
+  * 帮助管理员通过自然语言完成 Skill / Agent / Tool / Plugin / MCP /
+    定时任务 / 渠道 / 会话 / 监控等系统级操作。
+  * 当用户描述"装一个 GitHub 上的 skill" 等需求时，回复一条可直接复制
+    执行的 aranea 命令（例如 ` + "`aranea skill install <url>`" + `），
+    并解释每一步的影响范围与回滚方式。
+  * 涉及高风险动作（删除、提权、禁用核心插件等）时主动提示用户加上
+    --yes 或在确认后再执行。
+
+输出风格：先给一行结论，然后用简短的步骤说明，最后附可执行命令。`
+
+	configJSON := `{"system_prompt":` + jsonString(systemPrompt) + `,"is_system":true,"readonly":true,"kind":"system_admin"}`
+
+	_, err := r.db.Exec(
+		`INSERT INTO agents(
+		   id, agent_key, display_name, provider, model, status, is_default, is_favorite, icon, agent_description,
+		   category_position_id, system_prompt_mode, context_window, budget_monthly_cents, config_json,
+		   created_at, updated_at, deleted_at
+		) VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?, '', 'manual', 16000, 0, ?, ?, ?, '')
+		ON CONFLICT(agent_key) DO UPDATE SET
+		   display_name      = excluded.display_name,
+		   icon              = excluded.icon,
+		   agent_description = excluded.agent_description,
+		   config_json       = excluded.config_json,
+		   updated_at        = excluded.updated_at,
+		   deleted_at        = ''`,
+		id, key, "系统管家", "openrouter", "gpt-4.1-mini", "active",
+		"settings", "Aranea CLI 的内置 Agent，负责把自然语言转成系统级操作指令。", configJSON,
+		now, now,
+	)
+	if err != nil {
+		return err
+	}
+	return r.seedSystemAdminAgentSettings(id)
+}
+
+// seedSystemAdminAgentSettings configures the runtime policy that lets
+// the system administrator agent invoke every cli_admin_* tool plus a
+// minimal set of safe helpers (web_fetch, read_file, datetime). The
+// list is materialised both as `group:cli_admin` and as the explicit
+// keys so deployments without group expansion still get the right
+// behaviour. Allow / deny lists are persisted as JSON arrays so the
+// existing UpsertAgentRuntimeSettings normaliser keeps them stable.
+func (r *SQLiteRepository) seedSystemAdminAgentSettings(agentID string) error {
+	allow := []string{"group:cli_admin", "web_fetch", "read_file", "datetime"}
+	deny := []string{"shell_exec", "write_file", "edit_file", "create_image", "tts"}
+	allowJSON, err := json.Marshal(allow)
+	if err != nil {
+		return err
+	}
+	denyJSON, err := json.Marshal(deny)
+	if err != nil {
+		return err
+	}
+	_, err = r.UpsertAgentRuntimeSettings(domain.AgentRuntimeSettings{
+		AgentID:                           agentID,
+		SubagentsEnabled:                  false,
+		SubagentsMaxConcurrency:           4,
+		SubagentsMaxGenerationDepth:       1,
+		SubagentsMaxChildrenPerAgent:      2,
+		SubagentsArchiveAfterMinutes:      60,
+		SubagentsMaxRetries:               1,
+		ToolsEnabled:                      true,
+		ToolsProfile:                      "system_admin",
+		ToolsAllowJSON:                    string(allowJSON),
+		ToolsDenyJSON:                     string(denyJSON),
+		ToolsConcurrentAllowJSON:          "[]",
+		MemoryEnabled:                     false,
+		MemoryMaxChunkLength:              1000,
+		MemoryMaxResults:                  6,
+		MemoryMinScore:                    0.35,
+		HeartbeatEnabled:                  false,
+		HeartbeatIntervalMinutes:          30,
+		EvolutionSelfEvolve:               false,
+		EvolutionSkillEvolve:              false,
+		EvolutionMetricsEnabled:           true,
+		EvolutionSuggestionsEnabled:       false,
+		GuardrailMaxChangePerPeriod:       0.1,
+		GuardrailMinDataPoints:            100,
+		GuardrailRollbackOnDeclinePercent: 20,
+	})
+	return err
+}
+
+// jsonString returns s as a JSON string literal (with surrounding quotes
+// and embedded escaping) so it can be inlined into a JSON document the
+// repository constructs by hand.
+func jsonString(s string) string {
+	out := make([]byte, 0, len(s)+2)
+	out = append(out, '"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			out = append(out, '\\', '"')
+		case '\\':
+			out = append(out, '\\', '\\')
+		case '\n':
+			out = append(out, '\\', 'n')
+		case '\r':
+			out = append(out, '\\', 'r')
+		case '\t':
+			out = append(out, '\\', 't')
+		default:
+			if r < 0x20 {
+				out = append(out, []byte{'\\', 'u', '0', '0', hex(byte(r>>4)), hex(byte(r&0x0f))}...)
+				continue
+			}
+			out = append(out, []byte(string(r))...)
+		}
+	}
+	out = append(out, '"')
+	return string(out)
+}
+
+func hex(b byte) byte {
+	if b < 10 {
+		return '0' + b
+	}
+	return 'a' + (b - 10)
 }
 
 var builtinToolSeeds = []domain.Tool{
