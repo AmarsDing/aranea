@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"arenea/backend/internal/domain"
@@ -13,13 +14,15 @@ import (
 )
 
 type ChatService struct {
-	repo    repository.Store
-	runtime *runtime.ADKRuntimeAdapter
+	repo          repository.Store
+	runtime       *runtime.ADKRuntimeAdapter
+	teamRunEvents *TeamRunEventBroker
 }
 
 type SendMessageInput struct {
 	SessionID string             `json:"session_id"`
 	AgentKey  string             `json:"agent_key"`
+	TeamID    string             `json:"team_id"`
 	Content   string             `json:"content"`
 	Options   SendMessageOptions `json:"options"`
 }
@@ -47,18 +50,24 @@ type SendStreamCallbacks struct {
 }
 
 func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAdapter) *ChatService {
-	return &ChatService{repo: repo, runtime: runtimeAdapter}
+	return &ChatService{repo: repo, runtime: runtimeAdapter, teamRunEvents: NewTeamRunEventBroker()}
 }
 
 func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
-	if in.SessionID == "" || in.AgentKey == "" || in.Content == "" {
-		return SendMessageResult{}, errors.New("session_id, agent_key and content are required")
+	if in.SessionID == "" || in.Content == "" {
+		return SendMessageResult{}, errors.New("session_id and content are required")
 	}
-	agent, err := s.repo.GetAgentByKey(in.AgentKey)
+	session, err := s.repo.GetSessionByID(in.SessionID)
 	if err != nil {
 		return SendMessageResult{}, err
 	}
-	session, err := s.repo.GetSessionByID(in.SessionID)
+	if session.OwnerType == "team" {
+		return s.sendTeam(ctx, in, session, nil)
+	}
+	if in.AgentKey == "" {
+		return SendMessageResult{}, errors.New("agent_key is required")
+	}
+	agent, err := s.repo.GetAgentByKey(in.AgentKey)
 	if err != nil {
 		return SendMessageResult{}, err
 	}
@@ -147,14 +156,21 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 }
 
 func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callbacks SendStreamCallbacks) error {
-	if in.SessionID == "" || in.AgentKey == "" || in.Content == "" {
-		return errors.New("session_id, agent_key and content are required")
+	if in.SessionID == "" || in.Content == "" {
+		return errors.New("session_id and content are required")
 	}
-	agent, err := s.repo.GetAgentByKey(in.AgentKey)
+	session, err := s.repo.GetSessionByID(in.SessionID)
 	if err != nil {
 		return err
 	}
-	session, err := s.repo.GetSessionByID(in.SessionID)
+	if session.OwnerType == "team" {
+		_, err = s.sendTeam(ctx, in, session, &callbacks)
+		return err
+	}
+	if in.AgentKey == "" {
+		return errors.New("agent_key is required")
+	}
+	agent, err := s.repo.GetAgentByKey(in.AgentKey)
 	if err != nil {
 		return err
 	}
@@ -418,6 +434,18 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func previewText(value string, maxRunes int) string {
+	value = strings.TrimSpace(value)
+	if maxRunes <= 0 {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes]) + "..."
 }
 
 func (s *ChatService) recordProviderModelTPS(providerModel domain.PlatformResource, generated runtime.GenerateResult) error {

@@ -7,6 +7,7 @@
     :rows="rows"
     :columns="columns"
     :loading="loading"
+    :pagination="tablePagination"
     hide-pagination
   >
     <template #body-cell-name="props">
@@ -88,6 +89,8 @@ const emit = defineEmits<{
   edit: [skill: Skill];
   delete: [skill: Skill];
 }>();
+
+const tablePagination = { rowsPerPage: 0 };
 
 const columns: QTableColumn<Skill>[] = [
   { name: "name", label: "名称", field: "name", align: "left" },

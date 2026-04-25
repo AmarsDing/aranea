@@ -443,6 +443,71 @@ body.body--dark
   .chat-toolbar-actions
     justify-content: flex-start
 
+// Skill 管理页：沿用奶油白视觉系统，避免新模块回到默认灰白风格
+body:not(.body--dark)
+  .skills-page,
+  .skill-runs-page
+    color: $cream-text
+
+    .skill-filter-card,
+    .skill-upload-card,
+    .skill-runs-filter,
+    .skill-table,
+    .skill-runs-table,
+    .skills-empty-card
+      background: rgba(255, 255, 255, 0.78) !important
+      border: 1px solid rgba(141, 110, 99, 0.14)
+      box-shadow: 0 10px 30px $cream-shadow-soft, inset 0 1px 0 rgba(255, 255, 255, 0.7)
+      backdrop-filter: blur(10px)
+
+    .q-table th
+      color: $cream-text-light
+      font-weight: 700
+      background: rgba(255, 248, 231, 0.72)
+
+    .q-table tbody tr
+      background: rgba(255, 255, 255, 0.38)
+
+    .q-table tbody tr:hover
+      background: rgba(255, 255, 255, 0.68)
+
+    .skill-stat,
+    .metric-pill
+      background: rgba(224, 176, 160, 0.16)
+      border: 1px solid rgba(141, 110, 99, 0.1)
+
+    .q-field__control
+      background: rgba(255, 255, 255, 0.68)
+      border-radius: 14px
+
+body.body--dark
+  .skills-page,
+  .skill-runs-page
+    background: linear-gradient(160deg, #0b1220 0%, #111827 48%, #0f172a 100%)
+    color: #e5e7eb
+
+    .skill-filter-card,
+    .skill-upload-card,
+    .skill-runs-filter,
+    .skill-table,
+    .skill-runs-table,
+    .skills-empty-card
+      background: rgba(17, 24, 39, 0.88) !important
+      border: 1px solid rgba(148, 163, 184, 0.16)
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32)
+
+    .q-table th
+      background: rgba(15, 23, 42, 0.86)
+      color: #cbd5e1
+
+    .q-table tbody tr:hover
+      background: rgba(51, 65, 85, 0.46)
+
+    .skill-stat,
+    .metric-pill
+      background: rgba(30, 41, 59, 0.72)
+      border: 1px solid rgba(148, 163, 184, 0.12)
+
 // 概览：持仓表紧凑、褐色调底纹
 body:not(.body--dark) .dashboard-pos-table
   font-size: 0.8rem

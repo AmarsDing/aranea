@@ -9,8 +9,13 @@ import OverviewPage from "../pages/OverviewPage.vue";
 import ResourceManagerPage from "../pages/ResourceManagerPage.vue";
 import EcosystemPage from "../pages/EcosystemPage.vue";
 import AgentCategoriesPage from "../pages/AgentCategoriesPage.vue";
+import TeamsPage from "../pages/TeamsPage.vue";
 import SkillsPage from "../pages/SkillsPage.vue";
 import SkillRunsPage from "../pages/SkillRunsPage.vue";
+import PluginsPage from "../pages/PluginsPage.vue";
+import ToolsPage from "../pages/ToolsPage.vue";
+import ToolRunsPage from "../pages/ToolRunsPage.vue";
+import SessionsPage from "../pages/SessionsPage.vue";
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -20,10 +25,12 @@ export const routes: RouteRecordRaw[] = [
       { path: "", redirect: "/overview" },
       { path: "overview", name: "overview", component: OverviewPage },
       { path: "chat", name: "chat", component: ChatPage },
+      { path: "sessions", name: "sessions", component: SessionsPage },
+      { path: "sessions/:sessionId", name: "session-detail", component: SessionsPage },
       { path: "agents", name: "agents", component: AgentsPage },
       { path: "settings/agent-categories", name: "agent-categories", component: AgentCategoriesPage },
       { path: "agents/:id/settings", name: "agent-settings", component: AgentSettingsPage },
-      { path: "team", name: "team", component: GenericPage, meta: { titleKey: "menu.team" } },
+      { path: "team", name: "team", component: TeamsPage },
       {
         path: "models",
         name: "models",
@@ -53,10 +60,19 @@ export const routes: RouteRecordRaw[] = [
         component: SkillRunsPage
       },
       {
+        path: "plugins",
+        name: "plugins",
+        component: PluginsPage
+      },
+      {
+        path: "tools/runs",
+        name: "tool-runs",
+        component: ToolRunsPage
+      },
+      {
         path: "tools",
         name: "tools",
-        component: ResourceManagerPage,
-        meta: { resource: "hooks", title: "Hook 管理", subtitle: "管理全局 Hook、Agent 绑定和执行开关。" }
+        component: ToolsPage
       },
       {
         path: "cron",

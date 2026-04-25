@@ -1,5 +1,11 @@
 <template>
   <q-card flat bordered class="col column chat-mid-card" style="min-height: 0; border-radius: 16px">
+    <q-card-section class="chat-message-header row items-center no-wrap q-px-md q-py-sm">
+      <div class="col ellipsis">
+        <div class="chat-message-header__title ellipsis">{{ sessionTitle }}</div>
+      </div>
+    </q-card-section>
+    <q-separator class="cream-sep" />
     <q-card-section class="chat-messages col q-pa-sm q-pa-md-md scroll">
       <div v-if="!messages.length" class="chat-empty-state column items-center justify-center">
         <q-icon name="forum" size="34px" color="primary" />
@@ -10,12 +16,15 @@
         v-for="message in messages"
         :key="message.id"
         :sent="message.role === 'user'"
-        :bg-color="message.role === 'user' ? 'primary' : isDark ? 'blue-grey-7' : 'light-blue-1'"
-        :text-color="message.role === 'user' ? 'white' : 'grey-9'"
+        :bg-color="message.role === 'user' ? 'primary' : isDark ? 'blue-grey-9' : 'light-blue-1'"
+        :text-color="message.role === 'user' || isDark ? 'white' : 'grey-9'"
       >
         <div
           class="chat-message-content"
-          :class="{ 'chat-message-content--sent': message.role === 'user' }"
+          :class="{
+            'chat-message-content--sent': message.role === 'user',
+            'chat-message-content--dark': message.role !== 'user' && isDark
+          }"
           v-html="renderMarkdown(message.content_markdown)"
         />
         <template #name>
@@ -75,6 +84,7 @@
         :input-style="{ minHeight: '100px' }"
         :dark="isDark"
         :disable="sending"
+        @keydown="onInputKeydown"
         @update:model-value="$emit('update:modelValue', String($event ?? ''))"
       />
 
@@ -199,12 +209,13 @@ defineProps<{
   modelProvider: string;
   modeOptions: Option[];
   providerOptions: Option[];
+  sessionTitle: string;
   contextRatio: number;
   isDark: boolean;
   sending?: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   "update:modelValue": [value: string];
   "update:dialogMode": [value: string];
   "update:modelProvider": [value: string];
@@ -235,9 +246,30 @@ function formatStamp(iso: string) {
 function renderMarkdown(content: string) {
   return DOMPurify.sanitize(markdown.render(content || ""));
 }
+
+function onInputKeydown(event: KeyboardEvent) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  emit("send");
+}
 </script>
 
 <style scoped lang="sass">
+.chat-message-header
+  min-height: 44px
+  background: rgba(255, 255, 255, 0.42)
+
+:global(.body--dark) .chat-message-header
+  background: rgba(15, 23, 42, 0.38)
+
+.chat-message-header__title
+  color: #1f2937
+  font-size: 14px
+  font-weight: 800
+
+:global(.body--dark) .chat-message-header__title
+  color: #f8fafc
+
 .chat-file-tile
   position: relative
   min-width: 30px
@@ -388,4 +420,36 @@ function renderMarkdown(content: string) {
   :deep(td)
     color: #fff
     border-color: rgba(255, 255, 255, 0.28)
+
+.chat-message-content--dark
+  color: #f8fafc
+
+  :deep(h1),
+  :deep(h2),
+  :deep(h3),
+  :deep(h4),
+  :deep(h5),
+  :deep(h6),
+  :deep(th),
+  :deep(td)
+    color: #f8fafc
+
+  :deep(table)
+    background: rgba(15, 23, 42, 0.62)
+    border-color: rgba(203, 213, 225, 0.28)
+
+  :deep(thead)
+    background: rgba(59, 130, 246, 0.22)
+
+  :deep(th),
+  :deep(td)
+    border-color: rgba(203, 213, 225, 0.24)
+
+  :deep(code)
+    background: rgba(226, 232, 240, 0.16)
+    color: #e2e8f0
+
+  :deep(blockquote)
+    color: rgba(248, 250, 252, 0.78)
+    border-left-color: rgba(147, 197, 253, 0.62)
 </style>

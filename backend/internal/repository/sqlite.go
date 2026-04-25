@@ -66,6 +66,9 @@ func (r *SQLiteRepository) Migrate() error {
 	if err = r.seedPlatformDefaults(); err != nil {
 		return err
 	}
+	if err = r.seedBuiltinTools(); err != nil {
+		return err
+	}
 	return r.seedAvatarAssets()
 }
 
@@ -88,14 +91,29 @@ func (r *SQLiteRepository) ensureLegacyColumns() error {
 			"deleted_at":           "TEXT NOT NULL DEFAULT ''",
 		},
 		"sessions": {
-			"owner_type":      "TEXT NOT NULL DEFAULT 'agent'",
-			"team_id":         "TEXT NOT NULL DEFAULT ''",
-			"dialog_mode":     "TEXT NOT NULL DEFAULT ''",
-			"provider":        "TEXT NOT NULL DEFAULT ''",
-			"model":           "TEXT NOT NULL DEFAULT ''",
-			"status":          "TEXT NOT NULL DEFAULT 'active'",
-			"last_message_at": "TEXT NOT NULL DEFAULT ''",
-			"deleted_at":      "TEXT NOT NULL DEFAULT ''",
+			"owner_type":             "TEXT NOT NULL DEFAULT 'agent'",
+			"team_id":                "TEXT NOT NULL DEFAULT ''",
+			"summary":                "TEXT NOT NULL DEFAULT ''",
+			"context_used_ratio":     "REAL NOT NULL DEFAULT 0",
+			"max_context_used_ratio": "REAL NOT NULL DEFAULT 0",
+			"context_status":         "TEXT NOT NULL DEFAULT 'normal'",
+			"dialog_mode":            "TEXT NOT NULL DEFAULT ''",
+			"provider":               "TEXT NOT NULL DEFAULT ''",
+			"model":                  "TEXT NOT NULL DEFAULT ''",
+			"status":                 "TEXT NOT NULL DEFAULT 'active'",
+			"message_count":          "INTEGER NOT NULL DEFAULT 0",
+			"run_count":              "INTEGER NOT NULL DEFAULT 0",
+			"model_call_count":       "INTEGER NOT NULL DEFAULT 0",
+			"tool_call_count":        "INTEGER NOT NULL DEFAULT 0",
+			"skill_call_count":       "INTEGER NOT NULL DEFAULT 0",
+			"mcp_call_count":         "INTEGER NOT NULL DEFAULT 0",
+			"input_tokens":           "INTEGER NOT NULL DEFAULT 0",
+			"output_tokens":          "INTEGER NOT NULL DEFAULT 0",
+			"total_tokens":           "INTEGER NOT NULL DEFAULT 0",
+			"total_cost_micro_usd":   "INTEGER NOT NULL DEFAULT 0",
+			"last_message_at":        "TEXT NOT NULL DEFAULT ''",
+			"archived_at":            "TEXT NOT NULL DEFAULT ''",
+			"deleted_at":             "TEXT NOT NULL DEFAULT ''",
 		},
 		"messages": {
 			"parent_message_id": "TEXT NOT NULL DEFAULT ''",
@@ -103,6 +121,13 @@ func (r *SQLiteRepository) ensureLegacyColumns() error {
 			"attachments_count": "INTEGER NOT NULL DEFAULT 0",
 			"options_json":      "TEXT NOT NULL DEFAULT ''",
 			"error_message":     "TEXT NOT NULL DEFAULT ''",
+		},
+		"team_runs": {
+			"message_id":    "TEXT NOT NULL DEFAULT ''",
+			"topology_json": "TEXT NOT NULL DEFAULT '{}'",
+		},
+		"team_run_steps": {
+			"agent_name": "TEXT NOT NULL DEFAULT ''",
 		},
 		"avatar_assets": {
 			"image_data":      "BLOB NOT NULL DEFAULT X''",
@@ -140,6 +165,17 @@ func (r *SQLiteRepository) ensureLegacyColumns() error {
 			"agent_id":  "TEXT NOT NULL DEFAULT ''",
 			"provider":  "TEXT NOT NULL DEFAULT ''",
 			"model":     "TEXT NOT NULL DEFAULT ''",
+		},
+		"plugins": {
+			"scope":                "TEXT NOT NULL DEFAULT 'global'",
+			"callback_points_json": "TEXT NOT NULL DEFAULT '[]'",
+			"config_schema_json":   "TEXT NOT NULL DEFAULT '{}'",
+			"default_config_json":  "TEXT NOT NULL DEFAULT '{}'",
+			"invoke_count":         "INTEGER NOT NULL DEFAULT 0",
+			"block_count":          "INTEGER NOT NULL DEFAULT 0",
+			"error_count":          "INTEGER NOT NULL DEFAULT 0",
+			"last_invoked_at":      "TEXT NOT NULL DEFAULT ''",
+			"last_status":          "TEXT NOT NULL DEFAULT ''",
 		},
 		"channel": {
 			"parent_id": "TEXT NOT NULL DEFAULT ''",
@@ -358,6 +394,89 @@ func (r *SQLiteRepository) seedPlatformDefaults() error {
 	return nil
 }
 
+func (r *SQLiteRepository) seedBuiltinTools() error {
+	now := nowISO()
+	for _, row := range builtinToolSeeds {
+		if row.ID == "" {
+			row.ID = "tool_" + strings.ReplaceAll(row.Key, "-", "_")
+		}
+		if row.Source == "" {
+			row.Source = "builtin"
+		}
+		if row.RiskLevel == "" {
+			row.RiskLevel = "low"
+		}
+		if row.ParametersSchemaJSON == "" {
+			row.ParametersSchemaJSON = "{}"
+		}
+		if row.ResultSchemaJSON == "" {
+			row.ResultSchemaJSON = "{}"
+		}
+		if row.ConfigSchemaJSON == "" {
+			row.ConfigSchemaJSON = "{}"
+		}
+		if row.ConfigJSON == "" {
+			row.ConfigJSON = "{}"
+		}
+		if row.DefaultConfigJSON == "" {
+			row.DefaultConfigJSON = row.ConfigJSON
+		}
+		if row.MetadataJSON == "" {
+			row.MetadataJSON = "{}"
+		}
+		_, err := r.db.Exec(
+			`INSERT INTO tools(
+			 id, tool_key, display_name, description, category, source, risk_level, enabled, readonly, requires_confirmation,
+			 supports_streaming, supports_concurrency, parameters_schema_json, result_schema_json, config_schema_json, config_json,
+			 default_config_json, metadata_json, created_at, updated_at, deleted_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+			ON CONFLICT(tool_key) DO UPDATE SET
+			 display_name = excluded.display_name,
+			 description = excluded.description,
+			 category = excluded.category,
+			 source = excluded.source,
+			 risk_level = excluded.risk_level,
+			 readonly = excluded.readonly,
+			 requires_confirmation = excluded.requires_confirmation,
+			 supports_streaming = excluded.supports_streaming,
+			 supports_concurrency = excluded.supports_concurrency,
+			 parameters_schema_json = excluded.parameters_schema_json,
+			 result_schema_json = excluded.result_schema_json,
+			 config_schema_json = excluded.config_schema_json,
+			 default_config_json = excluded.default_config_json,
+			 metadata_json = excluded.metadata_json,
+			 updated_at = excluded.updated_at,
+			 deleted_at = ''`,
+			row.ID, row.Key, row.DisplayName, row.Description, row.Category, row.Source, row.RiskLevel, row.Enabled, row.Readonly, row.RequiresConfirmation,
+			row.SupportsStreaming, row.SupportsConcurrency, row.ParametersSchemaJSON, row.ResultSchemaJSON, row.ConfigSchemaJSON, row.ConfigJSON,
+			row.DefaultConfigJSON, row.MetadataJSON, now, now,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var builtinToolSeeds = []domain.Tool{
+	{ID: "tool_datetime", Key: "datetime", DisplayName: "当前时间", Description: "返回当前时间、日期和时区信息。", Category: "system", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{}}`},
+	{ID: "tool_web_search", Key: "web_search", DisplayName: "Web 搜索", Description: "搜索实时网络信息，返回标题、链接和摘要。", Category: "web", RiskLevel: "medium", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"query":{"type":"string","description":"搜索关键词"},"limit":{"type":"number","description":"返回结果数量"}},"required":["query"]}`},
+	{ID: "tool_web_fetch", Key: "web_fetch", DisplayName: "Web 抓取", Description: "抓取 URL 并提取页面文本或 Markdown。", Category: "web", RiskLevel: "medium", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"url":{"type":"string"},"extract_mode":{"type":"string","enum":["markdown","text","json"]}},"required":["url"]}`},
+	{ID: "tool_read_file", Key: "read_file", DisplayName: "读取文件", Description: "读取工作区允许路径内的文件内容。", Category: "filesystem", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`},
+	{ID: "tool_write_file", Key: "write_file", DisplayName: "写入文件", Description: "创建或覆盖工作区文件。", Category: "filesystem", RiskLevel: "medium", Enabled: true, ParametersSchemaJSON: `{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"deliver":{"type":"boolean"}},"required":["path","content"]}`},
+	{ID: "tool_list_files", Key: "list_files", DisplayName: "文件列表", Description: "列出工作区目录内容。", Category: "filesystem", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"path":{"type":"string"}}}`},
+	{ID: "tool_edit_file", Key: "edit_file", DisplayName: "编辑文件", Description: "按精确匹配修改已有文件片段。", Category: "filesystem", RiskLevel: "medium", Enabled: true, ParametersSchemaJSON: `{"type":"object","properties":{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"}},"required":["path","old_string","new_string"]}`},
+	{ID: "tool_skill_search", Key: "skill_search", DisplayName: "Skill 搜索", Description: "搜索当前系统可用 Skill。", Category: "skill", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}`},
+	{ID: "tool_use_skill", Key: "use_skill", DisplayName: "使用 Skill", Description: "标记本次运行使用某个 Skill，用于追踪。", Category: "skill", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`},
+	{ID: "tool_memory_search", Key: "memory_search", DisplayName: "Memory 搜索", Description: "搜索 Agent 长期记忆。", Category: "memory", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}`},
+	{ID: "tool_memory_get", Key: "memory_get", DisplayName: "Memory 读取", Description: "读取指定 memory 内容。", Category: "memory", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`},
+	{ID: "tool_read_image", Key: "read_image", DisplayName: "图片理解", Description: "分析图片内容。", Category: "media", RiskLevel: "medium", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`},
+	{ID: "tool_read_document", Key: "read_document", DisplayName: "文档理解", Description: "分析 PDF、Office、CSV 等文档。", Category: "media", RiskLevel: "medium", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`},
+	{ID: "tool_create_image", Key: "create_image", DisplayName: "图片生成", Description: "根据文本提示生成图片。", Category: "media", RiskLevel: "medium", Enabled: false, ParametersSchemaJSON: `{"type":"object","properties":{"prompt":{"type":"string"},"size":{"type":"string"}},"required":["prompt"]}`},
+	{ID: "tool_tts", Key: "tts", DisplayName: "文本转语音", Description: "将文本转换成语音文件。", Category: "media", RiskLevel: "medium", Enabled: false, ParametersSchemaJSON: `{"type":"object","properties":{"text":{"type":"string"},"voice":{"type":"string"}},"required":["text"]}`},
+	{ID: "tool_shell_exec", Key: "shell_exec", DisplayName: "Shell 命令", Description: "执行本地 shell 命令。", Category: "runtime", RiskLevel: "critical", Enabled: false, RequiresConfirmation: true, ParametersSchemaJSON: `{"type":"object","properties":{"command":{"type":"string"},"working_dir":{"type":"string"}},"required":["command"]}`},
+}
+
 type platformTable struct {
 	name      string
 	keyColumn string
@@ -486,6 +605,156 @@ func (r *SQLiteRepository) DeletePlatformResource(resource string, id string) er
 	return err
 }
 
+func (r *SQLiteRepository) SearchPlugins(query domain.PluginListQuery) (domain.PluginListResult, error) {
+	if query.Limit <= 0 {
+		query.Limit = 20
+	}
+	if query.Limit > 100 {
+		query.Limit = 100
+	}
+	where := []string{"deleted_at = ''"}
+	args := []any{}
+	if search := strings.TrimSpace(query.Search); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		where = append(where, "(LOWER(plugin_key) LIKE ? OR LOWER(name) LIKE ? OR LOWER(description) LIKE ?)")
+		args = append(args, like, like, like)
+	}
+	if query.Category != "" {
+		where = append(where, "category = ?")
+		args = append(args, query.Category)
+	}
+	if query.Enabled == "true" {
+		where = append(where, "enabled = 1")
+	}
+	if query.Enabled == "false" {
+		where = append(where, "enabled = 0")
+	}
+	if query.CallbackPoint != "" {
+		where = append(where, "callback_points_json LIKE ?")
+		args = append(args, "%"+query.CallbackPoint+"%")
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := r.db.QueryRow(`SELECT COUNT(1) FROM plugins WHERE `+whereSQL, args...).Scan(&total); err != nil {
+		return domain.PluginListResult{}, err
+	}
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, query.Limit, query.Offset)
+	rows, err := r.db.Query(pluginSelectSQL()+` WHERE `+whereSQL+` ORDER BY sort_order ASC, created_at DESC LIMIT ? OFFSET ?`, listArgs...)
+	if err != nil {
+		return domain.PluginListResult{}, err
+	}
+	defer rows.Close()
+	items, err := scanPlugins(rows)
+	if err != nil {
+		return domain.PluginListResult{}, err
+	}
+	return domain.PluginListResult{Items: items, Total: total, Limit: query.Limit, Offset: query.Offset}, nil
+}
+
+func (r *SQLiteRepository) UpsertPlugin(plugin domain.Plugin) (domain.Plugin, error) {
+	now := nowISO()
+	if plugin.ID == "" {
+		plugin.ID = "plugin_" + plugin.Key
+	}
+	if plugin.Scope == "" {
+		plugin.Scope = "global"
+	}
+	if plugin.CreatedAt == "" {
+		plugin.CreatedAt = now
+	}
+	plugin.UpdatedAt = now
+	callbacks, _ := json.Marshal(plugin.CallbackPoints)
+	_, err := r.db.Exec(`
+		INSERT INTO plugins(id, plugin_key, name, description, category, risk_level, status, enabled, scope, callback_points_json, sort_order, config_schema_json, config_json, default_config_json, created_at, updated_at, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+		ON CONFLICT(plugin_key) DO UPDATE SET
+			name = excluded.name,
+			description = excluded.description,
+			category = excluded.category,
+			risk_level = excluded.risk_level,
+			scope = excluded.scope,
+			callback_points_json = excluded.callback_points_json,
+			sort_order = excluded.sort_order,
+			config_schema_json = excluded.config_schema_json,
+			default_config_json = excluded.default_config_json,
+			updated_at = excluded.updated_at,
+			deleted_at = ''`,
+		plugin.ID, plugin.Key, plugin.Name, plugin.Description, plugin.Category, plugin.RiskLevel, plugin.Enabled, plugin.Scope, string(callbacks), plugin.SortOrder, plugin.ConfigSchemaJSON, plugin.ConfigJSON, plugin.DefaultConfigJSON, plugin.CreatedAt, plugin.UpdatedAt,
+	)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	rows, err := r.db.Query(pluginSelectSQL()+` WHERE plugin_key = ? AND deleted_at = '' LIMIT 1`, plugin.Key)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	defer rows.Close()
+	items, err := scanPlugins(rows)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	if len(items) == 0 {
+		return domain.Plugin{}, sql.ErrNoRows
+	}
+	return items[0], nil
+}
+
+func (r *SQLiteRepository) UpdatePluginEnabled(id string, enabled bool) (domain.Plugin, error) {
+	_, err := r.db.Exec(`UPDATE plugins SET enabled = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, enabled, nowISO(), id)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	return r.getPluginByID(id)
+}
+
+func (r *SQLiteRepository) UpdatePluginConfig(id string, configJSON string) (domain.Plugin, error) {
+	if strings.TrimSpace(configJSON) == "" {
+		configJSON = "{}"
+	}
+	if !json.Valid([]byte(configJSON)) {
+		return domain.Plugin{}, errors.New("plugin config_json must be valid JSON")
+	}
+	_, err := r.db.Exec(`UPDATE plugins SET config_json = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, configJSON, nowISO(), id)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	return r.getPluginByID(id)
+}
+
+func (r *SQLiteRepository) ListEnabledPluginKeys() ([]string, error) {
+	rows, err := r.db.Query(`SELECT plugin_key FROM plugins WHERE enabled = 1 AND deleted_at = '' ORDER BY sort_order ASC, created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	keys := []string{}
+	for rows.Next() {
+		var key string
+		if err = rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+func (r *SQLiteRepository) getPluginByID(id string) (domain.Plugin, error) {
+	rows, err := r.db.Query(pluginSelectSQL()+` WHERE id = ? AND deleted_at = '' LIMIT 1`, id)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	defer rows.Close()
+	items, err := scanPlugins(rows)
+	if err != nil {
+		return domain.Plugin{}, err
+	}
+	if len(items) == 0 {
+		return domain.Plugin{}, sql.ErrNoRows
+	}
+	return items[0], nil
+}
+
 func (r *SQLiteRepository) SearchSkills(query domain.SkillListQuery) (domain.SkillListResult, error) {
 	if query.Limit <= 0 {
 		query.Limit = 20
@@ -571,6 +840,273 @@ func (r *SQLiteRepository) DuplicateSkill(id string) (domain.Skill, error) {
 
 func (r *SQLiteRepository) DeleteSkill(id string) error {
 	return r.DeletePlatformResource("skills", id)
+}
+
+func (r *SQLiteRepository) SearchTools(query domain.ToolListQuery) (domain.ToolListResult, error) {
+	if query.Limit <= 0 {
+		query.Limit = 20
+	}
+	if query.Limit > 100 {
+		query.Limit = 100
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	where, args := toolWhereClause(query)
+	var total int
+	if err := r.db.QueryRow(`SELECT COUNT(1) FROM tools t WHERE `+where, args...).Scan(&total); err != nil {
+		return domain.ToolListResult{}, err
+	}
+	listArgs := append([]any{time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)}, args...)
+	listArgs = append(listArgs, query.Limit, query.Offset)
+	rows, err := r.db.Query(toolSelectSQL()+` WHERE `+where+` ORDER BY t.category ASC, t.display_name ASC LIMIT ? OFFSET ?`, listArgs...)
+	if err != nil {
+		return domain.ToolListResult{}, err
+	}
+	defer rows.Close()
+	items, err := scanTools(rows)
+	if err != nil {
+		return domain.ToolListResult{}, err
+	}
+	summary, err := r.toolSummary(query)
+	if err != nil {
+		return domain.ToolListResult{}, err
+	}
+	return domain.ToolListResult{Items: items, Total: total, Limit: query.Limit, Offset: query.Offset, Summary: summary}, nil
+}
+
+func (r *SQLiteRepository) GetToolByID(id string) (domain.Tool, error) {
+	rows, err := r.db.Query(toolSelectSQL()+` WHERE (t.id = ? OR t.tool_key = ?) AND t.deleted_at = '' LIMIT 1`, time.Now().UTC().Add(-24*time.Hour).Format(time.RFC3339), id, id)
+	if err != nil {
+		return domain.Tool{}, err
+	}
+	defer rows.Close()
+	items, err := scanTools(rows)
+	if err != nil {
+		return domain.Tool{}, err
+	}
+	if len(items) == 0 {
+		return domain.Tool{}, sql.ErrNoRows
+	}
+	return items[0], nil
+}
+
+func (r *SQLiteRepository) UpdateToolEnabled(id string, enabled bool) (domain.Tool, error) {
+	if strings.TrimSpace(id) == "" {
+		return domain.Tool{}, errors.New("tool id is required")
+	}
+	result, err := r.db.Exec(`UPDATE tools SET enabled = ?, updated_at = ? WHERE (id = ? OR tool_key = ?) AND deleted_at = ''`, enabled, nowISO(), id, id)
+	if err != nil {
+		return domain.Tool{}, err
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		return domain.Tool{}, sql.ErrNoRows
+	}
+	return r.GetToolByID(id)
+}
+
+func (r *SQLiteRepository) SearchToolInvocations(query domain.ToolRunQuery) (domain.ToolRunResult, error) {
+	if query.Limit <= 0 {
+		query.Limit = 20
+	}
+	if query.Limit > 100 {
+		query.Limit = 100
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	where := []string{"1 = 1"}
+	args := []any{}
+	if query.ToolKey != "" {
+		where = append(where, "ti.tool_key = ?")
+		args = append(args, query.ToolKey)
+	}
+	if query.AgentID != "" {
+		where = append(where, "ti.agent_id = ?")
+		args = append(args, query.AgentID)
+	}
+	if query.SessionID != "" {
+		where = append(where, "ti.session_id = ?")
+		args = append(args, query.SessionID)
+	}
+	if query.Status != "" {
+		where = append(where, "ti.status = ?")
+		args = append(args, query.Status)
+	}
+	if query.From != "" {
+		where = append(where, "ti.started_at >= ?")
+		args = append(args, query.From)
+	}
+	if query.To != "" {
+		where = append(where, "ti.started_at <= ?")
+		args = append(args, query.To)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	if err := r.db.QueryRow(`SELECT COUNT(1) FROM tool_invocations ti WHERE `+whereSQL, args...).Scan(&total); err != nil {
+		return domain.ToolRunResult{}, err
+	}
+	listArgs := append([]any{}, args...)
+	listArgs = append(listArgs, query.Limit, query.Offset)
+	rows, err := r.db.Query(`
+		SELECT ti.id, ti.request_id, ti.invocation_id, ti.tool_id, ti.tool_key, COALESCE(t.display_name, ti.tool_key),
+		       ti.agent_id, ti.agent_key, COALESCE(a.display_name, ''), ti.session_id, ti.message_id, ti.user_id,
+		       ti.source, ti.status, ti.started_at, ti.ended_at, ti.duration_ms,
+		       ti.input_preview, ti.input_hash, ti.output_preview, ti.output_hash,
+		       ti.error_code, ti.error_message, ti.redaction_applied, ti.metadata_json, ti.created_at
+		FROM tool_invocations ti
+		LEFT JOIN tools t ON t.tool_key = ti.tool_key
+		LEFT JOIN agents a ON a.id = ti.agent_id
+		WHERE `+whereSQL+`
+		ORDER BY ti.started_at DESC, ti.created_at DESC
+		LIMIT ? OFFSET ?`, listArgs...)
+	if err != nil {
+		return domain.ToolRunResult{}, err
+	}
+	defer rows.Close()
+	items := []domain.ToolInvocation{}
+	for rows.Next() {
+		var item domain.ToolInvocation
+		if err = rows.Scan(
+			&item.ID, &item.RequestID, &item.InvocationID, &item.ToolID, &item.ToolKey, &item.ToolDisplayName,
+			&item.AgentID, &item.AgentKey, &item.AgentDisplayName, &item.SessionID, &item.MessageID, &item.UserID,
+			&item.Source, &item.Status, &item.StartedAt, &item.EndedAt, &item.DurationMS,
+			&item.InputPreview, &item.InputHash, &item.OutputPreview, &item.OutputHash,
+			&item.ErrorCode, &item.ErrorMessage, &item.RedactionApplied, &item.MetadataJSON, &item.CreatedAt,
+		); err != nil {
+			return domain.ToolRunResult{}, err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		return domain.ToolRunResult{}, err
+	}
+	return domain.ToolRunResult{Items: items, Total: total, Limit: query.Limit, Offset: query.Offset}, nil
+}
+
+func (r *SQLiteRepository) toolSummary(query domain.ToolListQuery) (domain.ToolSummary, error) {
+	cutoff := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+	var summary domain.ToolSummary
+	where, args := toolWhereClause(domain.ToolListQuery{
+		Search:    query.Search,
+		Category:  query.Category,
+		Source:    query.Source,
+		RiskLevel: query.RiskLevel,
+		Enabled:   query.Enabled,
+	})
+	if err := r.db.QueryRow(`
+		SELECT
+		  COALESCE(COUNT(1), 0),
+		  COALESCE(SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END), 0),
+		  COALESCE(SUM(CASE WHEN enabled = 1 AND risk_level IN ('high', 'critical') THEN 1 ELSE 0 END), 0)
+		FROM tools t WHERE `+where,
+		args...,
+	).Scan(&summary.TotalTools, &summary.EnabledTools, &summary.HighRiskEnabled); err != nil {
+		return domain.ToolSummary{}, err
+	}
+	var success24h, failed24h, blocked24h int
+	if err := r.db.QueryRow(`
+		SELECT
+		  COALESCE(COUNT(1), 0),
+		  COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0),
+		  COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+		  COALESCE(SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END), 0)
+		FROM tool_invocations WHERE started_at >= ?`,
+		cutoff,
+	).Scan(&summary.Calls24h, &success24h, &failed24h, &blocked24h); err != nil {
+		return domain.ToolSummary{}, err
+	}
+	if summary.Calls24h > 0 {
+		summary.FailureRate24h = float64(failed24h+blocked24h) / float64(summary.Calls24h)
+	}
+	_ = success24h
+	return summary, nil
+}
+
+func toolWhereClause(query domain.ToolListQuery) (string, []any) {
+	where := []string{"t.deleted_at = ''"}
+	args := []any{}
+	if search := strings.TrimSpace(query.Search); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		where = append(where, "(LOWER(t.tool_key) LIKE ? OR LOWER(t.display_name) LIKE ? OR LOWER(t.description) LIKE ?)")
+		args = append(args, like, like, like)
+	}
+	if query.Category != "" {
+		where = append(where, "t.category = ?")
+		args = append(args, query.Category)
+	}
+	if query.Source != "" {
+		where = append(where, "t.source = ?")
+		args = append(args, query.Source)
+	}
+	if query.RiskLevel != "" {
+		where = append(where, "t.risk_level = ?")
+		args = append(args, query.RiskLevel)
+	}
+	if query.Enabled == "true" || query.Enabled == "false" {
+		where = append(where, "t.enabled = ?")
+		args = append(args, query.Enabled == "true")
+	}
+	return strings.Join(where, " AND "), args
+}
+
+func toolSelectSQL() string {
+	return `
+		SELECT t.id, t.tool_key, t.display_name, t.description, t.category, t.source, t.risk_level,
+		       t.enabled, t.readonly, t.requires_confirmation, t.supports_streaming, t.supports_concurrency,
+		       t.parameters_schema_json, t.result_schema_json, t.config_schema_json, t.config_json, t.default_config_json, t.metadata_json,
+		       COALESCE(stats.invoke_count, 0), COALESCE(stats.invoke_count_24h, 0), COALESCE(stats.success_count, 0),
+		       COALESCE(stats.failure_count, 0), COALESCE(stats.blocked_count, 0), COALESCE(overrides.agent_override_count, 0),
+		       stats.avg_duration_ms, COALESCE(last.started_at, ''), COALESCE(last.status, ''),
+		       t.created_at, t.updated_at, t.deleted_at
+		FROM tools t
+		LEFT JOIN (
+			SELECT tool_key,
+			       COUNT(1) AS invoke_count,
+			       SUM(CASE WHEN started_at >= ? THEN 1 ELSE 0 END) AS invoke_count_24h,
+			       SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success_count,
+			       SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS failure_count,
+			       SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked_count,
+			       AVG(duration_ms) AS avg_duration_ms
+			FROM tool_invocations
+			GROUP BY tool_key
+		) stats ON stats.tool_key = t.tool_key
+		LEFT JOIN (
+			SELECT tool_key, COUNT(1) AS agent_override_count
+			FROM tool_agent_overrides
+			WHERE deleted_at = ''
+			GROUP BY tool_key
+		) overrides ON overrides.tool_key = t.tool_key
+		LEFT JOIN (
+			SELECT ti.tool_key, ti.started_at, ti.status
+			FROM tool_invocations ti
+			INNER JOIN (
+				SELECT tool_key, MAX(started_at) AS max_started_at
+				FROM tool_invocations
+				GROUP BY tool_key
+			) latest ON latest.tool_key = ti.tool_key AND latest.max_started_at = ti.started_at
+		) last ON last.tool_key = t.tool_key`
+}
+
+func scanTools(rows *sql.Rows) ([]domain.Tool, error) {
+	items := []domain.Tool{}
+	for rows.Next() {
+		var item domain.Tool
+		if err := rows.Scan(
+			&item.ID, &item.Key, &item.DisplayName, &item.Description, &item.Category, &item.Source, &item.RiskLevel,
+			&item.Enabled, &item.Readonly, &item.RequiresConfirmation, &item.SupportsStreaming, &item.SupportsConcurrency,
+			&item.ParametersSchemaJSON, &item.ResultSchemaJSON, &item.ConfigSchemaJSON, &item.ConfigJSON, &item.DefaultConfigJSON, &item.MetadataJSON,
+			&item.InvokeCount, &item.InvokeCount24h, &item.SuccessCount, &item.FailureCount, &item.BlockedCount, &item.AgentOverrideCount,
+			&item.AvgDurationMS, &item.LastInvokedAt, &item.LastStatus,
+			&item.CreatedAt, &item.UpdatedAt, &item.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		item.Permissions = domain.ToolPermissions{CanManage: true}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (r *SQLiteRepository) SearchSkillInvocations(query domain.SkillRunQuery) (domain.SkillRunResult, error) {
@@ -1180,6 +1716,15 @@ func (r *SQLiteRepository) ListTeams() ([]domain.Team, error) {
 	return result, rows.Err()
 }
 
+func (r *SQLiteRepository) GetTeamByID(id string) (domain.Team, error) {
+	row := r.db.QueryRow(`SELECT id, team_key, display_name, status, is_default, definition_json, adk_app_name, created_at, updated_at, deleted_at FROM teams WHERE id = ? AND deleted_at = ''`, id)
+	var v domain.Team
+	if err := row.Scan(&v.ID, &v.TeamKey, &v.DisplayName, &v.Status, &v.IsDefault, &v.DefinitionJSON, &v.ADKAppName, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt); err != nil {
+		return domain.Team{}, err
+	}
+	return v, nil
+}
+
 func (r *SQLiteRepository) CreateTeam(t domain.Team) (domain.Team, error) {
 	if t.ID == "" || t.TeamKey == "" || t.DisplayName == "" {
 		return domain.Team{}, errors.New("missing required fields")
@@ -1193,6 +1738,143 @@ func (r *SQLiteRepository) CreateTeam(t domain.Team) (domain.Team, error) {
 	_, err := r.db.Exec(`INSERT INTO teams(id, team_key, display_name, status, is_default, definition_json, adk_app_name, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.TeamKey, t.DisplayName, t.Status, t.IsDefault, t.DefinitionJSON, t.ADKAppName, t.CreatedAt, t.UpdatedAt, t.DeletedAt)
 	return t, err
+}
+
+func (r *SQLiteRepository) UpdateTeam(t domain.Team) (domain.Team, error) {
+	if t.ID == "" || t.TeamKey == "" || t.DisplayName == "" {
+		return domain.Team{}, errors.New("missing required fields")
+	}
+	t.UpdatedAt = nowISO()
+	if t.Status == "" {
+		t.Status = "active"
+	}
+	_, err := r.db.Exec(`UPDATE teams SET team_key = ?, display_name = ?, status = ?, is_default = ?, definition_json = ?, adk_app_name = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`,
+		t.TeamKey, t.DisplayName, t.Status, t.IsDefault, t.DefinitionJSON, t.ADKAppName, t.UpdatedAt, t.ID)
+	if err != nil {
+		return domain.Team{}, err
+	}
+	return r.GetTeamByID(t.ID)
+}
+
+func (r *SQLiteRepository) DeleteTeam(id string) error {
+	if id == "" {
+		return errors.New("id is required")
+	}
+	_, err := r.db.Exec(`UPDATE teams SET deleted_at = ?, status = 'deleted', updated_at = ? WHERE id = ? AND deleted_at = '' AND is_default = 0`, nowISO(), nowISO(), id)
+	return err
+}
+
+func (r *SQLiteRepository) AddTeamRun(run domain.TeamRun) (domain.TeamRun, error) {
+	now := nowISO()
+	if run.ID == "" || run.TeamID == "" {
+		return domain.TeamRun{}, errors.New("team run id and team_id are required")
+	}
+	if run.CreatedAt == "" {
+		run.CreatedAt = now
+	}
+	if run.UpdatedAt == "" {
+		run.UpdatedAt = now
+	}
+	if run.StartedAt == "" {
+		run.StartedAt = now
+	}
+	if run.Status == "" {
+		run.Status = "running"
+	}
+	if run.TopologyJSON == "" {
+		run.TopologyJSON = "{}"
+	}
+	_, err := r.db.Exec(`INSERT INTO team_runs(id, team_id, session_id, message_id, mode, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, topology_json, started_at, finished_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.TeamID, run.SessionID, run.MessageID, run.Mode, run.Status, run.InputPreview, run.OutputPreview, run.TokenIn, run.TokenOut, run.DurationMS, run.ErrorMessage, run.TopologyJSON, run.StartedAt, run.FinishedAt, run.CreatedAt, run.UpdatedAt)
+	return run, err
+}
+
+func (r *SQLiteRepository) UpdateTeamRun(run domain.TeamRun) (domain.TeamRun, error) {
+	if run.ID == "" {
+		return domain.TeamRun{}, errors.New("team run id is required")
+	}
+	run.UpdatedAt = nowISO()
+	_, err := r.db.Exec(`UPDATE team_runs SET message_id = ?, status = ?, output_preview = ?, token_in = ?, token_out = ?, duration_ms = ?, error_message = ?, topology_json = ?, finished_at = ?, updated_at = ? WHERE id = ?`,
+		run.MessageID, run.Status, run.OutputPreview, run.TokenIn, run.TokenOut, run.DurationMS, run.ErrorMessage, run.TopologyJSON, run.FinishedAt, run.UpdatedAt, run.ID)
+	if err != nil {
+		return domain.TeamRun{}, err
+	}
+	items, err := r.ListTeamRuns(run.TeamID, 100)
+	if err != nil {
+		return domain.TeamRun{}, err
+	}
+	for _, item := range items {
+		if item.ID == run.ID {
+			return item, nil
+		}
+	}
+	return run, nil
+}
+
+func (r *SQLiteRepository) AddTeamRunStep(step domain.TeamRunStep) (domain.TeamRunStep, error) {
+	now := nowISO()
+	if step.ID == "" || step.RunID == "" || step.TeamID == "" {
+		return domain.TeamRunStep{}, errors.New("team run step id, run_id and team_id are required")
+	}
+	if step.CreatedAt == "" {
+		step.CreatedAt = now
+	}
+	if step.StartedAt == "" {
+		step.StartedAt = now
+	}
+	if step.FinishedAt == "" {
+		step.FinishedAt = now
+	}
+	if step.Status == "" {
+		step.Status = "success"
+	}
+	_, err := r.db.Exec(`INSERT INTO team_run_steps(id, run_id, team_id, agent_id, agent_key, agent_name, role, sort_order, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, started_at, finished_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		step.ID, step.RunID, step.TeamID, step.AgentID, step.AgentKey, step.AgentName, step.Role, step.SortOrder, step.Status, step.InputPreview, step.OutputPreview, step.TokenIn, step.TokenOut, step.DurationMS, step.ErrorMessage, step.StartedAt, step.FinishedAt, step.CreatedAt)
+	return step, err
+}
+
+func (r *SQLiteRepository) ListTeamRuns(teamID string, limit int) ([]domain.TeamRun, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	where := "1=1"
+	args := []any{}
+	if teamID != "" {
+		where = "team_id = ?"
+		args = append(args, teamID)
+	}
+	args = append(args, limit)
+	rows, err := r.db.Query(`SELECT id, team_id, session_id, message_id, mode, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, topology_json, started_at, finished_at, created_at, updated_at FROM team_runs WHERE `+where+` ORDER BY created_at DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []domain.TeamRun{}
+	for rows.Next() {
+		var item domain.TeamRun
+		if err = rows.Scan(&item.ID, &item.TeamID, &item.SessionID, &item.MessageID, &item.Mode, &item.Status, &item.InputPreview, &item.OutputPreview, &item.TokenIn, &item.TokenOut, &item.DurationMS, &item.ErrorMessage, &item.TopologyJSON, &item.StartedAt, &item.FinishedAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *SQLiteRepository) ListTeamRunSteps(runID string) ([]domain.TeamRunStep, error) {
+	rows, err := r.db.Query(`SELECT id, run_id, team_id, agent_id, agent_key, agent_name, role, sort_order, status, input_preview, output_preview, token_in, token_out, duration_ms, error_message, started_at, finished_at, created_at FROM team_run_steps WHERE run_id = ? ORDER BY sort_order ASC, created_at ASC`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []domain.TeamRunStep{}
+	for rows.Next() {
+		var item domain.TeamRunStep
+		if err = rows.Scan(&item.ID, &item.RunID, &item.TeamID, &item.AgentID, &item.AgentKey, &item.AgentName, &item.Role, &item.SortOrder, &item.Status, &item.InputPreview, &item.OutputPreview, &item.TokenIn, &item.TokenOut, &item.DurationMS, &item.ErrorMessage, &item.StartedAt, &item.FinishedAt, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (r *SQLiteRepository) CreateSession(s domain.Session) (domain.Session, error) {
@@ -1214,34 +1896,95 @@ func (r *SQLiteRepository) CreateSession(s domain.Session) (domain.Session, erro
 	if s.Status == "" {
 		s.Status = "active"
 	}
+	if s.ContextStatus == "" {
+		s.ContextStatus = contextStatusForRatio(s.ContextUsedRatio)
+	}
 	_, err := r.db.Exec(
-		`INSERT INTO sessions(id, owner_type, agent_id, team_id, title, context_used_ratio, dialog_mode, provider, model, status, last_message_at, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.OwnerType, s.AgentID, s.TeamID, s.Title, s.ContextUsedRatio, s.DialogMode, s.Provider, s.Model, s.Status, s.LastMessageAt, s.CreatedAt, s.UpdatedAt, s.DeletedAt,
+		`INSERT INTO sessions(
+		 id, owner_type, agent_id, team_id, title, summary, context_used_ratio, max_context_used_ratio, context_status,
+		 dialog_mode, provider, model, status, message_count, run_count, model_call_count, tool_call_count, skill_call_count,
+		 mcp_call_count, input_tokens, output_tokens, total_tokens, total_cost_micro_usd, last_message_at, created_at, updated_at, archived_at, deleted_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.OwnerType, s.AgentID, s.TeamID, s.Title, s.Summary, s.ContextUsedRatio, s.MaxContextUsedRatio, s.ContextStatus,
+		s.DialogMode, s.Provider, s.Model, s.Status, s.MessageCount, s.RunCount, s.ModelCallCount, s.ToolCallCount, s.SkillCallCount,
+		s.MCPCallCount, s.InputTokens, s.OutputTokens, s.TotalTokens, s.TotalCostMicroUSD, s.LastMessageAt, s.CreatedAt, s.UpdatedAt, s.ArchivedAt, s.DeletedAt,
 	)
 	return s, err
 }
 
 func (r *SQLiteRepository) GetSessionByID(id string) (domain.Session, error) {
-	row := r.db.QueryRow(`SELECT id, owner_type, agent_id, team_id, title, context_used_ratio, dialog_mode, provider, model, status, last_message_at, created_at, updated_at, deleted_at FROM sessions WHERE id = ? AND deleted_at = ''`, id)
+	row := r.db.QueryRow(sessionSelectSQL()+` WHERE id = ? AND deleted_at = ''`, id)
 	return scanSession(row)
 }
 
 func (r *SQLiteRepository) ListSessions(agentID string) ([]domain.Session, error) {
-	rows, err := r.db.Query(`SELECT id, owner_type, agent_id, team_id, title, context_used_ratio, dialog_mode, provider, model, status, last_message_at, created_at, updated_at, deleted_at FROM sessions WHERE agent_id = ? AND deleted_at = '' ORDER BY COALESCE(NULLIF(last_message_at, ''), updated_at) DESC`, agentID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanSessions(rows)
+	result, err := r.SearchSessions(domain.SessionSearchQuery{AgentID: agentID, Limit: 200})
+	return result.Items, err
 }
 
 func (r *SQLiteRepository) ListTeamSessions(teamID string) ([]domain.Session, error) {
-	rows, err := r.db.Query(`SELECT id, owner_type, agent_id, team_id, title, context_used_ratio, dialog_mode, provider, model, status, last_message_at, created_at, updated_at, deleted_at FROM sessions WHERE team_id = ? AND deleted_at = '' ORDER BY COALESCE(NULLIF(last_message_at, ''), updated_at) DESC`, teamID)
+	result, err := r.SearchSessions(domain.SessionSearchQuery{TeamID: teamID, Limit: 200})
+	return result.Items, err
+}
+
+func (r *SQLiteRepository) SearchSessions(query domain.SessionSearchQuery) (domain.SessionListResult, error) {
+	if query.Limit <= 0 || query.Limit > 100 {
+		query.Limit = 20
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	clauses := []string{"deleted_at = ''"}
+	args := []any{}
+	if query.OwnerType != "" {
+		clauses = append(clauses, "owner_type = ?")
+		args = append(args, query.OwnerType)
+	}
+	if query.AgentID != "" {
+		clauses = append(clauses, "agent_id = ?")
+		args = append(args, query.AgentID)
+	}
+	if query.TeamID != "" {
+		clauses = append(clauses, "team_id = ?")
+		args = append(args, query.TeamID)
+	}
+	if query.Status != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, query.Status)
+	}
+	if query.ContextStatus != "" {
+		clauses = append(clauses, "context_status = ?")
+		args = append(args, query.ContextStatus)
+	}
+	if query.Keyword != "" {
+		clauses = append(clauses, "(title LIKE ? OR summary LIKE ? OR id LIKE ?)")
+		like := "%" + query.Keyword + "%"
+		args = append(args, like, like, like)
+	}
+	where := strings.Join(clauses, " AND ")
+	var total int
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE `+where, args...).Scan(&total); err != nil {
+		return domain.SessionListResult{}, err
+	}
+	listArgs := append(append([]any{}, args...), query.Limit, query.Offset)
+	rows, err := r.db.Query(sessionSelectSQL()+` WHERE `+where+` ORDER BY COALESCE(NULLIF(last_message_at, ''), updated_at) DESC LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
-		return nil, err
+		return domain.SessionListResult{}, err
 	}
 	defer rows.Close()
-	return scanSessions(rows)
+	items, err := scanSessions(rows)
+	if err != nil {
+		return domain.SessionListResult{}, err
+	}
+	return domain.SessionListResult{Items: items, Total: total, Limit: query.Limit, Offset: query.Offset}, nil
+}
+
+func (r *SQLiteRepository) UpdateSessionTitle(id string, title string) (domain.Session, error) {
+	_, err := r.db.Exec(`UPDATE sessions SET title = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, title, nowISO(), id)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	return r.GetSessionByID(id)
 }
 
 func (r *SQLiteRepository) UpdateSessionContextUsedRatio(sessionID string, ratio float64) error {
@@ -1251,7 +1994,13 @@ func (r *SQLiteRepository) UpdateSessionContextUsedRatio(sessionID string, ratio
 	if ratio > 1 {
 		ratio = 1
 	}
-	_, err := r.db.Exec(`UPDATE sessions SET context_used_ratio = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, ratio, nowISO(), sessionID)
+	_, err := r.db.Exec(`UPDATE sessions SET context_used_ratio = ?, max_context_used_ratio = MAX(max_context_used_ratio, ?), context_status = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, ratio, ratio, contextStatusForRatio(ratio), nowISO(), sessionID)
+	return err
+}
+
+func (r *SQLiteRepository) ArchiveSession(id string) error {
+	now := nowISO()
+	_, err := r.db.Exec(`UPDATE sessions SET status = 'archived', archived_at = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, now, now, id)
 	return err
 }
 
@@ -1289,7 +2038,7 @@ func (r *SQLiteRepository) AddMessage(m domain.Message) (domain.Message, error) 
 	if err != nil {
 		return domain.Message{}, err
 	}
-	_, _ = r.db.Exec(`UPDATE sessions SET last_message_at = ?, updated_at = ? WHERE id = ?`, m.CreatedAt, m.CreatedAt, m.SessionID)
+	_, _ = r.db.Exec(`UPDATE sessions SET message_count = message_count + 1, last_message_at = ?, updated_at = ? WHERE id = ? AND deleted_at = ''`, m.CreatedAt, m.CreatedAt, m.SessionID)
 	return m, nil
 }
 
@@ -1453,6 +2202,22 @@ func (r *SQLiteRepository) AddModelTokenUsageEvent(event domain.ModelTokenUsageE
 	)
 	if err != nil {
 		return domain.ModelTokenUsageEvent{}, err
+	}
+	if event.SessionID != "" {
+		_, _ = r.db.Exec(
+			`UPDATE sessions
+			 SET model_call_count = model_call_count + ?,
+			     input_tokens = input_tokens + ?,
+			     output_tokens = output_tokens + ?,
+			     total_tokens = total_tokens + ?,
+			     total_cost_micro_usd = total_cost_micro_usd + ?,
+			     provider = ?,
+			     model = ?,
+			     updated_at = ?
+			 WHERE id = ? AND deleted_at = ''`,
+			event.CallCount, event.InputTokens, event.OutputTokens, event.TotalTokens, event.TotalCostMicroUSD,
+			event.ProviderCode, event.ModelAPIID, nowISO(), event.SessionID,
+		)
 	}
 	return event, nil
 }
@@ -1716,9 +2481,28 @@ func scanAgents(rows *sql.Rows) ([]domain.Agent, error) {
 	return result, rows.Err()
 }
 
+func sessionSelectSQL() string {
+	return `SELECT id, owner_type, agent_id, team_id, title, summary, context_used_ratio, max_context_used_ratio, context_status,
+	 dialog_mode, provider, model, status, message_count, run_count, model_call_count, tool_call_count, skill_call_count,
+	 mcp_call_count, input_tokens, output_tokens, total_tokens, total_cost_micro_usd, last_message_at, created_at, updated_at, archived_at, deleted_at FROM sessions`
+}
+
+func contextStatusForRatio(ratio float64) string {
+	switch {
+	case ratio >= 0.95:
+		return "exceeded"
+	case ratio >= 0.8:
+		return "critical"
+	case ratio >= 0.6:
+		return "warning"
+	default:
+		return "normal"
+	}
+}
+
 func scanSession(row scanner) (domain.Session, error) {
 	var v domain.Session
-	err := row.Scan(&v.ID, &v.OwnerType, &v.AgentID, &v.TeamID, &v.Title, &v.ContextUsedRatio, &v.DialogMode, &v.Provider, &v.Model, &v.Status, &v.LastMessageAt, &v.CreatedAt, &v.UpdatedAt, &v.DeletedAt)
+	err := row.Scan(&v.ID, &v.OwnerType, &v.AgentID, &v.TeamID, &v.Title, &v.Summary, &v.ContextUsedRatio, &v.MaxContextUsedRatio, &v.ContextStatus, &v.DialogMode, &v.Provider, &v.Model, &v.Status, &v.MessageCount, &v.RunCount, &v.ModelCallCount, &v.ToolCallCount, &v.SkillCallCount, &v.MCPCallCount, &v.InputTokens, &v.OutputTokens, &v.TotalTokens, &v.TotalCostMicroUSD, &v.LastMessageAt, &v.CreatedAt, &v.UpdatedAt, &v.ArchivedAt, &v.DeletedAt)
 	return v, err
 }
 
@@ -1829,6 +2613,29 @@ func scanPlatformRows(resource string, rows *sql.Rows) ([]domain.PlatformResourc
 		result = append(result, v)
 	}
 	return result, rows.Err()
+}
+
+func pluginSelectSQL() string {
+	return `SELECT id, plugin_key, name, description, category, risk_level, enabled, scope, callback_points_json, sort_order, config_schema_json, config_json, default_config_json, invoke_count, block_count, error_count, last_invoked_at, last_status, created_at, updated_at FROM plugins`
+}
+
+func scanPlugins(rows *sql.Rows) ([]domain.Plugin, error) {
+	items := []domain.Plugin{}
+	for rows.Next() {
+		var item domain.Plugin
+		var callbackJSON string
+		if err := rows.Scan(
+			&item.ID, &item.Key, &item.Name, &item.Description, &item.Category, &item.RiskLevel, &item.Enabled, &item.Scope,
+			&callbackJSON, &item.SortOrder, &item.ConfigSchemaJSON, &item.ConfigJSON, &item.DefaultConfigJSON,
+			&item.InvokeCount, &item.BlockCount, &item.ErrorCount, &item.LastInvokedAt, &item.LastStatus, &item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal([]byte(callbackJSON), &item.CallbackPoints)
+		item.Permissions = domain.PluginPermissions{CanView: true, CanToggle: true, CanEditConfig: true, CanViewLogs: true}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func normalizeJSONList(value string) string {

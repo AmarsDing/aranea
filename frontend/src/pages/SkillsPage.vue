@@ -1,5 +1,5 @@
 <template>
-  <q-page class="skills-page">
+  <q-page class="app-page-cream skills-page">
     <section class="skills-hero">
       <div>
         <div class="skills-kicker">Skill registry</div>
@@ -45,94 +45,23 @@
       @delete="confirmDelete"
     />
 
-    <footer class="skills-pagination q-mt-md">
-      <div class="text-caption text-grey-7">{{ total }} 条 Skill</div>
-      <div class="row items-center q-gutter-sm">
-        <q-select v-model="pageSize" dense outlined emit-value map-options label="行" :options="pageSizeOptions" class="skills-page-size" />
-        <span class="text-caption">第 {{ page }} / {{ pageMax }} 页</span>
-        <q-btn round dense flat icon="chevron_left" :disable="page <= 1 || loading" @click="page--" />
-        <q-btn round dense flat icon="chevron_right" :disable="page >= pageMax || loading" @click="page++" />
-      </div>
-    </footer>
-
-    <q-dialog v-model="deleteOpen">
-      <q-card style="width: 420px; max-width: 92vw">
-        <q-card-section>
-          <div class="text-h6">删除 Skill</div>
-          <div class="text-body2 text-grey-7 q-mt-sm">确认删除「{{ deleteTarget?.name }}」？此操作会软删除，列表中不再显示。</div>
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat rounded label="取消" v-close-popup />
-          <q-btn color="negative" rounded unelevated label="删除" :loading="deleting" @click="deleteTargetSkill" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
-
-    <q-dialog v-model="editorOpen" maximized>
-      <q-card class="skill-editor-card">
-        <q-card-section class="row items-center justify-between q-pb-sm">
-          <div>
-            <div class="text-h6">编辑 Skill 文件</div>
-            <div class="text-caption text-grey-7">{{ editorTarget?.name }}</div>
-          </div>
-          <q-btn flat round dense icon="close" v-close-popup />
-        </q-card-section>
-        <q-separator />
-        <q-card-section class="skill-editor-body">
-          <q-card flat bordered class="skill-editor-files">
-            <q-list separator>
-              <q-item v-if="filesLoading">
-                <q-item-section>正在加载文件...</q-item-section>
-              </q-item>
-              <q-item v-for="file in editorFiles" :key="file.path" clickable :active="file.path === selectedFile?.path" @click="selectFile(file.path)">
-                <q-item-section avatar>
-                  <q-icon :name="fileIcon(file.language)" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label>{{ file.name }}</q-item-label>
-                  <q-item-label caption>{{ file.path }}</q-item-label>
-                </q-item-section>
-              </q-item>
-              <q-item v-if="!filesLoading && editorFiles.length === 0">
-                <q-item-section>该 Skill 暂无可编辑文件</q-item-section>
-              </q-item>
-            </q-list>
-          </q-card>
-          <q-card flat bordered class="skill-editor-pane">
-            <q-card-section class="row items-center justify-between">
-              <div>
-                <div class="text-subtitle1">{{ selectedFile?.path || "请选择文件" }}</div>
-                <div class="text-caption text-grey-7">{{ selectedFile?.language || "text" }}</div>
-              </div>
-              <q-btn color="primary" rounded unelevated icon="save" label="保存" :disable="!selectedFile" :loading="savingFile" @click="saveFile" />
-            </q-card-section>
-            <q-separator />
-            <q-card-section class="q-pa-none">
-              <q-input
-                v-model="editorContent"
-                type="textarea"
-                borderless
-                autogrow
-                class="skill-editor-textarea"
-                :disable="!selectedFile || readingFile"
-                :placeholder="readingFile ? '正在读取文件...' : '选择左侧文件后编辑内容'"
-              />
-            </q-card-section>
-          </q-card>
-        </q-card-section>
-      </q-card>
-    </q-dialog>
+    <skill-pagination v-model:page="page" v-model:page-size="pageSize" :page-max="pageMax" :total="total" :loading="loading" label="条 Skill" />
+    <skill-delete-dialog v-model="deleteOpen" :skill="deleteTarget" :loading="deleting" @confirm="deleteTargetSkill" />
+    <skill-editor-dialog v-model="editorOpen" :skill="editorTarget" />
   </q-page>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useQuasar } from "quasar";
+import SkillDeleteDialog from "../features/skills/components/SkillDeleteDialog.vue";
+import SkillEditorDialog from "../features/skills/components/SkillEditorDialog.vue";
 import SkillFilterBar from "../features/skills/components/SkillFilterBar.vue";
+import SkillPagination from "../features/skills/components/SkillPagination.vue";
 import SkillTable from "../features/skills/components/SkillTable.vue";
 import SkillUploadPlaceholder from "../features/skills/components/SkillUploadPlaceholder.vue";
-import { deleteSkill, listSkillFiles, listSkills, readSkillFile, toggleSkillEnabled, updateSkillFile } from "../features/skills/api";
-import type { Skill, SkillFile } from "../features/skills/types";
+import { deleteSkill, listSkills, toggleSkillEnabled } from "../features/skills/api";
+import type { Skill } from "../features/skills/types";
 
 const $q = useQuasar();
 const search = ref("");
@@ -150,14 +79,7 @@ const deleteTarget = ref<Skill | null>(null);
 const deleting = ref(false);
 const editorOpen = ref(false);
 const editorTarget = ref<Skill | null>(null);
-const editorFiles = ref<SkillFile[]>([]);
-const selectedFile = ref<SkillFile | null>(null);
-const editorContent = ref("");
-const filesLoading = ref(false);
-const readingFile = ref(false);
-const savingFile = ref(false);
 
-const pageSizeOptions = [10, 20, 50].map((value) => ({ label: String(value), value }));
 const pageMax = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 
 async function loadRows() {
@@ -201,58 +123,9 @@ async function onToggleEnabled(skill: Skill, next: boolean) {
   }
 }
 
-async function openEditor(skill: Skill) {
+function openEditor(skill: Skill) {
   editorTarget.value = skill;
   editorOpen.value = true;
-  editorFiles.value = [];
-  selectedFile.value = null;
-  editorContent.value = "";
-  filesLoading.value = true;
-  try {
-    editorFiles.value = await listSkillFiles(skill.id);
-    const preferred = editorFiles.value.find((file) => file.path.toLowerCase() === "skill.md") ?? editorFiles.value[0];
-    if (preferred) {
-      await selectFile(preferred.path);
-    }
-  } catch (err) {
-    $q.notify({ type: "negative", message: err instanceof Error ? err.message : "加载 Skill 文件失败" });
-  } finally {
-    filesLoading.value = false;
-  }
-}
-
-async function selectFile(path: string) {
-  if (!editorTarget.value) return;
-  const file = editorFiles.value.find((item) => item.path === path);
-  if (!file) return;
-  selectedFile.value = file;
-  readingFile.value = true;
-  try {
-    const data = await readSkillFile(editorTarget.value.id, path);
-    editorContent.value = data.content;
-  } catch (err) {
-    $q.notify({ type: "negative", message: err instanceof Error ? err.message : "读取文件失败" });
-  } finally {
-    readingFile.value = false;
-  }
-}
-
-async function saveFile() {
-  if (!editorTarget.value || !selectedFile.value) return;
-  savingFile.value = true;
-  try {
-    const data = await updateSkillFile(editorTarget.value.id, selectedFile.value.path, editorContent.value);
-    editorContent.value = data.content;
-    $q.notify({ type: "positive", message: "文件已保存" });
-  } catch (err) {
-    $q.notify({ type: "negative", message: err instanceof Error ? err.message : "保存文件失败" });
-  } finally {
-    savingFile.value = false;
-  }
-}
-
-function fileIcon(language: string) {
-  return language === "markdown" ? "description" : language === "python" ? "data_object" : language === "javascript" || language === "typescript" ? "code" : "insert_drive_file";
 }
 
 function confirmDelete(skill: Skill) {
@@ -317,45 +190,11 @@ onMounted(loadRows);
   margin: 0
   color: var(--q-grey-7)
 
-.skills-pagination
-  display: flex
-  align-items: center
-  justify-content: space-between
-  gap: 12px
-
 .skills-empty-card
   border-radius: 22px
 
-.skills-page-size
-  min-width: 96px
-
-.skill-editor-card
-  min-height: 100vh
-
-.skill-editor-body
-  display: grid
-  grid-template-columns: minmax(260px, 360px) 1fr
-  gap: 16px
-  height: calc(100vh - 82px)
-
-.skill-editor-files,
-.skill-editor-pane
-  border-radius: 18px
-  overflow: auto
-
-.skill-editor-textarea
-  min-height: calc(100vh - 190px)
-  padding: 16px
-  font-family: Consolas, 'Courier New', monospace
-  font-size: 13px
-  line-height: 1.6
-
 @media (max-width: 720px)
-  .skills-hero,
-  .skills-pagination
+  .skills-hero
     flex-direction: column
     align-items: stretch
-  .skill-editor-body
-    grid-template-columns: 1fr
-    height: auto
 </style>

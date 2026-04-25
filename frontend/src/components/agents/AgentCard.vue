@@ -1,5 +1,5 @@
 <template>
-  <q-card flat bordered class="agent-card full-height">
+  <q-card flat bordered :class="['agent-card full-height', { 'agent-card--dark': isDark }]">
     <q-card-section class="agent-card__header">
       <q-avatar rounded color="primary" text-color="white" size="56px" :icon="avatarIcon" class="agent-card__avatar">
         <img v-if="avatarSrc" :src="avatarSrc" :alt="agent.display_name" />
@@ -46,6 +46,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useQuasar } from "quasar";
 import type { Agent } from "../../api/client";
 import { avatarThumbnailUrl, isAvatarAssetRef } from "./agentUi";
 
@@ -63,6 +64,8 @@ defineEmits<{
   delete: [agent: Agent];
 }>();
 
+const $q = useQuasar();
+const isDark = computed(() => $q.dark.isActive);
 const avatarSrc = computed(() => (isAvatarAssetRef(props.agent.icon) ? avatarThumbnailUrl(props.agent.icon) : ""));
 const avatarIcon = computed(() => (avatarSrc.value ? undefined : props.agent.icon || "smart_toy"));
 </script>
@@ -171,5 +174,51 @@ const avatarIcon = computed(() => (avatarSrc.value ? undefined : props.agent.ico
 
 .min-width-0 {
   min-width: 0;
+}
+
+.agent-card.agent-card--dark {
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.9)),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 32%);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.3);
+}
+
+.agent-card.agent-card--dark:hover {
+  border-color: rgba(96, 165, 250, 0.38);
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.42);
+}
+
+.agent-card.agent-card--dark .agent-card__status {
+  background: rgba(51, 65, 85, 0.78);
+  color: #cbd5e1;
+}
+
+.agent-card.agent-card--dark .agent-card__status.is-active {
+  background: rgba(22, 101, 52, 0.28);
+  color: #86efac;
+}
+
+.agent-card.agent-card--dark .agent-card__model,
+.agent-card.agent-card--dark .agent-description,
+.agent-card.agent-card--dark .agent-handle,
+.agent-card.agent-card--dark .agent-card__context {
+  color: #94a3b8;
+}
+
+.agent-card.agent-card--dark .agent-card__chip {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(30, 41, 59, 0.78);
+  color: #cbd5e1;
+}
+
+.agent-card.agent-card--dark .agent-card__chip.is-evolving {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(120, 53, 15, 0.26);
+  color: #fbbf24;
+}
+
+.agent-card.agent-card--dark .agent-card__actions {
+  background: rgba(15, 23, 42, 0.74);
 }
 </style>

@@ -18,12 +18,28 @@ func (s *SessionService) Create(in domain.Session) (domain.Session, error) {
 	return s.repo.CreateSession(in)
 }
 
+func (s *SessionService) Get(id string) (domain.Session, error) {
+	return s.repo.GetSessionByID(id)
+}
+
 func (s *SessionService) List(agentID string) ([]domain.Session, error) {
 	return s.repo.ListSessions(agentID)
 }
 
 func (s *SessionService) ListTeam(teamID string) ([]domain.Session, error) {
 	return s.repo.ListTeamSessions(teamID)
+}
+
+func (s *SessionService) Search(query domain.SessionSearchQuery) (domain.SessionListResult, error) {
+	return s.repo.SearchSessions(query)
+}
+
+func (s *SessionService) Rename(id string, title string) (domain.Session, error) {
+	return s.repo.UpdateSessionTitle(id, title)
+}
+
+func (s *SessionService) Archive(id string) error {
+	return s.repo.ArchiveSession(id)
 }
 
 func (s *SessionService) Delete(id string) error {

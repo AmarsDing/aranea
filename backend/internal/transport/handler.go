@@ -15,9 +15,11 @@ type HTTPHandler struct {
 	platformSvc *service.PlatformService
 	usageSvc    *service.UsageService
 	skillSvc    *service.SkillService
+	toolSvc     *service.ToolService
+	pluginSvc   *service.PluginService
 }
 
-func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService, sessionSvc *service.SessionService, chatSvc *service.ChatService, auditSvc *service.AuditService, platformSvc *service.PlatformService, usageSvc *service.UsageService, skillSvc *service.SkillService) http.Handler {
+func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService, sessionSvc *service.SessionService, chatSvc *service.ChatService, auditSvc *service.AuditService, platformSvc *service.PlatformService, usageSvc *service.UsageService, skillSvc *service.SkillService, toolSvc *service.ToolService, pluginSvc *service.PluginService) http.Handler {
 	h := &HTTPHandler{
 		agentSvc:    agentSvc,
 		teamSvc:     teamSvc,
@@ -27,13 +29,19 @@ func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService
 		platformSvc: platformSvc,
 		usageSvc:    usageSvc,
 		skillSvc:    skillSvc,
+		toolSvc:     toolSvc,
+		pluginSvc:   pluginSvc,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", h.healthz)
 	mux.HandleFunc("/api/v1/agents/validate-model", h.handleValidateModel)
 	mux.HandleFunc("/api/v1/agents/", h.handleAgentByID)
 	mux.HandleFunc("/api/v1/agents", h.handleAgents)
+	mux.HandleFunc("/api/v1/teams/", h.handleTeamByID)
 	mux.HandleFunc("/api/v1/teams", h.handleTeams)
+	mux.HandleFunc("/api/v1/team-runs/", h.handleTeamRunByID)
+	mux.HandleFunc("/api/v1/team-runs", h.handleTeamRuns)
+	mux.HandleFunc("/api/v1/team-run-events", h.handleTeamRunEvents)
 	mux.HandleFunc("/api/v1/agent-categories/tree", h.handlePlatformTree("agent-categories"))
 	mux.HandleFunc("/api/v1/agent-categories", h.handlePlatformCollection("agent-categories"))
 	mux.HandleFunc("/api/v1/agent-categories/", h.handlePlatformItem("agent-categories", "/api/v1/agent-categories/"))
@@ -53,6 +61,11 @@ func NewHTTPHandler(agentSvc *service.AgentService, teamSvc *service.TeamService
 	mux.HandleFunc("/api/v1/skills", h.handleSkills)
 	mux.HandleFunc("/api/v1/skills/", h.handleSkillByID)
 	mux.HandleFunc("/api/v1/skill-runs", h.handleSkillRuns)
+	mux.HandleFunc("/api/v1/tools/runs", h.handleToolRuns)
+	mux.HandleFunc("/api/v1/tools", h.handleTools)
+	mux.HandleFunc("/api/v1/tools/", h.handleToolByID)
+	mux.HandleFunc("/api/v1/plugins", h.handlePlugins)
+	mux.HandleFunc("/api/v1/plugins/", h.handlePluginByID)
 	mux.HandleFunc("/api/v1/cron-tasks", h.handlePlatformCollection("cron-tasks"))
 	mux.HandleFunc("/api/v1/cron-tasks/", h.handlePlatformItem("cron-tasks", "/api/v1/cron-tasks/"))
 	mux.HandleFunc("/api/v1/sessions", h.handleSessions)

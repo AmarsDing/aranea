@@ -16,7 +16,8 @@ export const sideNavGroups: NavGroup[] = [
     labelKey: "menu.groupMain",
     items: [
       { to: "/overview", icon: "dashboard", labelKey: "menu.overview" },
-      { to: "/chat", icon: "chat", labelKey: "menu.chat" }
+      { to: "/chat", icon: "chat", labelKey: "menu.chat" },
+      { to: "/sessions", icon: "history", labelKey: "menu.sessions", exact: false }
     ]
   },
   {
@@ -34,6 +35,7 @@ export const sideNavGroups: NavGroup[] = [
       { to: "/channels", icon: "hub", labelKey: "menu.channels" },
       { to: "/mcp", icon: "extension", labelKey: "menu.mcp" },
       { to: "/skills", icon: "psychology", labelKey: "menu.skills" },
+      { to: "/plugins", icon: "tune", labelKey: "menu.plugins" },
       { to: "/tools", icon: "handyman", labelKey: "menu.tools" },
       { to: "/cron", icon: "schedule", labelKey: "menu.cron" }
     ]

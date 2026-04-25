@@ -95,21 +95,94 @@ type Team struct {
 	DeletedAt      string `json:"deleted_at"`
 }
 
+type TeamRun struct {
+	ID            string `json:"id"`
+	TeamID        string `json:"team_id"`
+	SessionID     string `json:"session_id"`
+	MessageID     string `json:"message_id"`
+	Mode          string `json:"mode"`
+	Status        string `json:"status"`
+	InputPreview  string `json:"input_preview"`
+	OutputPreview string `json:"output_preview"`
+	TokenIn       int    `json:"token_in"`
+	TokenOut      int    `json:"token_out"`
+	DurationMS    int    `json:"duration_ms"`
+	ErrorMessage  string `json:"error_message"`
+	TopologyJSON  string `json:"topology_json"`
+	StartedAt     string `json:"started_at"`
+	FinishedAt    string `json:"finished_at"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+type TeamRunStep struct {
+	ID            string `json:"id"`
+	RunID         string `json:"run_id"`
+	TeamID        string `json:"team_id"`
+	AgentID       string `json:"agent_id"`
+	AgentKey      string `json:"agent_key"`
+	AgentName     string `json:"agent_name"`
+	Role          string `json:"role"`
+	SortOrder     int    `json:"sort_order"`
+	Status        string `json:"status"`
+	InputPreview  string `json:"input_preview"`
+	OutputPreview string `json:"output_preview"`
+	TokenIn       int    `json:"token_in"`
+	TokenOut      int    `json:"token_out"`
+	DurationMS    int    `json:"duration_ms"`
+	ErrorMessage  string `json:"error_message"`
+	StartedAt     string `json:"started_at"`
+	FinishedAt    string `json:"finished_at"`
+	CreatedAt     string `json:"created_at"`
+}
+
 type Session struct {
-	ID               string  `json:"id"`
-	OwnerType        string  `json:"owner_type"`
-	AgentID          string  `json:"agent_id"`
-	TeamID           string  `json:"team_id"`
-	Title            string  `json:"title"`
-	ContextUsedRatio float64 `json:"context_used_ratio"`
-	DialogMode       string  `json:"dialog_mode"`
-	Provider         string  `json:"provider"`
-	Model            string  `json:"model"`
-	Status           string  `json:"status"`
-	LastMessageAt    string  `json:"last_message_at"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
-	DeletedAt        string  `json:"deleted_at"`
+	ID                  string  `json:"id"`
+	OwnerType           string  `json:"owner_type"`
+	AgentID             string  `json:"agent_id"`
+	TeamID              string  `json:"team_id"`
+	Title               string  `json:"title"`
+	Summary             string  `json:"summary"`
+	ContextUsedRatio    float64 `json:"context_used_ratio"`
+	MaxContextUsedRatio float64 `json:"max_context_used_ratio"`
+	ContextStatus       string  `json:"context_status"`
+	DialogMode          string  `json:"dialog_mode"`
+	Provider            string  `json:"provider"`
+	Model               string  `json:"model"`
+	Status              string  `json:"status"`
+	MessageCount        int     `json:"message_count"`
+	RunCount            int     `json:"run_count"`
+	ModelCallCount      int     `json:"model_call_count"`
+	ToolCallCount       int     `json:"tool_call_count"`
+	SkillCallCount      int     `json:"skill_call_count"`
+	MCPCallCount        int     `json:"mcp_call_count"`
+	InputTokens         int     `json:"input_tokens"`
+	OutputTokens        int     `json:"output_tokens"`
+	TotalTokens         int     `json:"total_tokens"`
+	TotalCostMicroUSD   int64   `json:"total_cost_micro_usd"`
+	LastMessageAt       string  `json:"last_message_at"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
+	ArchivedAt          string  `json:"archived_at"`
+	DeletedAt           string  `json:"deleted_at"`
+}
+
+type SessionSearchQuery struct {
+	OwnerType     string `json:"owner_type"`
+	AgentID       string `json:"agent_id"`
+	TeamID        string `json:"team_id"`
+	Status        string `json:"status"`
+	ContextStatus string `json:"context_status"`
+	Keyword       string `json:"keyword"`
+	Limit         int    `json:"limit"`
+	Offset        int    `json:"offset"`
+}
+
+type SessionListResult struct {
+	Items  []Session `json:"items"`
+	Total  int       `json:"total"`
+	Limit  int       `json:"limit"`
+	Offset int       `json:"offset"`
 }
 
 type Message struct {
@@ -343,6 +416,186 @@ type PlatformResource struct {
 type PlatformResourceTreeNode struct {
 	PlatformResource
 	Children []PlatformResourceTreeNode `json:"children"`
+}
+
+type PluginPermissions struct {
+	CanView       bool `json:"can_view"`
+	CanToggle     bool `json:"can_toggle"`
+	CanEditConfig bool `json:"can_edit_config"`
+	CanViewLogs   bool `json:"can_view_logs"`
+}
+
+type Plugin struct {
+	ID                string            `json:"id"`
+	Key               string            `json:"key"`
+	Name              string            `json:"name"`
+	Description       string            `json:"description"`
+	Category          string            `json:"category"`
+	RiskLevel         string            `json:"risk_level"`
+	Enabled           bool              `json:"enabled"`
+	Scope             string            `json:"scope"`
+	CallbackPoints    []string          `json:"callback_points"`
+	SortOrder         int               `json:"sort_order"`
+	ConfigSchemaJSON  string            `json:"config_schema_json"`
+	ConfigJSON        string            `json:"config_json"`
+	DefaultConfigJSON string            `json:"default_config_json"`
+	InvokeCount       int               `json:"invoke_count"`
+	BlockCount        int               `json:"block_count"`
+	ErrorCount        int               `json:"error_count"`
+	LastInvokedAt     string            `json:"last_invoked_at,omitempty"`
+	LastStatus        string            `json:"last_status,omitempty"`
+	CreatedAt         string            `json:"created_at"`
+	UpdatedAt         string            `json:"updated_at"`
+	Permissions       PluginPermissions `json:"permissions"`
+}
+
+type PluginListQuery struct {
+	Search        string `json:"search"`
+	Category      string `json:"category"`
+	Enabled       string `json:"enabled"`
+	CallbackPoint string `json:"callback_point"`
+	Limit         int    `json:"limit"`
+	Offset        int    `json:"offset"`
+}
+
+type PluginListResult struct {
+	Items  []Plugin `json:"items"`
+	Total  int      `json:"total"`
+	Limit  int      `json:"limit"`
+	Offset int      `json:"offset"`
+}
+
+type PluginConfigUpdate struct {
+	ConfigJSON string `json:"config_json"`
+}
+
+type ToolPermissions struct {
+	CanManage bool `json:"can_manage"`
+}
+
+type Tool struct {
+	ID                   string          `json:"id"`
+	Key                  string          `json:"key"`
+	DisplayName          string          `json:"display_name"`
+	Description          string          `json:"description"`
+	Category             string          `json:"category"`
+	Source               string          `json:"source"`
+	RiskLevel            string          `json:"risk_level"`
+	Enabled              bool            `json:"enabled"`
+	Readonly             bool            `json:"readonly"`
+	RequiresConfirmation bool            `json:"requires_confirmation"`
+	SupportsStreaming    bool            `json:"supports_streaming"`
+	SupportsConcurrency  bool            `json:"supports_concurrency"`
+	ParametersSchemaJSON string          `json:"parameters_schema_json"`
+	ResultSchemaJSON     string          `json:"result_schema_json"`
+	ConfigSchemaJSON     string          `json:"config_schema_json"`
+	ConfigJSON           string          `json:"config_json"`
+	DefaultConfigJSON    string          `json:"default_config_json"`
+	MetadataJSON         string          `json:"metadata_json"`
+	InvokeCount          int             `json:"invoke_count"`
+	InvokeCount24h       int             `json:"invoke_count_24h"`
+	SuccessCount         int             `json:"success_count"`
+	FailureCount         int             `json:"failure_count"`
+	BlockedCount         int             `json:"blocked_count"`
+	AgentOverrideCount   int             `json:"agent_override_count"`
+	AvgDurationMS        *float64        `json:"avg_duration_ms"`
+	LastInvokedAt        string          `json:"last_invoked_at,omitempty"`
+	LastStatus           string          `json:"last_status,omitempty"`
+	CreatedAt            string          `json:"created_at"`
+	UpdatedAt            string          `json:"updated_at"`
+	DeletedAt            string          `json:"deleted_at,omitempty"`
+	Permissions          ToolPermissions `json:"permissions"`
+}
+
+type ToolListQuery struct {
+	Search    string `json:"search"`
+	Category  string `json:"category"`
+	Source    string `json:"source"`
+	RiskLevel string `json:"risk_level"`
+	Enabled   string `json:"enabled"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+}
+
+type ToolListResult struct {
+	Items   []Tool      `json:"items"`
+	Total   int         `json:"total"`
+	Limit   int         `json:"limit"`
+	Offset  int         `json:"offset"`
+	Summary ToolSummary `json:"summary"`
+}
+
+type ToolSummary struct {
+	TotalTools      int     `json:"total_tools"`
+	EnabledTools    int     `json:"enabled_tools"`
+	HighRiskEnabled int     `json:"high_risk_enabled"`
+	Calls24h        int     `json:"calls_24h"`
+	FailureRate24h  float64 `json:"failure_rate_24h"`
+}
+
+type ToolInvocation struct {
+	ID               string `json:"id"`
+	RequestID        string `json:"request_id"`
+	InvocationID     string `json:"invocation_id"`
+	ToolID           string `json:"tool_id"`
+	ToolKey          string `json:"tool_key"`
+	ToolDisplayName  string `json:"tool_display_name"`
+	AgentID          string `json:"agent_id"`
+	AgentKey         string `json:"agent_key"`
+	AgentDisplayName string `json:"agent_display_name"`
+	SessionID        string `json:"session_id"`
+	MessageID        string `json:"message_id"`
+	UserID           string `json:"user_id"`
+	Source           string `json:"source"`
+	Status           string `json:"status"`
+	StartedAt        string `json:"started_at"`
+	EndedAt          string `json:"ended_at"`
+	DurationMS       int    `json:"duration_ms"`
+	InputPreview     string `json:"input_preview"`
+	InputHash        string `json:"input_hash"`
+	OutputPreview    string `json:"output_preview"`
+	OutputHash       string `json:"output_hash"`
+	ErrorCode        string `json:"error_code"`
+	ErrorMessage     string `json:"error_message"`
+	RedactionApplied bool   `json:"redaction_applied"`
+	MetadataJSON     string `json:"metadata_json"`
+	CreatedAt        string `json:"created_at"`
+}
+
+type ToolRunQuery struct {
+	ToolKey   string `json:"tool_key"`
+	AgentID   string `json:"agent_id"`
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+}
+
+type ToolRunResult struct {
+	Items  []ToolInvocation `json:"items"`
+	Total  int              `json:"total"`
+	Limit  int              `json:"limit"`
+	Offset int              `json:"offset"`
+}
+
+type EffectiveAgentTool struct {
+	ToolKey        string `json:"tool_key"`
+	DisplayName    string `json:"display_name"`
+	Category       string `json:"category"`
+	Source         string `json:"source"`
+	Enabled        bool   `json:"enabled"`
+	EffectiveState string `json:"effective_state"`
+	Reason         string `json:"reason"`
+}
+
+type AgentEffectiveTools struct {
+	ToolsEnabled bool                 `json:"tools_enabled"`
+	Profile      string               `json:"profile"`
+	Allow        []string             `json:"allow"`
+	Deny         []string             `json:"deny"`
+	Items        []EffectiveAgentTool `json:"items"`
 }
 
 type SkillTag struct {

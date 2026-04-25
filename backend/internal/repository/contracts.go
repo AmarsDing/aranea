@@ -17,12 +17,23 @@ type Store interface {
 	ReplaceAgentPromptFiles(agentID string, files []domain.AgentPromptFile) ([]domain.AgentPromptFile, error)
 	DeleteAgent(id string) error
 	ListTeams() ([]domain.Team, error)
+	GetTeamByID(id string) (domain.Team, error)
 	CreateTeam(t domain.Team) (domain.Team, error)
+	UpdateTeam(t domain.Team) (domain.Team, error)
+	DeleteTeam(id string) error
+	AddTeamRun(run domain.TeamRun) (domain.TeamRun, error)
+	UpdateTeamRun(run domain.TeamRun) (domain.TeamRun, error)
+	AddTeamRunStep(step domain.TeamRunStep) (domain.TeamRunStep, error)
+	ListTeamRuns(teamID string, limit int) ([]domain.TeamRun, error)
+	ListTeamRunSteps(runID string) ([]domain.TeamRunStep, error)
 	CreateSession(s domain.Session) (domain.Session, error)
 	GetSessionByID(id string) (domain.Session, error)
+	SearchSessions(query domain.SessionSearchQuery) (domain.SessionListResult, error)
 	ListSessions(agentID string) ([]domain.Session, error)
 	ListTeamSessions(teamID string) ([]domain.Session, error)
+	UpdateSessionTitle(id string, title string) (domain.Session, error)
 	UpdateSessionContextUsedRatio(sessionID string, ratio float64) error
+	ArchiveSession(id string) error
 	DeleteSession(id string) error
 	DeleteSessionsByAgentID(agentID string) error
 	AddMessage(m domain.Message) (domain.Message, error)
@@ -37,6 +48,10 @@ type Store interface {
 	ListTopAgentUsage(query domain.ModelUsageQuery) ([]domain.ModelUsageBreakdownRow, error)
 	ListModelUsageEvents(query domain.ModelUsageQuery) ([]domain.ModelTokenUsageEvent, error)
 	ListChatOptions(optionType string) ([]domain.ChatOption, error)
+	SearchTools(query domain.ToolListQuery) (domain.ToolListResult, error)
+	GetToolByID(id string) (domain.Tool, error)
+	UpdateToolEnabled(id string, enabled bool) (domain.Tool, error)
+	SearchToolInvocations(query domain.ToolRunQuery) (domain.ToolRunResult, error)
 	SearchSkills(query domain.SkillListQuery) (domain.SkillListResult, error)
 	GetSkillByID(id string) (domain.Skill, error)
 	UpdateSkillEnabled(id string, enabled bool) (domain.Skill, error)
@@ -52,6 +67,11 @@ type Store interface {
 	CreatePlatformResource(v domain.PlatformResource) (domain.PlatformResource, error)
 	UpdatePlatformResource(v domain.PlatformResource) (domain.PlatformResource, error)
 	DeletePlatformResource(resource string, id string) error
+	SearchPlugins(query domain.PluginListQuery) (domain.PluginListResult, error)
+	UpsertPlugin(plugin domain.Plugin) (domain.Plugin, error)
+	UpdatePluginEnabled(id string, enabled bool) (domain.Plugin, error)
+	UpdatePluginConfig(id string, configJSON string) (domain.Plugin, error)
+	ListEnabledPluginKeys() ([]string, error)
 	ListAvatarAssets(scope string, workspaceID string, ownerUserID string) ([]domain.AvatarAsset, error)
 	GetAvatarImage(id string, thumbnail bool) (domain.AvatarImage, error)
 	CreateAvatarAsset(asset domain.AvatarAsset, image []byte, thumbnail []byte) (domain.AvatarAsset, error)

@@ -1,6 +1,6 @@
 <template>
   <q-dialog v-model="dialogModel" persistent>
-    <q-card class="create-agent-card">
+    <q-card :class="['create-agent-card', { 'create-agent-card--dark': isDark }]">
       <q-toolbar class="create-agent-card__toolbar">
         <div>
           <q-toolbar-title class="q-pa-none">创建 Agent</q-toolbar-title>
@@ -98,6 +98,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useQuasar } from "quasar";
 import AgentAvatarPicker from "./AgentAvatarPicker.vue";
 import { avatarThumbnailUrl, descriptionTemplates, isAvatarAssetRef } from "./agentUi";
 
@@ -139,6 +140,8 @@ const emit = defineEmits<{
   create: [];
 }>();
 
+const $q = useQuasar();
+const isDark = computed(() => $q.dark.isActive);
 const dialogModel = computed({
   get: () => props.modelValue,
   set: (value: boolean) => emit("update:modelValue", value)
@@ -305,6 +308,68 @@ const avatarIcon = computed(() => (avatarSrc.value ? undefined : props.form.icon
   min-height: 40px;
   padding: 0 18px;
   font-weight: 700;
+}
+
+.create-agent-card.create-agent-card--dark {
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(59, 130, 246, 0.14), transparent 32%),
+    radial-gradient(circle at 88% 16%, rgba(245, 158, 11, 0.1), transparent 28%),
+    #111827;
+  color: #e5e7eb;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+}
+
+.create-agent-card.create-agent-card--dark .create-agent-card__toolbar {
+  background: linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(15, 23, 42, 0.94));
+}
+
+.create-agent-card.create-agent-card--dark .avatar-column,
+.create-agent-card.create-agent-card--dark .description-block,
+.create-agent-card.create-agent-card--dark .self-evolve-card {
+  border-color: rgba(148, 163, 184, 0.16);
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.68), rgba(15, 23, 42, 0.82)),
+    radial-gradient(circle at top, rgba(59, 130, 246, 0.12), transparent 54%);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+
+.create-agent-card.create-agent-card--dark .avatar-picker {
+  border-color: rgba(15, 23, 42, 0.9);
+}
+
+.create-agent-card.create-agent-card--dark .avatar-column__hint {
+  color: #94a3b8;
+}
+
+.create-agent-card.create-agent-card--dark .agent-dialog-control :deep(.q-field__control) {
+  background: rgba(30, 41, 59, 0.76);
+}
+
+.create-agent-card.create-agent-card--dark .agent-dialog-control :deep(.q-field__control::before) {
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.create-agent-card.create-agent-card--dark .agent-dialog-control :deep(textarea) {
+  color: #e5e7eb;
+}
+
+.create-agent-card.create-agent-card--dark .description-block :deep(.q-chip) {
+  background: rgba(30, 41, 59, 0.72);
+}
+
+.create-agent-card.create-agent-card--dark .description-block :deep(.q-chip:hover) {
+  background: rgba(51, 65, 85, 0.78);
+}
+
+.create-agent-card.create-agent-card--dark .template-chip--active {
+  border-color: rgba(245, 158, 11, 0.36);
+  background: rgba(120, 53, 15, 0.32);
+  color: #fbbf24;
+}
+
+.create-agent-card.create-agent-card--dark .create-agent-card__actions {
+  background: rgba(15, 23, 42, 0.72);
 }
 
 @media (max-width: 767px) {

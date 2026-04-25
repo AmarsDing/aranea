@@ -1,6 +1,6 @@
 <template>
   <q-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)">
-    <q-card class="trend-dialog">
+    <q-card :class="['trend-dialog', { 'trend-dialog--dark': isDark }]">
       <q-card-section class="row items-start justify-between q-col-gutter-md">
         <div>
           <div class="text-h6">模型历史趋势</div>
@@ -77,6 +77,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useQuasar } from "quasar";
 import { getModelUsageOverview, type ModelUsageOverview } from "../../api/client";
 import type { PlatformResource } from "../../features/platform/api";
 
@@ -103,6 +104,8 @@ defineEmits<{
   "update:modelValue": [value: boolean];
 }>();
 
+const $q = useQuasar();
+const isDark = computed(() => $q.dark.isActive);
 const config = computed(() => (props.row ? getConfig(props.row) : {}));
 const overview = ref<ModelUsageOverview | null>(null);
 const loading = ref(false);
@@ -266,6 +269,38 @@ function toNullableNumber(value: unknown) {
   background: linear-gradient(180deg, #93c5fd, #2563eb);
   border-radius: 999px;
   width: 100%;
+}
+
+.trend-dialog.trend-dialog--dark {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(17, 24, 39, 0.94);
+  color: #e5e7eb;
+}
+
+.trend-dialog.trend-dialog--dark .trend-summary-card {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.82));
+}
+
+.trend-dialog.trend-dialog--dark .trend-summary-value {
+  color: #f8fafc;
+}
+
+.trend-dialog.trend-dialog--dark .field-label {
+  color: #94a3b8;
+}
+
+.trend-dialog.trend-dialog--dark .trend-bar__track {
+  background: rgba(51, 65, 85, 0.72);
+}
+
+.trend-dialog.trend-dialog--dark :deep(.q-markup-table) {
+  background: rgba(15, 23, 42, 0.86);
+  color: #e5e7eb;
+}
+
+.trend-dialog.trend-dialog--dark :deep(td) {
+  border-color: rgba(148, 163, 184, 0.12);
 }
 
 @media (max-width: 1023px) {

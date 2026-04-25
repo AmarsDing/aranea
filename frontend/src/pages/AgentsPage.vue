@@ -1,5 +1,5 @@
 <template>
-  <q-page class="agents-page">
+  <q-page :class="['agents-page', { 'is-dark': isDark }]">
     <section class="agents-hero">
       <div>
         <div class="agents-kicker">Agent workspace</div>
@@ -226,6 +226,7 @@ const LS_VIEW = "agents.viewMode";
 
 const $q = useQuasar();
 const store = useAppStore();
+const isDark = computed(() => $q.dark.isActive);
 const agents = ref<Agent[]>([]);
 const keyword = ref("");
 const selectedStatus = ref<string | null>(null);
@@ -669,6 +670,81 @@ async function copyKey(value: string) {
 
 .min-width-0 {
   min-width: 0;
+}
+
+.agents-page.is-dark {
+  background:
+    radial-gradient(circle at 82% 0%, rgba(59, 130, 246, 0.16), transparent 30%),
+    radial-gradient(circle at 8% 14%, rgba(245, 158, 11, 0.1), transparent 24%),
+    linear-gradient(160deg, #0b1220 0%, #111827 48%, #0f172a 100%);
+  color: #e5e7eb;
+}
+
+.agents-page.is-dark .agents-kicker {
+  border-color: rgba(96, 165, 250, 0.22);
+  background: rgba(15, 23, 42, 0.74);
+  color: #93c5fd;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.agents-page.is-dark .agents-title {
+  color: #f8fafc;
+}
+
+.agents-page.is-dark .agents-subtitle,
+.agents-page.is-dark .agent-handle {
+  color: #94a3b8;
+}
+
+.agents-page.is-dark .agents-filter-card,
+.agents-page.is-dark .empty-agent-card,
+.agents-page.is-dark .agents-table,
+.agents-page.is-dark .agents-pagination {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(17, 24, 39, 0.88);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.32);
+}
+
+.agents-page.is-dark .agent-control :deep(.q-field__control),
+.agents-page.is-dark .rows-select :deep(.q-field__control) {
+  background: rgba(30, 41, 59, 0.76);
+}
+
+.agents-page.is-dark .agent-control :deep(.q-field__control::before),
+.agents-page.is-dark .rows-select :deep(.q-field__control::before) {
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.agents-page.is-dark .view-toggle {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(30, 41, 59, 0.72);
+}
+
+.agents-page.is-dark .empty-agent-card {
+  background:
+    radial-gradient(circle at center 26%, rgba(59, 130, 246, 0.12), transparent 22%),
+    linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.92));
+}
+
+.agents-page.is-dark .empty-agent-visual {
+  border-color: rgba(96, 165, 250, 0.2);
+  background:
+    linear-gradient(180deg, rgba(30, 41, 59, 0.86), rgba(15, 23, 42, 0.9)),
+    radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 55%);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+}
+
+.agents-page.is-dark .agents-table :deep(th) {
+  background: rgba(15, 23, 42, 0.92);
+  color: #cbd5e1;
+}
+
+.agents-page.is-dark .agents-table :deep(td) {
+  color: #e2e8f0;
+}
+
+.agents-page.is-dark .agents-table :deep(tbody tr:hover) {
+  background: rgba(51, 65, 85, 0.46);
 }
 
 @media (max-width: 599px) {

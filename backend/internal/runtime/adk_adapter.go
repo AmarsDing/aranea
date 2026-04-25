@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -18,7 +19,24 @@ import (
 // ADKRuntimeAdapter 是对 adk-go 的适配边界。
 // 当前实现支持 OpenAI Compatible / Anthropic 直连，未配置连接信息时保留可运行 stub。
 type ADKRuntimeAdapter struct {
-	client *http.Client
+	client       *http.Client
+	backend      runtimeBackend
+	direct       *directRuntimeBackend
+	runner       runtimeBackend
+	pluginSource PluginSource
+}
+
+type PluginSource interface {
+	EnabledPluginKeys(context.Context) ([]string, error)
+}
+
+type runtimeBackend interface {
+	Generate(context.Context, GenerateRequest) (GenerateResult, error)
+	StreamGenerate(context.Context, GenerateRequest, DeltaFunc) (GenerateResult, error)
+}
+
+type directRuntimeBackend struct {
+	adapter *ADKRuntimeAdapter
 }
 
 type GenerateRequest struct {
@@ -53,12 +71,46 @@ type providerConfig struct {
 }
 
 func NewADKRuntimeAdapter() *ADKRuntimeAdapter {
-	return &ADKRuntimeAdapter{
+	adapter := &ADKRuntimeAdapter{
 		client: &http.Client{Timeout: 60 * time.Second},
 	}
+	adapter.direct = &directRuntimeBackend{adapter: adapter}
+	adapter.backend = adapter.direct
+	adapter.runner = newRunnerRuntimeBackend(adapter)
+	return adapter
+}
+
+func (a *ADKRuntimeAdapter) SetPluginSource(source PluginSource) {
+	a.pluginSource = source
 }
 
 func (a *ADKRuntimeAdapter) Generate(ctx context.Context, req GenerateRequest) (GenerateResult, error) {
+	return a.activeBackend().Generate(ctx, req)
+}
+
+func (a *ADKRuntimeAdapter) streamGenerateDirect(ctx context.Context, req GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
+	return a.activeBackend().StreamGenerate(ctx, req, onDelta)
+}
+
+func (a *ADKRuntimeAdapter) activeBackend() runtimeBackend {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("RUNTIME_BACKEND")), "adk_runner") && a.runner != nil {
+		return a.runner
+	}
+	if a.backend != nil {
+		return a.backend
+	}
+	return a.direct
+}
+
+func (b *directRuntimeBackend) Generate(ctx context.Context, req GenerateRequest) (GenerateResult, error) {
+	return b.adapter.generateDirect(ctx, req)
+}
+
+func (b *directRuntimeBackend) StreamGenerate(ctx context.Context, req GenerateRequest, onDelta DeltaFunc) (GenerateResult, error) {
+	return b.adapter.streamGenerateDirect(ctx, req, onDelta)
+}
+
+func (a *ADKRuntimeAdapter) generateDirect(ctx context.Context, req GenerateRequest) (GenerateResult, error) {
 	trimmed := strings.TrimSpace(req.Input)
 	if trimmed == "" {
 		return GenerateResult{}, fmt.Errorf("empty input")

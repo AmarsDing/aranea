@@ -1,5 +1,5 @@
 <template>
-  <q-page class="agent-categories-page">
+  <q-page :class="['agent-categories-page', { 'is-dark': isDark }]">
     <section class="category-hero">
       <div>
         <div class="category-kicker">Agent Type</div>
@@ -157,6 +157,7 @@ import {
 type CategoryLevel = "industry" | "department" | "position";
 
 const $q = useQuasar();
+const isDark = computed(() => $q.dark.isActive);
 const loading = ref(false);
 const saving = ref(false);
 const keyword = ref("");
@@ -561,6 +562,103 @@ function errorMessage(error: unknown) {
 
 .min-width-0 {
   min-width: 0;
+}
+
+.agent-categories-page.is-dark {
+  background:
+    radial-gradient(circle at 86% 0%, rgba(59, 130, 246, 0.16), transparent 30%),
+    radial-gradient(circle at 10% 16%, rgba(245, 158, 11, 0.1), transparent 24%),
+    linear-gradient(160deg, #0b1220 0%, #111827 48%, #0f172a 100%);
+  color: #e5e7eb;
+}
+
+.agent-categories-page.is-dark .category-kicker {
+  border-color: rgba(96, 165, 250, 0.22);
+  background: rgba(15, 23, 42, 0.74);
+  color: #93c5fd;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.agent-categories-page.is-dark .category-title {
+  color: #f8fafc;
+}
+
+.agent-categories-page.is-dark .category-subtitle {
+  color: #94a3b8;
+}
+
+.agent-categories-page.is-dark .category-toolbar,
+.agent-categories-page.is-dark .industry-card,
+.agent-categories-page.is-dark .category-empty,
+.agent-categories-page.is-dark .category-dialog {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(17, 24, 39, 0.88);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.32);
+}
+
+.agent-categories-page.is-dark .category-control :deep(.q-field__control) {
+  background: rgba(30, 41, 59, 0.76);
+}
+
+.agent-categories-page.is-dark .category-control :deep(.q-field__control::before) {
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.agent-categories-page.is-dark .category-stats div {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(30, 41, 59, 0.72);
+}
+
+.agent-categories-page.is-dark .category-stats strong {
+  color: #f8fafc;
+}
+
+.agent-categories-page.is-dark .category-stats span {
+  color: #94a3b8;
+}
+
+.agent-categories-page.is-dark .industry-card__header {
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.9)),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 34%);
+}
+
+.agent-categories-page.is-dark .system-chip {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(30, 64, 175, 0.24);
+  color: #93c5fd;
+}
+
+.agent-categories-page.is-dark .custom-chip {
+  border-color: rgba(34, 197, 94, 0.28);
+  background: rgba(22, 101, 52, 0.24);
+  color: #86efac;
+}
+
+.agent-categories-page.is-dark .department-item {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.76);
+}
+
+.agent-categories-page.is-dark .position-item {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: rgba(30, 41, 59, 0.7);
+}
+
+.agent-categories-page.is-dark .category-empty {
+  background:
+    radial-gradient(circle at center 26%, rgba(59, 130, 246, 0.12), transparent 22%),
+    linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.92));
+}
+
+.agent-categories-page.is-dark .category-empty__visual {
+  border-color: rgba(96, 165, 250, 0.2);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.86), rgba(15, 23, 42, 0.9));
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+}
+
+.agent-categories-page.is-dark .category-dialog :deep(.q-card__actions) {
+  background: rgba(15, 23, 42, 0.72);
 }
 
 @media (max-width: 599px) {

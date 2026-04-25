@@ -18,6 +18,7 @@ import (
 
 	"arenea/backend/internal/domain"
 	"arenea/backend/internal/runtime"
+	"arenea/backend/internal/util"
 	"github.com/fsnotify/fsnotify"
 )
 
@@ -37,6 +38,7 @@ type skillStore interface {
 type SkillService struct {
 	store       skillStore
 	runtime     *runtime.ADKRuntimeAdapter
+	storageRoot string
 	importJobs  map[string]*skillImportJobState
 	importJobsM sync.RWMutex
 }
@@ -53,11 +55,15 @@ type skillCandidateState struct {
 	tags   []domain.SkillTag
 }
 
-func NewSkillService(store skillStore, runtimeAdapter *runtime.ADKRuntimeAdapter) *SkillService {
+func NewSkillService(store skillStore, runtimeAdapter *runtime.ADKRuntimeAdapter, storageRoot string) *SkillService {
+	if strings.TrimSpace(storageRoot) == "" {
+		storageRoot = util.ResolveSkillStorageRoot()
+	}
 	return &SkillService{
-		store:      store,
-		runtime:    runtimeAdapter,
-		importJobs: map[string]*skillImportJobState{},
+		store:       store,
+		runtime:     runtimeAdapter,
+		storageRoot: util.AbsoluteStoragePath(storageRoot),
+		importJobs:  map[string]*skillImportJobState{},
 	}
 }
 
@@ -189,7 +195,7 @@ func (s *SkillService) Import(ctx context.Context, file multipart.File, header *
 			JobID:            newID(),
 			Status:           "processing",
 			ValidationStatus: "pass",
-			StorageRoot:      skillStorageRoot(),
+			StorageRoot:      s.storageRoot,
 			Candidates:       []domain.SkillImportCandidate{},
 			ConflictGroups:   []domain.SkillConflictGroup{},
 		},
@@ -333,21 +339,6 @@ func normalizeLimitOffset(limit int, offset int, defaultLimit int) (int, int) {
 	return limit, offset
 }
 
-func skillStorageRoot() string {
-	root := ""
-	if value := strings.TrimSpace(os.Getenv("SKILL_ROOT")); value != "" {
-		root = value
-	} else if value := strings.TrimSpace(os.Getenv("SKILL_STORAGE_ROOT")); value != "" {
-		root = value
-	} else {
-		root = filepath.Join("data", "skills")
-	}
-	if abs, err := filepath.Abs(root); err == nil {
-		return abs
-	}
-	return root
-}
-
 func (s *SkillService) StartDirectorySync(ctx context.Context, interval int) {
 	_ = s.SyncDirectoryOnce()
 	if interval <= 0 {
@@ -360,7 +351,7 @@ func (s *SkillService) StartDirectorySync(ctx context.Context, interval int) {
 		return
 	}
 	defer watcher.Close()
-	root := skillStorageRoot()
+	root := s.storageRoot
 	if err = os.MkdirAll(root, 0o755); err != nil {
 		return
 	}
@@ -439,7 +430,7 @@ func (s *SkillService) startDirectorySyncPolling(ctx context.Context, interval t
 }
 
 func (s *SkillService) SyncDirectoryOnce() error {
-	root := skillStorageRoot()
+	root := s.storageRoot
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -491,7 +482,7 @@ func (s *SkillService) skillDir(id string) (string, error) {
 			}
 			return "", getErr
 		}
-		dir = filepath.Join(skillStorageRoot(), current.Slug)
+		dir = filepath.Join(s.storageRoot, current.Slug)
 	}
 	if _, statErr := os.Stat(dir); statErr != nil {
 		return "", statErr
@@ -1048,7 +1039,7 @@ func (s *SkillService) createImportedSkill(name string, slug string, description
 	if slug == "" {
 		slug = slugify(name)
 	}
-	targetDir := filepath.Join(skillStorageRoot(), slug)
+	targetDir := filepath.Join(s.storageRoot, slug)
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return domain.Skill{}, err
 	}

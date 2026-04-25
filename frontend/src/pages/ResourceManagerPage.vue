@@ -1,5 +1,5 @@
 <template>
-  <q-page class="q-pa-md resource-manager-page">
+  <q-page :class="['q-pa-md resource-manager-page', { 'is-dark': isDark }]">
     <q-card v-if="isProviderResource" flat bordered class="provider-card">
       <q-card-section class="provider-header row items-center q-col-gutter-md">
         <div class="col-12 col-md">
@@ -47,7 +47,7 @@
       </q-card-actions>
     </q-card>
 
-    <q-card v-else flat bordered>
+    <q-card v-else flat bordered class="resource-card">
       <q-card-section class="row items-center q-col-gutter-md">
         <div class="col-12 col-md">
           <div class="text-h6">{{ pageTitle }}</div>
@@ -88,7 +88,7 @@
     </q-card>
 
     <q-dialog v-model="dialogOpen" persistent>
-      <q-card style="width: 860px; max-width: 94vw">
+      <q-card class="resource-dialog-card">
         <q-card-section>
           <div class="text-h6">{{ dialogTitle }}</div>
           <div class="text-caption text-grey-7">{{ dialogSubtitle }}</div>
@@ -305,6 +305,7 @@ import {
 
 const route = useRoute();
 const $q = useQuasar();
+const isDark = computed(() => $q.dark.isActive);
 
 const rows = ref<PlatformResource[]>([]);
 const loading = ref(false);
@@ -868,9 +869,11 @@ function errorMessage(error: unknown) {
 
 <style scoped>
 .resource-manager-page {
+  min-height: 100%;
   background: #f7f8fb;
 }
 
+.resource-card,
 .provider-card {
   border-radius: 18px;
   overflow: hidden;
@@ -897,5 +900,77 @@ function errorMessage(error: unknown) {
   color: #374151;
   font-size: 14px;
   font-weight: 700;
+}
+
+.resource-dialog-card {
+  width: 860px;
+  max-width: 94vw;
+}
+
+.resource-manager-page.is-dark {
+  background:
+    radial-gradient(circle at 86% 0%, rgba(59, 130, 246, 0.16), transparent 30%),
+    radial-gradient(circle at 10% 16%, rgba(245, 158, 11, 0.08), transparent 24%),
+    linear-gradient(160deg, #0b1220 0%, #111827 48%, #0f172a 100%);
+  color: #e5e7eb;
+}
+
+.resource-manager-page.is-dark .provider-card,
+.resource-manager-page.is-dark .resource-card,
+.resource-manager-page.is-dark .resource-dialog-card {
+  border-color: rgba(148, 163, 184, 0.16);
+  background: rgba(17, 24, 39, 0.9);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.32);
+}
+
+.resource-manager-page.is-dark .provider-header {
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.9)),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 34%);
+}
+
+.resource-manager-page.is-dark .provider-list {
+  background: rgba(15, 23, 42, 0.86);
+}
+
+.resource-manager-page.is-dark :deep(.q-field__control) {
+  background: rgba(30, 41, 59, 0.76);
+}
+
+.resource-manager-page.is-dark :deep(.q-field__control::before) {
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.resource-manager-page.is-dark :deep(.q-table__container) {
+  background: rgba(17, 24, 39, 0.9);
+  color: #e5e7eb;
+}
+
+.resource-manager-page.is-dark :deep(.q-table th) {
+  background: rgba(15, 23, 42, 0.92);
+  color: #cbd5e1;
+}
+
+.resource-manager-page.is-dark :deep(.q-table td) {
+  color: #e2e8f0;
+}
+
+.resource-manager-page.is-dark :deep(.q-table tbody tr:hover) {
+  background: rgba(51, 65, 85, 0.46);
+}
+
+.resource-manager-page.is-dark .pagination-bar,
+.resource-manager-page.is-dark :deep(.q-table__bottom) {
+  border-top-color: rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.72);
+  color: #cbd5e1;
+}
+
+.resource-manager-page.is-dark .section-label {
+  color: #cbd5e1;
+}
+
+.resource-manager-page.is-dark .empty-state {
+  color: #cbd5e1;
 }
 </style>

@@ -66,6 +66,14 @@ func (h *HTTPHandler) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		h.handleAgentPromptPreview(w, r, strings.TrimSuffix(id, "/system-prompt/preview"))
 		return
 	}
+	if strings.HasSuffix(id, "/tools/effective") {
+		h.handleAgentEffectiveTools(w, r, strings.TrimSuffix(id, "/tools/effective"))
+		return
+	}
+	if strings.HasSuffix(id, "/tools/policy") {
+		h.handleAgentToolPolicy(w, r, strings.TrimSuffix(id, "/tools/policy"))
+		return
+	}
 	if id == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("agent id is required"))
 		return
@@ -118,4 +126,36 @@ func (h *HTTPHandler) handleAgentPromptPreview(w http.ResponseWriter, r *http.Re
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"preview": preview})
+}
+
+func (h *HTTPHandler) handleAgentEffectiveTools(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	result, err := h.toolSvc.EffectiveForAgent(id)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *HTTPHandler) handleAgentToolPolicy(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodPut {
+		methodNotAllowed(w)
+		return
+	}
+	var input domain.AgentEffectiveTools
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	result, err := h.toolSvc.UpdateAgentPolicy(id, input)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	_ = h.auditSvc.Log("update", "agent", id, r.Header.Get("X-Request-Id"), "tools_policy")
+	writeJSON(w, http.StatusOK, result)
 }

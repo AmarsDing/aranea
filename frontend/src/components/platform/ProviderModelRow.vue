@@ -1,5 +1,5 @@
 <template>
-  <q-item class="provider-row">
+  <q-item :class="['provider-row', { 'provider-row--dark': isDark }]">
     <q-item-section avatar top>
       <q-avatar color="primary" text-color="white" icon="memory" />
     </q-item-section>
@@ -113,6 +113,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useQuasar } from "quasar";
 import type { PlatformResource } from "../../features/platform/api";
 
 type ModelCategory = {
@@ -150,6 +151,8 @@ defineEmits<{
   delete: [row: PlatformResource];
 }>();
 
+const $q = useQuasar();
+const isDark = computed(() => $q.dark.isActive);
 const config = computed(() => getConfig(props.row));
 const categories = computed(() => {
   const values = config.value.model_category;
@@ -350,6 +353,69 @@ function toNullableNumber(value: unknown) {
 .provider-action-btn--danger:hover {
   border-color: rgba(220, 38, 38, 0.28);
   box-shadow: 0 12px 24px rgba(220, 38, 38, 0.14);
+}
+
+.provider-row.provider-row--dark {
+  color: #e5e7eb;
+}
+
+.provider-row.provider-row--dark:hover {
+  background: rgba(51, 65, 85, 0.46);
+}
+
+.provider-row.provider-row--dark .provider-usage {
+  border-color: rgba(148, 163, 184, 0.14);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.78), rgba(15, 23, 42, 0.82));
+}
+
+.provider-row.provider-row--dark .provider-title,
+.provider-row.provider-row--dark .metric-value {
+  color: #f8fafc;
+}
+
+.provider-row.provider-row--dark .model-name,
+.provider-row.provider-row--dark .field-label {
+  color: #94a3b8;
+}
+
+.provider-row.provider-row--dark .muted-value {
+  color: #64748b;
+}
+
+.provider-row.provider-row--dark .provider-actions :deep(.q-toggle) {
+  border-right-color: rgba(148, 163, 184, 0.16);
+}
+
+.provider-row.provider-row--dark .provider-action-btn {
+  border-color: rgba(96, 165, 250, 0.2);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.86));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+}
+
+.provider-row.provider-row--dark .provider-action-btn--danger {
+  border-color: rgba(248, 113, 113, 0.22);
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.22), rgba(69, 10, 10, 0.18));
+}
+
+.provider-row.provider-row--dark :deep(.q-chip--colored.bg-grey-2) {
+  background: rgba(51, 65, 85, 0.76) !important;
+  color: #cbd5e1 !important;
+}
+
+.provider-row.provider-row--dark :deep(.q-chip--colored.bg-blue-1),
+.provider-row.provider-row--dark :deep(.q-chip--colored.bg-indigo-1) {
+  background: rgba(30, 64, 175, 0.26) !important;
+  color: #bfdbfe !important;
+}
+
+.provider-row.provider-row--dark :deep(.q-chip--colored.bg-green-1) {
+  background: rgba(22, 101, 52, 0.26) !important;
+  color: #86efac !important;
+}
+
+.provider-row.provider-row--dark :deep(.q-chip--colored.bg-orange-1) {
+  background: rgba(120, 53, 15, 0.28) !important;
+  color: #fdba74 !important;
 }
 
 @media (max-width: 1023px) {

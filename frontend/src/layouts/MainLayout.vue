@@ -79,10 +79,10 @@
               v-for="(item, ii) in group.items"
               v-ripple
               :key="`g-${gi}-i-${ii}`"
-              :to="item.to"
-              :exact="item.exact === false ? false : true"
               clickable
+              :active="isNavItemActive(item)"
               :active-class="drawerItemActiveClass"
+              @click="navigateTo(item.to)"
             >
               <q-tooltip v-if="drawerMini" anchor="center right" self="center left" :offset="[8, 0]">
                 {{ t(item.labelKey) }}
@@ -110,6 +110,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 import { useQuasar } from "quasar";
 import { setQuasarLangFor } from "../i18n/quasar-lang";
@@ -117,6 +118,8 @@ import { sideNavGroups } from "../config/sideNav";
 
 const { t, locale } = useI18n();
 const $q = useQuasar();
+const route = useRoute();
+const router = useRouter();
 const drawerOpen = ref(true);
 const drawerMini = ref(true);
 
@@ -146,5 +149,14 @@ watch(locale, (v) => {
 
 function toggleTheme() {
   $q.dark.toggle();
+}
+
+function isNavItemActive(item: { to: string; exact?: boolean }) {
+  return item.exact === false ? route.path.startsWith(item.to) : route.path === item.to;
+}
+
+async function navigateTo(path: string) {
+  if (route.path === path) return;
+  await router.push(path);
 }
 </script>

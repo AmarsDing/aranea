@@ -76,6 +76,47 @@ CREATE TABLE IF NOT EXISTS teams (
   deleted_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS team_runs (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  message_id TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'running',
+  input_preview TEXT NOT NULL DEFAULT '',
+  output_preview TEXT NOT NULL DEFAULT '',
+  token_in INTEGER NOT NULL DEFAULT 0,
+  token_out INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT NOT NULL DEFAULT '',
+  topology_json TEXT NOT NULL DEFAULT '{}',
+  started_at TEXT NOT NULL DEFAULT '',
+  finished_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS team_run_steps (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  team_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL DEFAULT '',
+  agent_key TEXT NOT NULL DEFAULT '',
+  agent_name TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'success',
+  input_preview TEXT NOT NULL DEFAULT '',
+  output_preview TEXT NOT NULL DEFAULT '',
+  token_in INTEGER NOT NULL DEFAULT 0,
+  token_out INTEGER NOT NULL DEFAULT 0,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT NOT NULL DEFAULT '',
+  started_at TEXT NOT NULL DEFAULT '',
+  finished_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS chat_entities_order (
   id TEXT PRIMARY KEY,
   owner_scope TEXT NOT NULL,
@@ -93,14 +134,28 @@ CREATE TABLE IF NOT EXISTS sessions (
   agent_id TEXT NOT NULL DEFAULT '',
   team_id TEXT NOT NULL DEFAULT '',
   title TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
   context_used_ratio REAL NOT NULL DEFAULT 0,
+  max_context_used_ratio REAL NOT NULL DEFAULT 0,
+  context_status TEXT NOT NULL DEFAULT 'normal',
   dialog_mode TEXT NOT NULL DEFAULT '',
   provider TEXT NOT NULL DEFAULT '',
   model TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
+  message_count INTEGER NOT NULL DEFAULT 0,
+  run_count INTEGER NOT NULL DEFAULT 0,
+  model_call_count INTEGER NOT NULL DEFAULT 0,
+  tool_call_count INTEGER NOT NULL DEFAULT 0,
+  skill_call_count INTEGER NOT NULL DEFAULT 0,
+  mcp_call_count INTEGER NOT NULL DEFAULT 0,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cost_micro_usd INTEGER NOT NULL DEFAULT 0,
   last_message_at TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  archived_at TEXT NOT NULL DEFAULT '',
   deleted_at TEXT NOT NULL DEFAULT ''
 );
 
@@ -247,6 +302,104 @@ CREATE TABLE IF NOT EXISTS chat_options (
   PRIMARY KEY(type, key)
 );
 
+CREATE TABLE IF NOT EXISTS tools (
+  id TEXT PRIMARY KEY,
+  tool_key TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT 'system',
+  source TEXT NOT NULL DEFAULT 'builtin',
+  risk_level TEXT NOT NULL DEFAULT 'low',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  readonly INTEGER NOT NULL DEFAULT 0,
+  requires_confirmation INTEGER NOT NULL DEFAULT 0,
+  supports_streaming INTEGER NOT NULL DEFAULT 0,
+  supports_concurrency INTEGER NOT NULL DEFAULT 0,
+  parameters_schema_json TEXT NOT NULL DEFAULT '{}',
+  result_schema_json TEXT NOT NULL DEFAULT '{}',
+  config_schema_json TEXT NOT NULL DEFAULT '{}',
+  config_json TEXT NOT NULL DEFAULT '{}',
+  default_config_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS tool_agent_overrides (
+  id TEXT PRIMARY KEY,
+  tool_id TEXT NOT NULL,
+  tool_key TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  mode TEXT NOT NULL DEFAULT 'inherit',
+  config_override_json TEXT NOT NULL DEFAULT '{}',
+  requires_confirmation INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT NOT NULL DEFAULT '',
+  UNIQUE(tool_key, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS tool_invocations (
+  id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL DEFAULT '',
+  invocation_id TEXT NOT NULL DEFAULT '',
+  tool_id TEXT NOT NULL DEFAULT '',
+  tool_key TEXT NOT NULL,
+  agent_id TEXT NOT NULL DEFAULT '',
+  agent_key TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  message_id TEXT NOT NULL DEFAULT '',
+  user_id TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'adk',
+  status TEXT NOT NULL DEFAULT 'success',
+  started_at TEXT NOT NULL,
+  ended_at TEXT NOT NULL DEFAULT '',
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  input_preview TEXT NOT NULL DEFAULT '',
+  input_hash TEXT NOT NULL DEFAULT '',
+  output_preview TEXT NOT NULL DEFAULT '',
+  output_hash TEXT NOT NULL DEFAULT '',
+  error_code TEXT NOT NULL DEFAULT '',
+  error_message TEXT NOT NULL DEFAULT '',
+  redaction_applied INTEGER NOT NULL DEFAULT 1,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_invocation_params (
+  id TEXT PRIMARY KEY,
+  invocation_id TEXT NOT NULL,
+  tool_key TEXT NOT NULL,
+  param_name TEXT NOT NULL,
+  param_type TEXT NOT NULL DEFAULT 'string',
+  value_preview TEXT NOT NULL DEFAULT '',
+  value_hash TEXT NOT NULL DEFAULT '',
+  value_size_bytes INTEGER NOT NULL DEFAULT 0,
+  is_required INTEGER NOT NULL DEFAULT 0,
+  is_sensitive INTEGER NOT NULL DEFAULT 0,
+  redaction_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tool_usage_daily (
+  id TEXT PRIMARY KEY,
+  date_key TEXT NOT NULL,
+  tool_key TEXT NOT NULL,
+  agent_id TEXT NOT NULL DEFAULT '',
+  call_count INTEGER NOT NULL DEFAULT 0,
+  success_count INTEGER NOT NULL DEFAULT 0,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  blocked_count INTEGER NOT NULL DEFAULT 0,
+  total_duration_ms INTEGER NOT NULL DEFAULT 0,
+  avg_duration_ms REAL NOT NULL DEFAULT 0,
+  p95_duration_ms REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(date_key, tool_key, agent_id)
+);
+
 CREATE TABLE IF NOT EXISTS session_summaries (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
@@ -352,6 +505,31 @@ CREATE TABLE IF NOT EXISTS hooks (
   sort_order INTEGER NOT NULL DEFAULT 0,
   config_json TEXT NOT NULL DEFAULT '',
   metadata_json TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS plugins (
+  id TEXT PRIMARY KEY,
+  plugin_key TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  risk_level TEXT NOT NULL DEFAULT 'low',
+  status TEXT NOT NULL DEFAULT 'active',
+  enabled INTEGER NOT NULL DEFAULT 0,
+  scope TEXT NOT NULL DEFAULT 'global',
+  callback_points_json TEXT NOT NULL DEFAULT '[]',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  config_schema_json TEXT NOT NULL DEFAULT '{}',
+  config_json TEXT NOT NULL DEFAULT '{}',
+  default_config_json TEXT NOT NULL DEFAULT '{}',
+  invoke_count INTEGER NOT NULL DEFAULT 0,
+  block_count INTEGER NOT NULL DEFAULT 0,
+  error_count INTEGER NOT NULL DEFAULT 0,
+  last_invoked_at TEXT NOT NULL DEFAULT '',
+  last_status TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   deleted_at TEXT NOT NULL DEFAULT ''
@@ -516,6 +694,9 @@ CREATE TABLE IF NOT EXISTS monitor_traces (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id, deleted_at, updated_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_team ON sessions(team_id, deleted_at, updated_at);
+CREATE INDEX IF NOT EXISTS idx_team_runs_team_created ON team_runs(team_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_team_runs_session ON team_runs(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_team_run_steps_run ON team_run_steps(run_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_sessions_last_message ON sessions(last_message_at);
 CREATE INDEX IF NOT EXISTS idx_messages_session_turn ON messages(session_id, turn_index);
 CREATE INDEX IF NOT EXISTS idx_usage_events_time ON model_token_usage_events(occurred_at);
@@ -526,6 +707,20 @@ CREATE INDEX IF NOT EXISTS idx_usage_events_status ON model_token_usage_events(s
 CREATE INDEX IF NOT EXISTS idx_usage_daily_date_model ON model_token_usage_daily(date_key, provider_code, model_api_id);
 CREATE INDEX IF NOT EXISTS idx_pricing_rules_model_active ON model_pricing_rules(provider_code, model_api_id, is_active, effective_from);
 CREATE INDEX IF NOT EXISTS idx_attachments_session ON chat_attachments(session_id, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_tools_category ON tools(category);
+CREATE INDEX IF NOT EXISTS idx_tools_source ON tools(source);
+CREATE INDEX IF NOT EXISTS idx_tools_enabled ON tools(enabled);
+CREATE INDEX IF NOT EXISTS idx_tools_risk_level ON tools(risk_level);
+CREATE INDEX IF NOT EXISTS idx_tool_agent_overrides_agent ON tool_agent_overrides(agent_id);
+CREATE INDEX IF NOT EXISTS idx_tool_agent_overrides_tool ON tool_agent_overrides(tool_key);
+CREATE INDEX IF NOT EXISTS idx_tool_invocations_tool_time ON tool_invocations(tool_key, started_at);
+CREATE INDEX IF NOT EXISTS idx_tool_invocations_agent_time ON tool_invocations(agent_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_tool_invocations_session ON tool_invocations(session_id);
+CREATE INDEX IF NOT EXISTS idx_tool_invocations_status ON tool_invocations(status);
+CREATE INDEX IF NOT EXISTS idx_tool_invocation_params_invocation ON tool_invocation_params(invocation_id);
+CREATE INDEX IF NOT EXISTS idx_tool_invocation_params_tool_param ON tool_invocation_params(tool_key, param_name);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_daily_tool_date ON tool_usage_daily(tool_key, date_key);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_daily_agent_date ON tool_usage_daily(agent_id, date_key);
 CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_items(scope_type, scope_id);
 CREATE INDEX IF NOT EXISTS idx_agent_prompt_files_agent ON agent_prompt_files(agent_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_avatar_assets_system ON avatar_assets(is_system, sort_order);
@@ -533,6 +728,7 @@ CREATE INDEX IF NOT EXISTS idx_avatar_assets_workspace_owner ON avatar_assets(wo
 CREATE INDEX IF NOT EXISTS idx_agent_category_parent ON agent_category_nodes(parent_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_agent_category_level ON agent_category_nodes(level, sort_order);
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON llm_provider_models(provider, enabled, sort_order);
+CREATE INDEX IF NOT EXISTS idx_plugins_enabled_order ON plugins(enabled, sort_order);
 CREATE INDEX IF NOT EXISTS idx_hook_agents_agent ON hook_agents(agent_id, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_channel_delivery_channel ON channel_delivery(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_skill_invocation_skill ON skill_invocation(skill_id, created_at);

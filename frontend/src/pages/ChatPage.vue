@@ -35,6 +35,7 @@
           :attachments="attachments"
           :mode-options="modeOpts"
           :provider-options="provOpts"
+          :session-title="selectedSessionForUi?.title || t('chat.untitledSession')"
           :context-ratio="selectedSessionForUi?.context_used_ratio ?? 0"
           :is-dark="isDark"
           :sending="sending"
@@ -63,6 +64,7 @@
         :is-dark="isDark"
         @select="onSelectSession"
         @new-session="onNewSession"
+        @rename="onRenameSession"
         @delete="openDelete"
       />
     </div>
@@ -98,13 +100,13 @@
 import { computed, nextTick, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useQuasar } from "quasar";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import ChatDeleteDialog from "../components/chat/ChatDeleteDialog.vue";
 import ChatEntitySidebar from "../components/chat/ChatEntitySidebar.vue";
 import ChatMessagePanel from "../components/chat/ChatMessagePanel.vue";
 import ChatSessionSidebar from "../components/chat/ChatSessionSidebar.vue";
 import ChatSideToggle from "../components/chat/ChatSideToggle.vue";
-import { listChatOptions, listTeams, updateAgent } from "../api/client";
+import { createSession, deleteTeam, listChatOptions, listMessages, listTeams, listTeamSessions, sendMessageStream, updateAgent, updateSessionTitle, updateTeam } from "../api/client";
 import {
   listPlatformResources,
   listPlatformResourceTree,
@@ -179,6 +181,7 @@ function mockMessage(id: string, sessionID: string, role: string, content: strin
 
 const { t } = useI18n();
 const $q = useQuasar();
+const route = useRoute();
 const router = useRouter();
 const store = useAppStore();
 
@@ -259,6 +262,7 @@ const displaySessions = computed((): SessionView[] => {
       title: session.title,
       context_used_ratio: session.context_used_ratio,
       at: session.at,
+      timeline_at: session.last_message_at || session.updated_at || session.created_at,
       agent_id: session.agent_id
     }));
   }
@@ -268,7 +272,8 @@ const displaySessions = computed((): SessionView[] => {
       id: session.id,
       title: session.title,
       context_used_ratio: session.context_used_ratio,
-      at: formatSessionTime(session.last_message_at || session.updated_at || session.created_at)
+      at: formatSessionTime(session.last_message_at || session.updated_at || session.created_at),
+      timeline_at: session.last_message_at || session.updated_at || session.created_at
     }));
   }
 
@@ -287,7 +292,8 @@ const selectedSessionForUi = computed((): SessionView | null => {
       id: store.selectedSession.id,
       title: store.selectedSession.title,
       context_used_ratio: store.selectedSession.context_used_ratio,
-      at: ""
+      at: formatSessionTime(store.selectedSession.last_message_at || store.selectedSession.updated_at || store.selectedSession.created_at),
+      timeline_at: store.selectedSession.last_message_at || store.selectedSession.updated_at || store.selectedSession.created_at
     }
   );
 });
@@ -322,7 +328,7 @@ const deleteNameError = computed(
 
 const canConfirmDelete = computed(() => {
   if (deleteBlockBusy.value || deleteBlockDefault.value) return false;
-  if (deleteKind.value === "all") return true;
+  if (deleteKind.value === "all" || deleteKind.value === "session") return true;
   return deleteNameInput.value === expectedDeleteName.value;
 });
 
@@ -412,17 +418,22 @@ async function selectAgent(agent: Agent) {
   if (store.selectedSession) await store.loadMessages();
 }
 
-function selectTeam(team: TeamRow) {
+async function selectTeam(team: TeamRow) {
   selectedEntityKind.value = "team";
   selectedTeamId.value = team.id;
-  teamSelectedSessionId.value = teamSessions.value[team.id]?.[0]?.id ?? null;
   store.selectedSession = null;
   store.messages = [];
+  await loadTeamSessions(team.id);
+  teamSelectedSessionId.value = teamSessions.value[team.id]?.[0]?.id ?? null;
+  if (teamSelectedSessionId.value) {
+    teamMessages.value[teamSelectedSessionId.value] = await listMessages(teamSelectedSessionId.value);
+  }
 }
 
 async function onSelectSession(sessionId: string) {
   if (selectedEntityKind.value === "team") {
     teamSelectedSessionId.value = sessionId;
+    teamMessages.value[sessionId] = await listMessages(sessionId);
     return;
   }
 
@@ -432,10 +443,26 @@ async function onSelectSession(sessionId: string) {
   if (session) await store.loadMessages();
 }
 
-async function onNewSession() {
+async function onRenameSession(payload: { id: string; title: string }) {
+  const title = payload.title.trim();
+  if (!title) return;
+  if (selectedEntityKind.value === "team" && selectedTeamId.value) {
+    const updated = await updateSessionTitle(payload.id, title);
+    teamSessions.value[selectedTeamId.value] = (teamSessions.value[selectedTeamId.value] ?? []).map((session) =>
+      session.id === payload.id
+        ? { ...updated, at: formatSessionTime(updated.last_message_at || updated.updated_at || updated.created_at) }
+        : session
+    );
+    return;
+  }
+
+  await store.renameSessionLocal(payload.id, title);
+}
+
+async function onNewSession(title?: string) {
   if (selectedEntityKind.value === "agent" && store.selectedAgent) {
     const selectedModel = selectedProviderModel.value;
-    await store.addSession(`S ${new Date().toLocaleString()}`, {
+    await store.addSession(title || t("chat.untitledSession"), {
       dialog_mode: dialogMode.value,
       provider: selectedModel?.provider || store.selectedAgent.provider,
       model: selectedModel?.model || store.selectedAgent.model
@@ -445,13 +472,18 @@ async function onNewSession() {
   }
 
   if (selectedEntityKind.value === "team" && selectedTeamId.value) {
-    const id = `mo-${Date.now()}`;
-    const at = new Date().toLocaleTimeString();
-    const row = mockTeamSession(id, selectedTeamId.value, `S ${at}`, 0, at.length > 5 ? at.slice(0, 5) : at);
-
-    teamSessions.value[selectedTeamId.value] = [row, ...(teamSessions.value[selectedTeamId.value] ?? [])];
-    teamSelectedSessionId.value = id;
-    teamMessages.value[id] = [];
+    const created = await createSession({
+      owner_type: "team",
+      team_id: selectedTeamId.value,
+      title: title || t("chat.untitledSession"),
+      dialog_mode: dialogMode.value
+    });
+    teamSessions.value[selectedTeamId.value] = [
+      { ...created, at: formatSessionTime(created.last_message_at || created.updated_at || created.created_at) },
+      ...(teamSessions.value[selectedTeamId.value] ?? [])
+    ];
+    teamSelectedSessionId.value = created.id;
+    teamMessages.value[created.id] = [];
   }
 }
 
@@ -463,7 +495,7 @@ async function onSend() {
     sending.value = true;
     streamAbortController.value = new AbortController();
     try {
-      if (!store.selectedSession) await onNewSession();
+      if (!store.selectedSession) await onNewSession(makeSessionTitle(content));
       if (store.selectedSession) {
         const selectedModel = selectedProviderModel.value;
         inputText.value = "";
@@ -492,15 +524,58 @@ async function onSend() {
     return;
   }
 
-  if (selectedEntityKind.value === "team" && teamSelectedSessionId.value) {
-    const sessionId = teamSelectedSessionId.value;
-    inputText.value = "";
-    const now = new Date().toISOString();
-    teamMessages.value[sessionId] = [
-      ...(teamMessages.value[sessionId] ?? []),
-      { ...mockMessage(`u-${Date.now()}`, sessionId, "user", content), created_at: now },
-      { ...mockMessage(`a-${Date.now()}`, sessionId, "assistant", "（Team 占位回复）"), created_at: now }
-    ];
+  if (selectedEntityKind.value === "team" && selectedTeamId.value) {
+    sending.value = true;
+    streamAbortController.value = new AbortController();
+    try {
+      if (!teamSelectedSessionId.value) await onNewSession(makeSessionTitle(content));
+      const sessionId = teamSelectedSessionId.value;
+      if (!sessionId) return;
+      inputText.value = "";
+      let streamingMessageID = "";
+      await sendMessageStream(
+        {
+          session_id: sessionId,
+          team_id: selectedTeamId.value,
+          content,
+          options: {
+            dialog_mode: dialogMode.value,
+            attachments: attachments.value.map((item) => ({ id: item.id }))
+          }
+        },
+        {
+          signal: streamAbortController.value.signal,
+          onUserMessage: (message) => {
+            teamMessages.value[sessionId] = [...(teamMessages.value[sessionId] ?? []), message];
+          },
+          onDelta: (delta) => {
+            if (!streamingMessageID) {
+              streamingMessageID = `team-stream-${Date.now()}`;
+              teamMessages.value[sessionId] = [
+                ...(teamMessages.value[sessionId] ?? []),
+                mockMessage(streamingMessageID, sessionId, "assistant", "")
+              ];
+            }
+            teamMessages.value[sessionId] = (teamMessages.value[sessionId] ?? []).map((message) =>
+              message.id === streamingMessageID ? { ...message, content_markdown: `${message.content_markdown}${delta}` } : message
+            );
+          },
+          onDone: (message) => {
+            teamMessages.value[sessionId] = streamingMessageID
+              ? (teamMessages.value[sessionId] ?? []).map((item) => (item.id === streamingMessageID ? message : item))
+              : [...(teamMessages.value[sessionId] ?? []), message];
+          }
+        }
+      );
+      await loadTeamSessions(selectedTeamId.value);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        $q.notify({ type: "negative", message: error instanceof Error ? error.message : "Team 发送失败" });
+      }
+    } finally {
+      sending.value = false;
+      streamAbortController.value = null;
+    }
   }
 }
 
@@ -516,6 +591,15 @@ function onProviderChange(value: string) {
 
 function stopStreaming() {
   streamAbortController.value?.abort();
+}
+
+function makeSessionTitle(content: string) {
+  const plain = content
+    .replace(/[#>*_`~\[\]()]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) return t("chat.untitledSession");
+  return plain.length > 22 ? `${plain.slice(0, 22)}…` : plain;
 }
 
 function formatSessionTime(iso: string) {
@@ -559,7 +643,16 @@ async function onSaveSettings() {
       }
     } else if (settingsMode.value === "team" && settingsId.value) {
       const team = displayTeams.value.find((item) => item.id === settingsId.value);
-      if (team) team.display_name = editName.value;
+      if (team) {
+        const updated = await updateTeam(team.id, {
+          team_key: team.team_key,
+          display_name: editName.value,
+          status: team.status,
+          definition_json: team.definition_json || "{}"
+        });
+        team.display_name = updated.display_name;
+        team.definition_json = updated.definition_json;
+      }
     }
 
     settingsOpen.value = false;
@@ -619,6 +712,7 @@ async function onConfirmDelete() {
       deleting.value = false;
     }
   } else if (deleteKind.value === "team" && id) {
+    await deleteTeam(id);
     localStorage.removeItem(LS_TM_ORDER);
     displayTeams.value = displayTeams.value.filter((team) => team.id !== id);
     if (selectedTeamId.value === id) selectedTeamId.value = null;
@@ -707,7 +801,11 @@ onMounted(async () => {
   displayAgents.value = loadAgentOrder(store.agents, defaultAgentId.value);
   displayTeams.value = loadTeamOrder([...displayTeams.value]);
 
-  if (store.selectedAgent) {
+  const routeTeamID = typeof route.query.team === "string" ? route.query.team : "";
+  const routeTeam = routeTeamID ? displayTeams.value.find((team) => team.id === routeTeamID) : undefined;
+  if (routeTeam) {
+    await selectTeam(routeTeam);
+  } else if (store.selectedAgent) {
     await store.loadSessions();
     store.selectedSession = store.sessions[0] ?? null;
     store.messages = [];
@@ -715,7 +813,7 @@ onMounted(async () => {
   } else if (store.agents[0]) {
     await selectAgent(store.agents[0]);
   } else {
-    selectTeam(displayTeams.value[0]!);
+    await selectTeam(displayTeams.value[0]!);
   }
 });
 
@@ -740,6 +838,14 @@ async function loadTeams() {
   } catch {
     // Keep placeholder teams when the backend has not seeded teams yet.
   }
+}
+
+async function loadTeamSessions(teamID: string) {
+  const rows = await listTeamSessions(teamID);
+  teamSessions.value[teamID] = rows.map((session) => ({
+    ...session,
+    at: formatSessionTime(session.last_message_at || session.updated_at || session.created_at)
+  }));
 }
 
 async function loadChatOptions() {

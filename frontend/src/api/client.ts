@@ -74,15 +74,49 @@ export type Session = {
   agent_id: string;
   team_id: string;
   title: string;
+  summary: string;
   context_used_ratio: number;
+  max_context_used_ratio: number;
+  context_status: string;
   dialog_mode: string;
   provider: string;
   model: string;
   status: string;
+  message_count: number;
+  run_count: number;
+  model_call_count: number;
+  tool_call_count: number;
+  skill_call_count: number;
+  mcp_call_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  total_cost_micro_usd: number;
   last_message_at: string;
   created_at: string;
   updated_at: string;
+  archived_at: string;
   deleted_at: string;
+};
+
+export type SessionSearchQuery = {
+  owner_type?: string;
+  agent_id?: string;
+  team_id?: string;
+  status?: string;
+  context_status?: string;
+  keyword?: string;
+  limit?: number;
+  offset?: number;
+  page?: number;
+  page_size?: number;
+};
+
+export type SessionListResult = {
+  items: Session[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type Team = {
@@ -96,6 +130,77 @@ export type Team = {
   created_at: string;
   updated_at: string;
   deleted_at: string;
+};
+
+export type TeamDefinitionMember = {
+  agent_id: string;
+  role: "coordinator" | "worker" | "synthesizer" | "critic" | "generator" | string;
+  name: string;
+  enabled: boolean;
+  sort_order: number;
+};
+
+export type TeamDefinition = {
+  version: number;
+  description?: string;
+  mode: "sequential" | "parallel" | "coordinator" | "critic_loop" | string;
+  max_concurrency?: number;
+  timeout_seconds?: number;
+  members: TeamDefinitionMember[];
+  synthesizer_agent_id?: string;
+  critic_loop?: {
+    max_iterations?: number;
+    score_threshold?: number;
+  };
+};
+
+export type TeamRun = {
+  id: string;
+  team_id: string;
+  session_id: string;
+  message_id: string;
+  mode: string;
+  status: string;
+  input_preview: string;
+  output_preview: string;
+  token_in: number;
+  token_out: number;
+  duration_ms: number;
+  error_message: string;
+  topology_json: string;
+  started_at: string;
+  finished_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TeamRunStep = {
+  id: string;
+  run_id: string;
+  team_id: string;
+  agent_id: string;
+  agent_key: string;
+  agent_name: string;
+  role: string;
+  sort_order: number;
+  status: string;
+  input_preview: string;
+  output_preview: string;
+  token_in: number;
+  token_out: number;
+  duration_ms: number;
+  error_message: string;
+  started_at: string;
+  finished_at: string;
+  created_at: string;
+};
+
+export type TeamRunEvent = {
+  type: string;
+  team_id: string;
+  run_id: string;
+  run?: TeamRun;
+  step?: TeamRunStep;
 };
 
 export type Message = {
@@ -289,6 +394,49 @@ export async function listTeams(): Promise<Team[]> {
   return data.items ?? [];
 }
 
+export async function createTeam(payload: Partial<Team>): Promise<Team> {
+  const { data } = await api.post("/teams", payload);
+  return data;
+}
+
+export async function updateTeam(id: string, payload: Partial<Team>): Promise<Team> {
+  const { data } = await api.patch(`/teams/${id}`, payload);
+  return data;
+}
+
+export async function duplicateTeam(id: string): Promise<Team> {
+  const { data } = await api.post(`/teams/${id}/duplicate`);
+  return data;
+}
+
+export async function deleteTeam(id: string): Promise<void> {
+  await api.delete(`/teams/${id}`);
+}
+
+export async function listTeamRuns(teamID?: string, limit = 50): Promise<TeamRun[]> {
+  const { data } = await api.get("/team-runs", { params: { team_id: teamID, limit } });
+  return data.items ?? [];
+}
+
+export async function listTeamRunSteps(runID: string): Promise<TeamRunStep[]> {
+  const { data } = await api.get(`/team-runs/${runID}/steps`);
+  return data.items ?? [];
+}
+
+export function subscribeTeamRunEvents(teamID: string, onEvent: (event: TeamRunEvent) => void, onError?: (error: Event) => void): EventSource {
+  const query = new URLSearchParams({ team_id: teamID });
+  const source = new EventSource(`${getBackendBaseURL()}/team-run-events?${query.toString()}`);
+  for (const eventName of ["run_started", "step_finished", "run_finished"]) {
+    source.addEventListener(eventName, (event) => {
+      onEvent(JSON.parse((event as MessageEvent).data) as TeamRunEvent);
+    });
+  }
+  source.onerror = (event) => {
+    onError?.(event);
+  };
+  return source;
+}
+
 export async function updateAgent(id: string, payload: Partial<Agent>): Promise<Agent> {
   const { data } = await api.patch(`/agents/${id}`, payload);
   return data;
@@ -304,12 +452,35 @@ export async function deleteAgent(id: string): Promise<void> {
 }
 
 export async function listSessions(agentID: string): Promise<Session[]> {
-  const { data } = await api.get("/sessions", { params: { agent_id: agentID } });
-  return data.items ?? [];
+  const data = await searchSessions({ agent_id: agentID, limit: 200 });
+  return data.items;
+}
+
+export async function listTeamSessions(teamID: string): Promise<Session[]> {
+  const data = await searchSessions({ team_id: teamID, limit: 200 });
+  return data.items;
+}
+
+export async function searchSessions(query: SessionSearchQuery = {}): Promise<SessionListResult> {
+  const { data } = await api.get("/sessions", { params: query });
+  const items = data.items ?? [];
+  return {
+    items,
+    total: data.total ?? items.length,
+    limit: data.limit ?? query.limit ?? query.page_size ?? items.length,
+    offset: data.offset ?? query.offset ?? 0
+  };
+}
+
+export async function getSession(id: string): Promise<Session> {
+  const { data } = await api.get(`/sessions/${id}`);
+  return data;
 }
 
 export async function createSession(payload: {
-  agent_id: string;
+  owner_type?: string;
+  agent_id?: string;
+  team_id?: string;
   title: string;
   dialog_mode?: string;
   provider?: string;
@@ -323,6 +494,15 @@ export async function deleteSession(id: string): Promise<void> {
   await api.delete(`/sessions/${id}`);
 }
 
+export async function archiveSession(id: string): Promise<void> {
+  await api.post(`/sessions/${id}/archive`);
+}
+
+export async function updateSessionTitle(id: string, title: string): Promise<Session> {
+  const { data } = await api.patch(`/sessions/${id}`, { title });
+  return data;
+}
+
 export async function clearAgentSessions(agentID: string): Promise<void> {
   await api.delete("/sessions", { params: { agent_id: agentID } });
 }
@@ -334,7 +514,8 @@ export async function listMessages(sessionID: string): Promise<Message[]> {
 
 export async function sendMessage(payload: {
   session_id: string;
-  agent_key: string;
+  agent_key?: string;
+  team_id?: string;
   content: string;
   options?: SendMessageOptions;
 }): Promise<SendMessageResult> {
@@ -352,7 +533,8 @@ export type SendMessageStreamCallbacks = {
 export async function sendMessageStream(
   payload: {
     session_id: string;
-    agent_key: string;
+    agent_key?: string;
+    team_id?: string;
     content: string;
     options?: SendMessageOptions;
   },

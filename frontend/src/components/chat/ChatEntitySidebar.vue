@@ -7,6 +7,7 @@
           dense
           outlined
           clearable
+          :dark="isDark"
           :placeholder="t('chat.searchPlaceholder')"
           class="chat-search"
           @update:model-value="$emit('update:search', String($event ?? ''))"
@@ -36,6 +37,7 @@
                 :active="selectedKind === 'agent' && selectedAgentId === agent.id"
                 :active-class="isDark ? 'bg-primary' : 'cream-menu-item--active'"
                 class="chat-entity-item rounded-borders q-mb-sm"
+                :class="{ 'chat-entity-item--active': selectedKind === 'agent' && selectedAgentId === agent.id }"
                 @click="$emit('select-agent', agent)"
               >
                 <q-item-section side class="chat-status-icon">
@@ -105,6 +107,7 @@
                 :active="selectedKind === 'team' && selectedTeamId === team.id"
                 :active-class="isDark ? 'bg-primary' : 'cream-menu-item--active'"
                 class="chat-entity-item rounded-borders q-mb-sm"
+                :class="{ 'chat-entity-item--active': selectedKind === 'team' && selectedTeamId === team.id }"
                 @click="$emit('select-team', team)"
               >
                 <q-item-section side class="chat-status-icon">
@@ -328,6 +331,16 @@ function parseTeamDefinition(raw?: string) {
   align-items: center;
   min-height: 56px;
   padding: 8px 6px;
+  color: var(--q-dark);
+}
+
+:global(.body--dark) .chat-entity-item {
+  color: rgba(248, 250, 252, 0.92);
+}
+
+.chat-entity-item--active,
+:global(.body--dark) .chat-entity-item--active {
+  color: #fff !important;
 }
 
 .chat-status-icon {
@@ -373,6 +386,16 @@ function parseTeamDefinition(raw?: string) {
   background: rgba(255, 255, 255, 0.72);
 }
 
+:global(.body--dark) .chat-action-btn {
+  color: rgba(248, 250, 252, 0.92);
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.chat-entity-item--active .chat-action-btn {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+}
+
 .chat-entity-meta {
   margin-top: 3px;
 }
@@ -407,5 +430,23 @@ function parseTeamDefinition(raw?: string) {
   border-color: rgba(102, 112, 133, 0.2);
   background: rgba(242, 244, 247, 0.92);
   color: #475467;
+}
+
+:global(.body--dark) .chat-entity-group__label,
+:global(.body--dark) .chat-section-label,
+:global(.body--dark) .chat-side-hint {
+  color: rgba(203, 213, 225, 0.78) !important;
+}
+
+:global(.body--dark) .chat-status-pill {
+  border-color: rgba(203, 213, 225, 0.22);
+  background: rgba(15, 23, 42, 0.46);
+  color: rgba(248, 250, 252, 0.86);
+}
+
+.chat-entity-item--active .chat-status-pill {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
 </style>

@@ -12,6 +12,7 @@ import (
 	"arenea/backend/internal/service"
 	"arenea/backend/internal/telemetry"
 	"arenea/backend/internal/transport"
+	"arenea/backend/internal/util"
 )
 
 func main() {
@@ -37,10 +38,18 @@ func main() {
 	auditSvc := service.NewAuditService(repo)
 	platformSvc := service.NewPlatformService(repo)
 	usageSvc := service.NewUsageService(repo)
-	skillSvc := service.NewSkillService(repo, runtimeAdapter)
+	pluginSvc := service.NewPluginService(repo)
+	if err = pluginSvc.SyncBuiltins(); err != nil {
+		log.Fatalf("sync builtin plugins failed: %v", err)
+	}
+	runtimeAdapter.SetPluginSource(pluginSvc)
+	skillStorageRoot := util.ResolveSkillStorageRoot()
+	log.Printf("skill storage root: %s", skillStorageRoot)
+	skillSvc := service.NewSkillService(repo, runtimeAdapter, skillStorageRoot)
+	toolSvc := service.NewToolService(repo)
 	go skillSvc.StartDirectorySync(context.Background(), 1)
 
-	handler := transport.NewHTTPHandler(agentSvc, teamSvc, sessionSvc, chatSvc, auditSvc, platformSvc, usageSvc, skillSvc)
+	handler := transport.NewHTTPHandler(agentSvc, teamSvc, sessionSvc, chatSvc, auditSvc, platformSvc, usageSvc, skillSvc, toolSvc, pluginSvc)
 	handler = middleware.CORS(handler)
 	handler = middleware.RequestID(handler)
 	handler = middleware.AccessLog(handler)

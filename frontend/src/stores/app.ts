@@ -11,6 +11,7 @@ import {
   sendMessage,
   sendMessageStream,
   updateAgent,
+  updateSessionTitle,
   type Agent,
   type SendMessageOptions,
   type Message,
@@ -64,6 +65,14 @@ export const useAppStore = defineStore("app", {
         this.selectedSession = this.sessions[0] ?? null;
       }
       this.messages = [];
+    },
+    async renameSessionLocal(id: string, title: string) {
+      const updated = await updateSessionTitle(id, title);
+      this.sessions = this.sessions.map((session) => (session.id === id ? updated : session));
+      if (this.selectedSession?.id === id) {
+        this.selectedSession = updated;
+      }
+      return updated;
     },
     async loadAgents() {
       this.agents = await listAgents();
