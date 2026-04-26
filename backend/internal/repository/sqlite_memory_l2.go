@@ -858,6 +858,25 @@ func (r *SQLiteRepository) ArchiveEpisodesBeforeDate(sessionID, before string) (
 	return int(rows), nil
 }
 
+// CountAgentEpisodesSince returns the number of non-deleted episodes
+// owned by `agentID` whose ended_at (falling back to created_at when
+// the episode is still in-flight) is at or after `since`. Used by the
+// EvolutionScanner to gate `RunEvolutionScan` on activity volume per
+// §5.5 step 3.
+func (r *SQLiteRepository) CountAgentEpisodesSince(agentID, since string) (int, error) {
+	if agentID == "" {
+		return 0, errors.New("agent_id is required")
+	}
+	q := `SELECT COUNT(1) FROM memory_episodes
+	      WHERE agent_id = ? AND deleted_at = ''
+	        AND COALESCE(NULLIF(ended_at, ''), created_at) >= ?`
+	var n int
+	if err := r.db.QueryRow(q, agentID, since).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // DeleteArchivedEpisodesBefore hard-deletes soft-deleted or archived rows
 // whose archived_at / deleted_at is older than the cutoff. Used by the
 // retention cron.

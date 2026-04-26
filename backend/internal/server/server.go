@@ -137,6 +137,13 @@ func Run(ctx context.Context, opts Options) error {
 			runMemoryL3DecayLoop(ctx, l3Svc, logger)
 		}()
 	}
+	if evoSvc := chatSvc.AgentEvolution(); evoSvc != nil {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			runEvolutionScannerLoop(ctx, repo, evoSvc, logger)
+		}()
+	}
 
 	handler := transport.NewHTTPHandler(transport.Services{
 		Agent:    agentSvc,
@@ -219,6 +226,52 @@ func runMemoryL3DecayLoop(ctx context.Context, svc *service.MemoryL3Service, log
 			if report.Processed > 0 {
 				logger.Printf("memory l3 decay: processed=%d archived=%d drop=%.3f", report.Processed, report.Archived, report.ConfidenceDrop)
 			}
+		}
+	}
+}
+
+// runEvolutionScannerLoop drives `AgentEvolutionService.RunEvolutionScan`
+// on a fixed cadence for every agent that opted in via `evo_enabled`.
+// The scanner itself is idempotent — re-runs within the throttle window
+// generate `superseded` proposals, not duplicates — so a missed tick is
+// always preferable to leaking goroutines on shutdown.
+func runEvolutionScannerLoop(ctx context.Context, repo repository.Store, svc *service.AgentEvolutionService, logger *log.Logger) {
+	const interval = 30 * time.Minute
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	runEvolutionScannerOnce(ctx, repo, svc, logger)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			runEvolutionScannerOnce(ctx, repo, svc, logger)
+		}
+	}
+}
+
+func runEvolutionScannerOnce(ctx context.Context, repo repository.Store, svc *service.AgentEvolutionService, logger *log.Logger) {
+	agents, err := repo.ListAgents()
+	if err != nil {
+		logger.Printf("evolution scanner: list agents: %v", err)
+		return
+	}
+	for _, agent := range agents {
+		if ctx.Err() != nil {
+			return
+		}
+		settings, _ := repo.GetAgentRuntimeSettings(agent.ID)
+		if !settings.EvoEnabled {
+			continue
+		}
+		report, err := svc.RunEvolutionScan(ctx, agent.ID)
+		if err != nil {
+			logger.Printf("evolution scanner: agent=%s err=%v", agent.ID, err)
+			continue
+		}
+		if report.NewProposals > 0 || report.AutoApplied > 0 || report.Errors > 0 {
+			logger.Printf("evolution scanner: agent=%s episodes=%d new=%d auto_applied=%d throttled=%d errors=%d note=%q",
+				agent.ID, report.EpisodesScanned, report.NewProposals, report.AutoApplied, report.ThrottledProposals, report.Errors, report.Note)
 		}
 	}
 }

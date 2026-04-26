@@ -653,20 +653,10 @@ func (s *AgentEvolutionService) UpsertSkillStat(ctx context.Context, stat domain
 }
 
 // --- Worker ------------------------------------------------------------------
-
-// RunEvolutionScan is the §5.5 stub: Phase 4 will implement the LLM
-// JSON-mode reflection prompt that produces ProposalInputs. Phase 1
-// returns an empty report so the HTTP handler can be wired now.
-func (s *AgentEvolutionService) RunEvolutionScan(ctx context.Context, agentID string) (ScanReport, error) {
-	if agentID == "" {
-		return ScanReport{}, validationError("agent id is required")
-	}
-	settings, err := s.repo.GetAgentRuntimeSettings(agentID)
-	if err == nil && !settings.EvoEnabled {
-		return ScanReport{Note: "evo_enabled=false"}, nil
-	}
-	return ScanReport{Note: "evolution scan not yet implemented (see §5.5 Phase 4)"}, nil
-}
+//
+// `RunEvolutionScan` lives in agent_evolution_scanner.go alongside its
+// AggregateSkillStats helper so the deterministic heuristic surface is
+// easy to swap for an LLM reflection prompt in Phase 5.
 
 // --- Runtime helpers consumed by ChatService / L0 ---------------------------
 

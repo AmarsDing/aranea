@@ -9,6 +9,47 @@ import (
 	"arenea/backend/internal/domain"
 )
 
+// InsertToolInvocation persists a single tool-call telemetry row used by
+// `agent_evolution_scanner.AggregateSkillStats`. Defaults align with the
+// schema (status="success", source="adk") so callers can pass a sparse
+// struct from the chat pipeline.
+func (r *SQLiteRepository) InsertToolInvocation(t domain.ToolInvocation) (domain.ToolInvocation, error) {
+	if strings.TrimSpace(t.ToolKey) == "" {
+		return domain.ToolInvocation{}, errors.New("tool_key is required")
+	}
+	if t.ID == "" {
+		t.ID = uniqueID("toolinv")
+	}
+	now := nowISO()
+	if t.StartedAt == "" {
+		t.StartedAt = now
+	}
+	if t.CreatedAt == "" {
+		t.CreatedAt = now
+	}
+	if t.Status == "" {
+		t.Status = "success"
+	}
+	if t.Source == "" {
+		t.Source = "adk"
+	}
+	if _, err := r.db.Exec(
+		`INSERT INTO tool_invocations(
+			id, request_id, invocation_id, tool_id, tool_key, agent_id, agent_key,
+			session_id, message_id, user_id, source, status, started_at, ended_at,
+			duration_ms, input_preview, input_hash, output_preview, output_hash,
+			error_code, error_message, redaction_applied, metadata_json, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.RequestID, t.InvocationID, t.ToolID, t.ToolKey, t.AgentID, t.AgentKey,
+		t.SessionID, t.MessageID, t.UserID, t.Source, t.Status, t.StartedAt, t.EndedAt,
+		t.DurationMS, t.InputPreview, t.InputHash, t.OutputPreview, t.OutputHash,
+		t.ErrorCode, t.ErrorMessage, boolToInt(true), firstNonEmpty(t.MetadataJSON, "{}"), t.CreatedAt,
+	); err != nil {
+		return domain.ToolInvocation{}, err
+	}
+	return t, nil
+}
+
 func (r *SQLiteRepository) SearchTools(query domain.ToolListQuery) (domain.ToolListResult, error) {
 	if query.Limit <= 0 {
 		query.Limit = 20

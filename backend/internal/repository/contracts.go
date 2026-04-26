@@ -144,6 +144,8 @@ type Store interface {
 	ListL2Events(q domain.MemoryL2EventQuery) ([]domain.MemoryL2Event, int, error)
 	ArchiveEpisodesBeforeDate(sessionID, before string) (int, error)
 	DeleteArchivedEpisodesBefore(before string) (int, error)
+	CountAgentEpisodesSince(agentID, since string) (int, error)
+	InsertToolInvocation(t domain.ToolInvocation) (domain.ToolInvocation, error)
 
 	// L3 semantic memory (aranea/docs/15 memory-L3-semantic.md §4.2).
 	CreateFact(f domain.MemoryFact) (domain.MemoryFact, error)
@@ -162,6 +164,7 @@ type Store interface {
 	InsertFactFeedback(fb domain.FactFeedback) (domain.FactFeedback, error)
 	ListFactFeedback(factID string, limit int) ([]domain.FactFeedback, error)
 	CountRecentFactFeedback(factID, feedbackType string, limit int) (int, error)
+	CountAgentFactFeedbackSince(agentID string, feedbackTypes []string, since string) (int, error)
 
 	UpsertFactConflict(c domain.FactConflict) (domain.FactConflict, error)
 	GetFactConflict(id string) (domain.FactConflict, error)

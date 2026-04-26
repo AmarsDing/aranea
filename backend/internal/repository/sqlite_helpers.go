@@ -4,10 +4,24 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// idCounter monotonically increments to disambiguate IDs minted in the
+// same nanosecond — crucial for tight insertion loops (tests, batched
+// telemetry) where UnixNano() alone collides.
+var idCounter atomic.Uint64
+
+// uniqueID composes a sortable, collision-resistant ID. The ns prefix
+// keeps natural chronological ordering while the counter suffix
+// guarantees uniqueness when called repeatedly within the same ns.
+func uniqueID(prefix string) string {
+	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UTC().UnixNano(), idCounter.Add(1))
+}
 
 // scanner abstracts *sql.Row and *sql.Rows so helper scan functions can read
 // from either single-row or multi-row queries.

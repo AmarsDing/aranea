@@ -495,6 +495,36 @@ func (r *SQLiteRepository) CountRecentFactFeedback(factID, feedbackType string, 
 	return count, rows.Err()
 }
 
+// CountAgentFactFeedbackSince returns how many `memory_fact_feedback`
+// rows attributed to `agentID` were created at-or-after `since` and
+// whose `feedback_type` is in `feedbackTypes`. Used by the
+// EvolutionScanner to evaluate the §5.5 negative-feedback trigger
+// without dragging the full feedback history into memory.
+func (r *SQLiteRepository) CountAgentFactFeedbackSince(agentID string, feedbackTypes []string, since string) (int, error) {
+	if agentID == "" {
+		return 0, errors.New("agent id is required")
+	}
+	if since == "" {
+		return 0, errors.New("since is required")
+	}
+	args := []any{agentID, since}
+	q := `SELECT COUNT(1) FROM memory_fact_feedback
+	      WHERE agent_id = ? AND created_at >= ?`
+	if len(feedbackTypes) > 0 {
+		placeholders := strings.Repeat("?,", len(feedbackTypes))
+		placeholders = placeholders[:len(placeholders)-1]
+		q += " AND feedback_type IN (" + placeholders + ")"
+		for _, t := range feedbackTypes {
+			args = append(args, t)
+		}
+	}
+	var n int
+	if err := r.db.QueryRow(q, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // UpsertFactConflict inserts or updates the conflict row keyed on the
 // (fact_a_id, fact_b_id) tuple. The service layer normalises the IDs so
 // the same pair can't appear twice.
