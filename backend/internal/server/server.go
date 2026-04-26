@@ -127,6 +127,13 @@ func Run(ctx context.Context, opts Options) error {
 		defer background.Done()
 		cronRunner.Start(ctx, time.Minute)
 	}()
+	if l3Svc := chatSvc.MemoryL3(); l3Svc != nil {
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			runMemoryL3DecayLoop(ctx, l3Svc, logger)
+		}()
+	}
 
 	handler := transport.NewHTTPHandler(transport.Services{
 		Agent:    agentSvc,
@@ -186,6 +193,31 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	background.Wait()
 	return runErr
+}
+
+// runMemoryL3DecayLoop drives MemoryL3Service.RunDecayBatch on a fixed
+// cadence so confidence values fade and stale facts are auto-archived
+// without an external scheduler. The loop honours ctx; one missed tick
+// is preferable to leaking a goroutine on shutdown.
+func runMemoryL3DecayLoop(ctx context.Context, svc *service.MemoryL3Service, logger *log.Logger) {
+	const interval = time.Hour
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			report, err := svc.RunDecayBatch(ctx)
+			if err != nil {
+				logger.Printf("memory l3 decay: %v", err)
+				continue
+			}
+			if report.Processed > 0 {
+				logger.Printf("memory l3 decay: processed=%d archived=%d drop=%.3f", report.Processed, report.Archived, report.ConfidenceDrop)
+			}
+		}
+	}
 }
 
 func firstNonEmpty(values ...string) string {

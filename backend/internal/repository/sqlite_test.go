@@ -51,11 +51,15 @@ func TestSQLiteRepositorySearchAgentsFiltersAndCounts(t *testing.T) {
 		t.Fatalf("unexpected filtered result: %#v", result)
 	}
 
-	paged, err := repo.SearchAgents(domain.AgentListQuery{Limit: 1, Offset: 1})
+	// Migrate() seeds the built-in __system_admin__ agent (see
+	// seedSystemAdminAgent in sqlite_seeds.go) so the unfiltered total is
+	// the two test agents plus one seeded admin. Filter by category so the
+	// pagination expectation only covers the agents this test inserted.
+	paged, err := repo.SearchAgents(domain.AgentListQuery{CategoryID: "cat_ops", Limit: 1, Offset: 0})
 	if err != nil {
 		t.Fatalf("search paged agents: %v", err)
 	}
-	if paged.Total != 2 || len(paged.Items) != 1 {
+	if paged.Total != 1 || len(paged.Items) != 1 || paged.Items[0].ID != "a2" {
 		t.Fatalf("unexpected paged result: %#v", paged)
 	}
 }

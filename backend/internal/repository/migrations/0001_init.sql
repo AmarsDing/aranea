@@ -62,6 +62,28 @@ CREATE TABLE IF NOT EXISTS agent_runtime_settings (
   l2_recall_max INTEGER NOT NULL DEFAULT 3,
   l2_retention_days INTEGER NOT NULL DEFAULT 90,
   l2_archive_after_days INTEGER NOT NULL DEFAULT 30,
+  l3_enabled INTEGER NOT NULL DEFAULT 1,
+  l3_recall_top_k INTEGER NOT NULL DEFAULT 5,
+  l3_recall_min_score REAL NOT NULL DEFAULT 0.55,
+  l3_recall_scopes_json TEXT NOT NULL DEFAULT '["agent","user","team","workspace"]',
+  l3_embedding_model TEXT NOT NULL DEFAULT '',
+  l3_decay_interval_hours INTEGER NOT NULL DEFAULT 24,
+  l3_archive_threshold REAL NOT NULL DEFAULT 0.2,
+  l3_max_per_recall_chars INTEGER NOT NULL DEFAULT 1500,
+  l4_enabled INTEGER NOT NULL DEFAULT 1,
+  l4_graph_inject_neighbors INTEGER NOT NULL DEFAULT 1,
+  l4_graph_max_neighbors INTEGER NOT NULL DEFAULT 6,
+  l4_graph_max_hops INTEGER NOT NULL DEFAULT 2,
+  l4_identity_inject INTEGER NOT NULL DEFAULT 1,
+  l4_strategy_inject INTEGER NOT NULL DEFAULT 0,
+  evo_enabled INTEGER NOT NULL DEFAULT 0,
+  evo_auto_apply INTEGER NOT NULL DEFAULT 0,
+  evo_min_episodes INTEGER NOT NULL DEFAULT 20,
+  evo_min_negative_feedback INTEGER NOT NULL DEFAULT 3,
+  evo_throttle_hours INTEGER NOT NULL DEFAULT 24,
+  evo_proposal_ttl_days INTEGER NOT NULL DEFAULT 14,
+  evo_persona_max_chars INTEGER NOT NULL DEFAULT 1500,
+  evo_system_prompt_max_appends INTEGER NOT NULL DEFAULT 5,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -464,6 +486,8 @@ CREATE TABLE IF NOT EXISTS memory_items (
   id TEXT PRIMARY KEY,
   scope_type TEXT NOT NULL,
   scope_id TEXT NOT NULL,
+  scope_subtype TEXT NOT NULL DEFAULT '',
+  fact_id TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL,
   source_session_id TEXT NOT NULL DEFAULT '',
   source_message_id TEXT NOT NULL DEFAULT '',
@@ -986,3 +1010,337 @@ CREATE INDEX IF NOT EXISTS idx_memory_l2_index_meta_episode ON memory_l2_index_m
 CREATE INDEX IF NOT EXISTS idx_memory_l2_index_meta_session_kind ON memory_l2_index_meta(session_id, text_kind);
 CREATE INDEX IF NOT EXISTS idx_memory_event_marks_session ON memory_event_marks(session_id, mark_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_memory_event_marks_episode ON memory_event_marks(episode_id);
+
+-- L3 semantic memory (aranea/docs/15 memory-L3-semantic.md §3)
+
+CREATE TABLE IF NOT EXISTS memory_facts (
+  id TEXT PRIMARY KEY,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL DEFAULT '',
+  workspace_id TEXT NOT NULL DEFAULT '',
+  user_id TEXT NOT NULL DEFAULT '',
+  team_id TEXT NOT NULL DEFAULT '',
+  agent_id TEXT NOT NULL DEFAULT '',
+  statement TEXT NOT NULL,
+  statement_normalized TEXT NOT NULL DEFAULT '',
+  fingerprint TEXT NOT NULL DEFAULT '',
+  details_markdown TEXT NOT NULL DEFAULT '',
+  fact_kind TEXT NOT NULL DEFAULT 'fact',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  confidence REAL NOT NULL DEFAULT 0.7,
+  importance REAL NOT NULL DEFAULT 0.5,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  hit_count INTEGER NOT NULL DEFAULT 0,
+  positive_feedback_count INTEGER NOT NULL DEFAULT 0,
+  negative_feedback_count INTEGER NOT NULL DEFAULT 0,
+  conflict_count INTEGER NOT NULL DEFAULT 0,
+  source_kind TEXT NOT NULL DEFAULT 'episode',
+  source_episode_id TEXT NOT NULL DEFAULT '',
+  source_session_id TEXT NOT NULL DEFAULT '',
+  source_message_id TEXT NOT NULL DEFAULT '',
+  source_external TEXT NOT NULL DEFAULT '',
+  version INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'active',
+  superseded_by TEXT NOT NULL DEFAULT '',
+  embedding_status TEXT NOT NULL DEFAULT 'pending',
+  embedding_model TEXT NOT NULL DEFAULT '',
+  embedding_dim INTEGER NOT NULL DEFAULT 0,
+  embedding_blob BLOB,
+  embedding_norm REAL NOT NULL DEFAULT 0,
+  pii_flag INTEGER NOT NULL DEFAULT 0,
+  redacted_statement TEXT NOT NULL DEFAULT '',
+  ttl_days INTEGER NOT NULL DEFAULT 0,
+  decay_factor REAL NOT NULL DEFAULT 0.98,
+  next_decay_at TEXT NOT NULL DEFAULT '',
+  last_used_at TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT NOT NULL DEFAULT '',
+  deleted_at TEXT NOT NULL DEFAULT '',
+  UNIQUE(scope_type, scope_id, fingerprint)
+);
+
+CREATE TABLE IF NOT EXISTS memory_fact_versions (
+  id TEXT PRIMARY KEY,
+  fact_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  statement TEXT NOT NULL,
+  details_markdown TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  confidence REAL NOT NULL DEFAULT 0.7,
+  status TEXT NOT NULL DEFAULT 'active',
+  changed_by TEXT NOT NULL DEFAULT '',
+  change_reason TEXT NOT NULL DEFAULT '',
+  diff_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(fact_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS memory_fact_feedback (
+  id TEXT PRIMARY KEY,
+  fact_id TEXT NOT NULL,
+  session_id TEXT NOT NULL DEFAULT '',
+  agent_id TEXT NOT NULL DEFAULT '',
+  feedback_type TEXT NOT NULL,
+  source TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 1.0,
+  comment TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS memory_fact_conflicts (
+  id TEXT PRIMARY KEY,
+  fact_a_id TEXT NOT NULL,
+  fact_b_id TEXT NOT NULL,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL DEFAULT '',
+  conflict_kind TEXT NOT NULL,
+  similarity REAL NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'open',
+  detected_by TEXT NOT NULL DEFAULT '',
+  resolution TEXT NOT NULL DEFAULT '',
+  resolved_by TEXT NOT NULL DEFAULT '',
+  resolved_at TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(fact_a_id, fact_b_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_fact_index (
+  fact_id TEXT PRIMARY KEY,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL DEFAULT '',
+  embedding_model TEXT NOT NULL DEFAULT '',
+  embedding_dim INTEGER NOT NULL DEFAULT 0,
+  embedding_blob BLOB,
+  embedding_norm REAL NOT NULL DEFAULT 0,
+  importance REAL NOT NULL DEFAULT 0.5,
+  confidence REAL NOT NULL DEFAULT 0.7,
+  updated_at TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_facts_fts
+USING fts5(
+  fact_id UNINDEXED,
+  scope_type UNINDEXED,
+  scope_id UNINDEXED,
+  fact_kind UNINDEXED,
+  text,
+  tokenize = 'unicode61 remove_diacritics 2'
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_facts_scope_status ON memory_facts(scope_type, scope_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_facts_workspace ON memory_facts(workspace_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_facts_agent ON memory_facts(agent_id, status, last_used_at);
+CREATE INDEX IF NOT EXISTS idx_memory_facts_decay ON memory_facts(status, next_decay_at);
+CREATE INDEX IF NOT EXISTS idx_memory_facts_kind ON memory_facts(fact_kind, scope_type, scope_id);
+CREATE INDEX IF NOT EXISTS idx_memory_fact_versions_fact ON memory_fact_versions(fact_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_fact_feedback_fact ON memory_fact_feedback(fact_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_fact_feedback_session ON memory_fact_feedback(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_fact_conflicts_status ON memory_fact_conflicts(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_memory_fact_index_scope ON memory_fact_index(scope_type, scope_id);
+
+-- L4 persistent / evolutionary memory (aranea/docs/16 memory-L4-persistent.md §3)
+
+CREATE TABLE IF NOT EXISTS memory_entities (
+  id TEXT PRIMARY KEY,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL DEFAULT '',
+  workspace_id TEXT NOT NULL DEFAULT '',
+  user_id TEXT NOT NULL DEFAULT '',
+  entity_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  name_normalized TEXT NOT NULL DEFAULT '',
+  aliases_json TEXT NOT NULL DEFAULT '[]',
+  description TEXT NOT NULL DEFAULT '',
+  attributes_json TEXT NOT NULL DEFAULT '{}',
+  importance REAL NOT NULL DEFAULT 0.5,
+  confidence REAL NOT NULL DEFAULT 0.7,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  source_kind TEXT NOT NULL DEFAULT 'extracted',
+  embedding_status TEXT NOT NULL DEFAULT 'pending',
+  embedding_model TEXT NOT NULL DEFAULT '',
+  embedding_dim INTEGER NOT NULL DEFAULT 0,
+  embedding_blob BLOB,
+  embedding_norm REAL NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active',
+  merged_into TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT NOT NULL DEFAULT '',
+  deleted_at TEXT NOT NULL DEFAULT '',
+  UNIQUE(scope_type, scope_id, entity_type, name_normalized)
+);
+
+CREATE TABLE IF NOT EXISTS memory_relations (
+  id TEXT PRIMARY KEY,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL DEFAULT '',
+  workspace_id TEXT NOT NULL DEFAULT '',
+  source_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  relation_type TEXT NOT NULL,
+  bidirectional INTEGER NOT NULL DEFAULT 0,
+  weight REAL NOT NULL DEFAULT 1.0,
+  confidence REAL NOT NULL DEFAULT 0.7,
+  importance REAL NOT NULL DEFAULT 0.5,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  attributes_json TEXT NOT NULL DEFAULT '{}',
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'active',
+  source_kind TEXT NOT NULL DEFAULT 'extracted',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT NOT NULL DEFAULT '',
+  deleted_at TEXT NOT NULL DEFAULT '',
+  UNIQUE(scope_type, scope_id, source_id, target_id, relation_type)
+);
+
+CREATE TABLE IF NOT EXISTS memory_entity_facts (
+  entity_id TEXT NOT NULL,
+  fact_id TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 1.0,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (entity_id, fact_id)
+);
+
+CREATE TABLE IF NOT EXISTS memory_entity_versions (
+  id TEXT PRIMARY KEY,
+  entity_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  changed_by TEXT NOT NULL DEFAULT '',
+  change_reason TEXT NOT NULL DEFAULT '',
+  diff_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  UNIQUE(entity_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS agent_identity (
+  agent_id TEXT PRIMARY KEY,
+  persona TEXT NOT NULL DEFAULT '',
+  values_json TEXT NOT NULL DEFAULT '[]',
+  tone TEXT NOT NULL DEFAULT '',
+  domains_json TEXT NOT NULL DEFAULT '[]',
+  user_expectations TEXT NOT NULL DEFAULT '',
+  current_phase TEXT NOT NULL DEFAULT 'cold-start',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_strategy_profile (
+  agent_id TEXT PRIMARY KEY,
+  exploration REAL NOT NULL DEFAULT 0.5,
+  conciseness REAL NOT NULL DEFAULT 0.5,
+  caution REAL NOT NULL DEFAULT 0.5,
+  delegation REAL NOT NULL DEFAULT 0.5,
+  tool_preference_json TEXT NOT NULL DEFAULT '{}',
+  tool_blacklist_json TEXT NOT NULL DEFAULT '[]',
+  provider_preference_json TEXT NOT NULL DEFAULT '{}',
+  model_preference_json TEXT NOT NULL DEFAULT '{}',
+  stats_json TEXT NOT NULL DEFAULT '{}',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_evolution_events (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT '',
+  event_kind TEXT NOT NULL,
+  target_field TEXT NOT NULL DEFAULT '',
+  before_json TEXT NOT NULL DEFAULT '',
+  after_json TEXT NOT NULL DEFAULT '',
+  diff_json TEXT NOT NULL DEFAULT '{}',
+  trigger_kind TEXT NOT NULL,
+  trigger_source TEXT NOT NULL DEFAULT '',
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  reason TEXT NOT NULL DEFAULT '',
+  applied INTEGER NOT NULL DEFAULT 1,
+  reverted INTEGER NOT NULL DEFAULT 0,
+  reverted_by_event_id TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  applied_at TEXT NOT NULL DEFAULT '',
+  reverted_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS agent_evolution_proposals (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL DEFAULT '',
+  proposal_kind TEXT NOT NULL,
+  target_field TEXT NOT NULL DEFAULT '',
+  proposed_value_json TEXT NOT NULL DEFAULT '',
+  current_value_json TEXT NOT NULL DEFAULT '',
+  diff_json TEXT NOT NULL DEFAULT '{}',
+  rationale TEXT NOT NULL DEFAULT '',
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  expected_impact TEXT NOT NULL DEFAULT '',
+  risk_level TEXT NOT NULL DEFAULT 'low',
+  approval_required INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending',
+  reviewed_by TEXT NOT NULL DEFAULT '',
+  reviewed_at TEXT NOT NULL DEFAULT '',
+  applied_event_id TEXT NOT NULL DEFAULT '',
+  expires_at TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_skill_stats (
+  agent_id TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'overall',
+  scope_value TEXT NOT NULL DEFAULT '',
+  tool_key TEXT NOT NULL,
+  invocations INTEGER NOT NULL DEFAULT 0,
+  successes INTEGER NOT NULL DEFAULT 0,
+  failures INTEGER NOT NULL DEFAULT 0,
+  user_overrides INTEGER NOT NULL DEFAULT 0,
+  avg_latency_ms REAL NOT NULL DEFAULT 0,
+  avg_tokens REAL NOT NULL DEFAULT 0,
+  preference_score REAL NOT NULL DEFAULT 0.5,
+  last_used_at TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (agent_id, scope, scope_value, tool_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_entities_scope_type
+  ON memory_entities(scope_type, scope_id, entity_type, status);
+CREATE INDEX IF NOT EXISTS idx_memory_entities_workspace
+  ON memory_entities(workspace_id, entity_type, status);
+CREATE INDEX IF NOT EXISTS idx_memory_entities_user
+  ON memory_entities(user_id, entity_type, status);
+CREATE INDEX IF NOT EXISTS idx_memory_relations_source
+  ON memory_relations(source_id, status, weight DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_relations_target
+  ON memory_relations(target_id, status, weight DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_relations_workspace
+  ON memory_relations(workspace_id, status);
+CREATE INDEX IF NOT EXISTS idx_memory_entity_facts_fact
+  ON memory_entity_facts(fact_id);
+CREATE INDEX IF NOT EXISTS idx_memory_entity_versions_entity
+  ON memory_entity_versions(entity_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_evolution_events_agent
+  ON agent_evolution_events(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_evolution_events_kind
+  ON agent_evolution_events(agent_id, event_kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_evolution_proposals_status
+  ON agent_evolution_proposals(agent_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_skill_stats_agent
+  ON agent_skill_stats(agent_id, preference_score DESC);

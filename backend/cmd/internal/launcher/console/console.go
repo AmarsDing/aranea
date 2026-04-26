@@ -323,6 +323,6 @@ func (l *consoleLauncher) stream(ctx context.Context, g *apiclient.GlobalContext
 			fmt.Fprintf(os.Stderr, "\n\x1b[31merror\x1b[0m %s\n", d.Message)
 		}
 	}
-	fmt.Println("\n")
+	fmt.Println()
 	return nil
 }

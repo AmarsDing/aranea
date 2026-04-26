@@ -130,6 +130,17 @@ func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	// episodes / marks / recall are dispatched from handleSessionByID.
 	h.registerMemoryL2AdminRoutes(mux)
 
+	// Memory L3 (semantic memory) routes. Facts are workspace-/user-
+	// scoped, not session-scoped, so they live under /api/v1/memory/l3/.
+	h.registerMemoryL3Routes(mux)
+
+	// Memory L4 (persistent / knowledge graph) routes and agent
+	// self-evolution surface. Both are workspace- / user- / agent-
+	// scoped and live under /api/v1/memory/l4/ and
+	// /api/v1/agent-evolution/ respectively.
+	h.registerMemoryL4Routes(mux)
+	h.registerAgentEvolutionRoutes(mux)
+
 	// Model usage analytics.
 	mux.HandleFunc("/api/v1/model-usage/overview", h.handleModelUsageOverview)
 	mux.HandleFunc("/api/v1/model-usage/trends", h.handleModelUsageTrends)

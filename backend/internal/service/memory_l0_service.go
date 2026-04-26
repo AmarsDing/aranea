@@ -20,9 +20,12 @@ import (
 // snapshot writing so ChatService / TeamRuntime can hand the LLM a clean
 // `messages` slice on every call.
 type MemoryL0Service struct {
-	repo     repository.Store
-	memoryL1 L1PromptSource
-	memoryL2 L2RecallSource
+	repo      repository.Store
+	memoryL1  L1PromptSource
+	memoryL2  L2RecallSource
+	memoryL3  L3RecallSource
+	memoryL4  L4RecallSource
+	evolution EvolutionPromptSource
 }
 
 // L1PromptSource is the narrow contract MemoryL0Service uses to render the
@@ -42,6 +45,32 @@ type L2RecallSource interface {
 	RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool)
 }
 
+// L3RecallSource is the narrow contract MemoryL0Service uses to render the
+// optional L3 semantic-memory segment described in
+// `aranea/docs/15 memory-L3-semantic.md` §5.3 / §7. Implemented by
+// *MemoryL3Service. The seam keeps the L0 happy path branch-free when the
+// recall feature is disabled (default in agent_runtime_settings).
+type L3RecallSource interface {
+	RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool)
+}
+
+// L4RecallSource is the narrow contract MemoryL0Service uses to render
+// the optional L4 knowledge-graph neighborhood segment described in
+// `aranea/docs/16 memory-L4-persistent.md` §5.7 / §10. Implemented by
+// *MemoryL4Service. The seam keeps the L0 happy path branch-free when
+// the recall feature is disabled (default in agent_runtime_settings).
+type L4RecallSource interface {
+	NeighborhoodSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool)
+}
+
+// EvolutionPromptSource is the narrow contract MemoryL0Service uses to
+// inject the agent's self-evolution segment (persona / values / tone /
+// strategy hints) into the system prompt. Implemented by
+// *AgentEvolutionService.
+type EvolutionPromptSource interface {
+	BuildSelfPromptAppend(ctx context.Context, agentID string) (string, error)
+}
+
 func NewMemoryL0Service(repo repository.Store) *MemoryL0Service {
 	return &MemoryL0Service{repo: repo}
 }
@@ -57,6 +86,30 @@ func (s *MemoryL0Service) SetL1Source(src L1PromptSource) {
 // segment is also gated by `l2_recall_enabled` on agent_runtime_settings.
 func (s *MemoryL0Service) SetL2Source(src L2RecallSource) {
 	s.memoryL2 = src
+}
+
+// SetL3Source wires the MemoryL3Service into the L0 assembly pipeline. It is
+// optional: when nil the L0 layer simply omits the L3 recall segment. The
+// segment is also gated by `l3_enabled` and `l0_inject_l3` on
+// agent_runtime_settings.
+func (s *MemoryL0Service) SetL3Source(src L3RecallSource) {
+	s.memoryL3 = src
+}
+
+// SetL4Source wires the MemoryL4Service into the L0 assembly pipeline.
+// It is optional: when nil the L0 layer simply omits the L4 graph
+// segment. The segment is also gated by `l4_enabled` /
+// `l4_graph_inject_neighbors` on agent_runtime_settings.
+func (s *MemoryL0Service) SetL4Source(src L4RecallSource) {
+	s.memoryL4 = src
+}
+
+// SetEvolutionSource wires the AgentEvolutionService into the L0
+// assembly pipeline. It is optional: when nil the L0 layer simply omits
+// the self-evolution system segment. The segment is also gated by
+// `l4_enabled` / `l4_identity_inject` / `l4_strategy_inject`.
+func (s *MemoryL0Service) SetEvolutionSource(src EvolutionPromptSource) {
+	s.evolution = src
 }
 
 // l0DefaultSafetyMargin reserves a few hundred tokens out of the model context
@@ -144,7 +197,7 @@ func (s *MemoryL0Service) assemble(ctx context.Context, req domain.L0AssemblyReq
 
 	segments := make([]domain.L0Segment, 0, 16)
 
-	systemSegments, err := s.buildSystemSegments(req.AgentID, req.ExtraSystemBlocks)
+	systemSegments, err := s.buildSystemSegments(ctx, req.AgentID, req.ExtraSystemBlocks)
 	if err != nil {
 		return domain.L0AssemblyResult{}, err
 	}
@@ -159,10 +212,14 @@ func (s *MemoryL0Service) assemble(ctx context.Context, req domain.L0AssemblyReq
 		segments = append(segments, seg)
 	}
 	if settings.InjectL3 {
-		segments = append(segments, s.buildL3Segments(req.UserMessage, settings.L3MaxChunks)...)
+		if seg, ok := s.buildL3Segment(ctx, req.SessionID, req.AgentID, req.UserMessage); ok {
+			segments = append(segments, seg)
+		}
 	}
 	if settings.InjectL4 {
-		segments = append(segments, s.buildL4Segments(req.UserMessage, settings.L4MaxPaths)...)
+		if seg, ok := s.buildL4Segment(ctx, req.SessionID, req.AgentID, req.UserMessage); ok {
+			segments = append(segments, seg)
+		}
 	}
 
 	summaries, err := s.repo.ListSessionSummaries(req.SessionID, 8)
@@ -219,10 +276,6 @@ func (s *MemoryL0Service) assemble(ctx context.Context, req domain.L0AssemblyReq
 		} else if usedRatio >= 0.95 {
 			warningCodes = appendUnique(warningCodes, "near_limit")
 		}
-	}
-
-	if settings.InjectL3 && len(s.buildL3Segments(req.UserMessage, settings.L3MaxChunks)) == 0 {
-		// best effort, no warning
 	}
 
 	promptMessages := assembleChatMessages(segments)
@@ -312,7 +365,7 @@ func (s *MemoryL0Service) resolveL0Settings(agentID string) domain.L0Settings {
 	return out
 }
 
-func (s *MemoryL0Service) buildSystemSegments(agentID string, extra []domain.L0Segment) ([]domain.L0Segment, error) {
+func (s *MemoryL0Service) buildSystemSegments(ctx context.Context, agentID string, extra []domain.L0Segment) ([]domain.L0Segment, error) {
 	out := make([]domain.L0Segment, 0, 4+len(extra))
 	if agentID != "" {
 		agent, err := s.repo.GetAgentByID(agentID)
@@ -338,6 +391,20 @@ func (s *MemoryL0Service) buildSystemSegments(agentID string, extra []domain.L0S
 						Section: "system.prompt_file",
 						Role:    "system",
 						Source:  "agent_prompt_files:" + file.Name,
+						Tokens:  estimateTokensApprox(body),
+						Content: body,
+						Preview: previewText(body, l0PreviewLimit),
+					})
+				}
+			}
+		}
+		if s.evolution != nil {
+			if body, err := s.evolution.BuildSelfPromptAppend(ctx, agentID); err == nil {
+				if body = strings.TrimSpace(body); body != "" {
+					out = append(out, domain.L0Segment{
+						Section: "system.self_evolution",
+						Role:    "system",
+						Source:  "agent_evolution",
 						Tokens:  estimateTokensApprox(body),
 						Content: body,
 						Preview: previewText(body, l0PreviewLimit),
@@ -408,11 +475,28 @@ func (s *MemoryL0Service) buildL2Segment(ctx context.Context, sessionID, agentID
 	return s.memoryL2.RecallSegmentForL0(ctx, sessionID, agentID, query)
 }
 
-// buildL3Segments / buildL4Segments are intentionally empty for now: L3 / L4
-// services are not yet implemented (`Phase 4` in the spec). They exist so the
-// assembly flow has a single, stable seam.
-func (s *MemoryL0Service) buildL3Segments(_ string, _ int) []domain.L0Segment { return nil }
-func (s *MemoryL0Service) buildL4Segments(_ string, _ int) []domain.L0Segment { return nil }
+// buildL3Segment delegates to the configured L3RecallSource. The MemoryL3
+// service itself enforces the `l3_enabled` flag, scope filters, top-k and
+// per-recall char budget so this method only has to translate "no source"
+// / "no hits" into ok=false.
+func (s *MemoryL0Service) buildL3Segment(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
+	if s.memoryL3 == nil {
+		return domain.L0Segment{}, false
+	}
+	return s.memoryL3.RecallSegmentForL0(ctx, sessionID, agentID, query)
+}
+
+// buildL4Segment delegates to the configured L4RecallSource. The
+// MemoryL4Service itself enforces `l4_enabled` /
+// `l4_graph_inject_neighbors` and the per-agent neighborhood budget so
+// this method only has to translate "no source" / "no center" into
+// ok=false.
+func (s *MemoryL0Service) buildL4Segment(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
+	if s.memoryL4 == nil {
+		return domain.L0Segment{}, false
+	}
+	return s.memoryL4.NeighborhoodSegmentForL0(ctx, sessionID, agentID, query)
+}
 
 func (s *MemoryL0Service) buildSummarySegment(summaries []domain.SessionSummary) (domain.L0Segment, int, int, bool) {
 	if len(summaries) == 0 {

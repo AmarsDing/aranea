@@ -207,6 +207,33 @@ func defaultRuntimeSettings() domain.AgentRuntimeSettings {
 		L1FieldMaxTokens:                  2048,
 		L1HistoryKeepRevisions:            10,
 		L1ArchiveOnIdleMinutes:            60,
+		L2EpisodeEnabled:                  true,
+		L2EpisodeMinImportance:            0.3,
+		L2IndexEnabled:                    true,
+		L2RecallMax:                       3,
+		L2RetentionDays:                   90,
+		L2ArchiveAfterDays:                30,
+		L3Enabled:                         true,
+		L3RecallTopK:                      5,
+		L3RecallMinScore:                  0.55,
+		L3RecallScopesJSON:                `["agent","user","team","workspace"]`,
+		L3DecayIntervalHours:              24,
+		L3ArchiveThreshold:                0.2,
+		L3MaxPerRecallChars:               1500,
+		L4Enabled:                         true,
+		L4GraphInjectNeighbors:            true,
+		L4GraphMaxNeighbors:               6,
+		L4GraphMaxHops:                    2,
+		L4IdentityInject:                  true,
+		L4StrategyInject:                  false,
+		EvoEnabled:                        false,
+		EvoAutoApply:                      false,
+		EvoMinEpisodes:                    20,
+		EvoMinNegativeFeedback:            3,
+		EvoThrottleHours:                  24,
+		EvoProposalTTLDays:                14,
+		EvoPersonaMaxChars:                1500,
+		EvoSystemPromptMaxAppends:         5,
 	}
 }
 
@@ -243,6 +270,24 @@ func withSettingDefaults(v domain.AgentRuntimeSettings) domain.AgentRuntimeSetti
 	defaultInt(&v.L1FieldMaxTokens, d.L1FieldMaxTokens)
 	defaultInt(&v.L1HistoryKeepRevisions, d.L1HistoryKeepRevisions)
 	defaultInt(&v.L1ArchiveOnIdleMinutes, d.L1ArchiveOnIdleMinutes)
+	defaultFloat(&v.L2EpisodeMinImportance, d.L2EpisodeMinImportance)
+	defaultInt(&v.L2RecallMax, d.L2RecallMax)
+	defaultInt(&v.L2RetentionDays, d.L2RetentionDays)
+	defaultInt(&v.L2ArchiveAfterDays, d.L2ArchiveAfterDays)
+	defaultInt(&v.L3RecallTopK, d.L3RecallTopK)
+	defaultFloat(&v.L3RecallMinScore, d.L3RecallMinScore)
+	defaultString(&v.L3RecallScopesJSON, d.L3RecallScopesJSON)
+	defaultInt(&v.L3DecayIntervalHours, d.L3DecayIntervalHours)
+	defaultFloat(&v.L3ArchiveThreshold, d.L3ArchiveThreshold)
+	defaultInt(&v.L3MaxPerRecallChars, d.L3MaxPerRecallChars)
+	defaultInt(&v.L4GraphMaxNeighbors, d.L4GraphMaxNeighbors)
+	defaultInt(&v.L4GraphMaxHops, d.L4GraphMaxHops)
+	defaultInt(&v.EvoMinEpisodes, d.EvoMinEpisodes)
+	defaultInt(&v.EvoMinNegativeFeedback, d.EvoMinNegativeFeedback)
+	defaultInt(&v.EvoThrottleHours, d.EvoThrottleHours)
+	defaultInt(&v.EvoProposalTTLDays, d.EvoProposalTTLDays)
+	defaultInt(&v.EvoPersonaMaxChars, d.EvoPersonaMaxChars)
+	defaultInt(&v.EvoSystemPromptMaxAppends, d.EvoSystemPromptMaxAppends)
 	return v
 }
 

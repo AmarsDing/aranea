@@ -144,4 +144,135 @@ type Store interface {
 	ListL2Events(q domain.MemoryL2EventQuery) ([]domain.MemoryL2Event, int, error)
 	ArchiveEpisodesBeforeDate(sessionID, before string) (int, error)
 	DeleteArchivedEpisodesBefore(before string) (int, error)
+
+	// L3 semantic memory (aranea/docs/15 memory-L3-semantic.md §4.2).
+	CreateFact(f domain.MemoryFact) (domain.MemoryFact, error)
+	UpdateFact(f domain.MemoryFact) error
+	GetFact(id string) (domain.MemoryFact, error)
+	GetFactByFingerprint(scopeType domain.ScopeType, scopeID, fp string) (domain.MemoryFact, error)
+	ListFacts(q FactListQuery) ([]domain.MemoryFact, int, error)
+	UpdateFactConfidence(id string, newConfidence float64, hitInc, posInc, negInc int) error
+	UpdateFactStatus(id, status, supersededBy, archivedAt string) error
+	BumpFactUseStat(id string, hit bool, atISO string) error
+
+	InsertFactVersion(fv domain.FactVersion) error
+	ListFactVersions(factID string, limit int) ([]domain.FactVersion, error)
+	GetFactVersion(factID string, version int) (domain.FactVersion, error)
+
+	InsertFactFeedback(fb domain.FactFeedback) (domain.FactFeedback, error)
+	ListFactFeedback(factID string, limit int) ([]domain.FactFeedback, error)
+	CountRecentFactFeedback(factID, feedbackType string, limit int) (int, error)
+
+	UpsertFactConflict(c domain.FactConflict) (domain.FactConflict, error)
+	GetFactConflict(id string) (domain.FactConflict, error)
+	ListOpenFactConflicts(scope domain.ScopeType, scopeID string, limit int) ([]domain.FactConflict, error)
+	UpdateFactConflictResolution(id, status, resolution, by, resolvedAt string) error
+
+	UpsertFactEmbedding(id, model string, dim int, blob []byte, norm float64) error
+	UpsertFactsFTS(factID string, scopeType domain.ScopeType, scopeID, kind, text string) error
+	DeleteFactIndex(factID string) error
+	SearchFactsBM25(scopes []domain.ScopeType, scopeIDs []string, query string, limit int) ([]domain.FactRecallHit, error)
+	SearchFactsVector(scopes []domain.ScopeType, scopeIDs []string, q []float32, limit int) ([]domain.FactRecallHit, error)
+
+	ListFactsDueForDecay(before string, limit int) ([]domain.MemoryFact, error)
+	ApplyFactDecay(factID string, factor float64, nextAt string) error
+	ArchiveFactsBelowConfidence(threshold float64, limit int) (int, error)
+	CountFactsByStatus(scope domain.ScopeType, scopeID string) (map[string]int, error)
+
+	// L4 persistent / evolutionary memory
+	// (aranea/docs/16 memory-L4-persistent.md §5.1).
+	UpsertEntity(e domain.MemoryEntity) (domain.MemoryEntity, error)
+	GetEntity(id string) (domain.MemoryEntity, error)
+	GetEntityByName(scope domain.ScopeType, scopeID string, t domain.EntityType, normalized string) (domain.MemoryEntity, error)
+	ListEntities(q EntityListQuery) ([]domain.MemoryEntity, int, error)
+	UpdateEntityStatus(id, status, mergedInto, archivedAt, deletedAt string) error
+	UpdateEntityName(id, name, normalized string) error
+	UpsertEntityFact(entityID, factID string, weight float64) error
+	ListFactsForEntity(entityID string, limit int) ([]domain.MemoryEntityFactLink, error)
+	InsertEntityVersion(v domain.MemoryEntityVersion) error
+	ListEntityVersions(entityID string, limit int) ([]domain.MemoryEntityVersion, error)
+	BumpEntityUseCount(id string, atISO string) error
+
+	UpsertRelation(r domain.MemoryRelation) (domain.MemoryRelation, error)
+	GetRelation(id string) (domain.MemoryRelation, error)
+	ListRelationsForNode(nodeID string, limit int) ([]domain.MemoryRelation, error)
+	UpdateRelationStatus(id, status, archivedAt, deletedAt string) error
+	BumpRelationUseCount(id string, atISO string) error
+
+	GetNeighborhood(centerID string, hops, maxNodes int) (domain.GraphNeighborhood, error)
+
+	// Agent evolution (§5.3).
+	GetAgentIdentity(agentID string) (domain.AgentIdentity, error)
+	UpsertAgentIdentity(id domain.AgentIdentity) (domain.AgentIdentity, error)
+	GetAgentStrategyProfile(agentID string) (domain.AgentStrategyProfile, error)
+	UpsertAgentStrategyProfile(p domain.AgentStrategyProfile) (domain.AgentStrategyProfile, error)
+
+	InsertEvolutionEvent(e domain.EvolutionEvent) (domain.EvolutionEvent, error)
+	GetEvolutionEvent(id string) (domain.EvolutionEvent, error)
+	ListEvolutionEvents(q EvolutionEventQuery) ([]domain.EvolutionEvent, int, error)
+	MarkEvolutionEventReverted(id, byEventID, atISO string) error
+
+	InsertEvolutionProposal(p domain.EvolutionProposal) (domain.EvolutionProposal, error)
+	GetEvolutionProposal(id string) (domain.EvolutionProposal, error)
+	ListEvolutionProposals(q EvolutionProposalQuery) ([]domain.EvolutionProposal, int, error)
+	UpdateEvolutionProposalStatus(id, status, by, eventID, atISO string) error
+	SupersedeProposalsByTarget(agentID, targetField, sinceISO string) (int, error)
+
+	UpsertAgentSkillStat(s domain.AgentSkillStat) (domain.AgentSkillStat, error)
+	GetAgentSkillStat(agentID, scope, scopeValue, toolKey string) (domain.AgentSkillStat, error)
+	ListAgentSkillStats(agentID string, limit int) ([]domain.AgentSkillStat, error)
+}
+
+// EntityListQuery filters knowledge graph nodes in the repository layer.
+type EntityListQuery struct {
+	ScopeType   domain.ScopeType
+	ScopeID     string
+	WorkspaceID string
+	UserID      string
+	EntityType  domain.EntityType
+	Status      string
+	Keyword     string
+	Limit       int
+	Offset      int
+}
+
+// EvolutionEventQuery filters EvolutionEvent rows for list endpoints.
+type EvolutionEventQuery struct {
+	AgentID     string
+	WorkspaceID string
+	Kind        string
+	TriggerKind string
+	Reverted    *bool
+	Limit       int
+	Offset      int
+}
+
+// EvolutionProposalQuery filters EvolutionProposal rows for list endpoints.
+type EvolutionProposalQuery struct {
+	AgentID     string
+	WorkspaceID string
+	Status      string
+	RiskLevel   string
+	Source      string
+	TargetField string
+	Limit       int
+	Offset      int
+}
+
+// FactListQuery filters facts in the repository layer. Empty values are
+// ignored so the same struct works for the "show all" admin endpoint and
+// the scoped agent UI.
+type FactListQuery struct {
+	ScopeType   domain.ScopeType
+	ScopeID     string
+	WorkspaceID string
+	UserID      string
+	TeamID      string
+	AgentID     string
+	Status      string
+	Kind        domain.FactKind
+	Tags        []string
+	Keyword     string
+	Limit       int
+	Offset      int
 }

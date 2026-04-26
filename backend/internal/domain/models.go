@@ -77,6 +77,28 @@ type AgentRuntimeSettings struct {
 	L2RecallMax                       int     `json:"l2_recall_max"`
 	L2RetentionDays                   int     `json:"l2_retention_days"`
 	L2ArchiveAfterDays                int     `json:"l2_archive_after_days"`
+	L3Enabled                         bool    `json:"l3_enabled"`
+	L3RecallTopK                      int     `json:"l3_recall_top_k"`
+	L3RecallMinScore                  float64 `json:"l3_recall_min_score"`
+	L3RecallScopesJSON                string  `json:"l3_recall_scopes_json"`
+	L3EmbeddingModel                  string  `json:"l3_embedding_model"`
+	L3DecayIntervalHours              int     `json:"l3_decay_interval_hours"`
+	L3ArchiveThreshold                float64 `json:"l3_archive_threshold"`
+	L3MaxPerRecallChars               int     `json:"l3_max_per_recall_chars"`
+	L4Enabled                         bool    `json:"l4_enabled"`
+	L4GraphInjectNeighbors            bool    `json:"l4_graph_inject_neighbors"`
+	L4GraphMaxNeighbors               int     `json:"l4_graph_max_neighbors"`
+	L4GraphMaxHops                    int     `json:"l4_graph_max_hops"`
+	L4IdentityInject                  bool    `json:"l4_identity_inject"`
+	L4StrategyInject                  bool    `json:"l4_strategy_inject"`
+	EvoEnabled                        bool    `json:"evo_enabled"`
+	EvoAutoApply                      bool    `json:"evo_auto_apply"`
+	EvoMinEpisodes                    int     `json:"evo_min_episodes"`
+	EvoMinNegativeFeedback            int     `json:"evo_min_negative_feedback"`
+	EvoThrottleHours                  int     `json:"evo_throttle_hours"`
+	EvoProposalTTLDays                int     `json:"evo_proposal_ttl_days"`
+	EvoPersonaMaxChars                int     `json:"evo_persona_max_chars"`
+	EvoSystemPromptMaxAppends         int     `json:"evo_system_prompt_max_appends"`
 	CreatedAt                         string  `json:"created_at,omitempty"`
 	UpdatedAt                         string  `json:"updated_at,omitempty"`
 }

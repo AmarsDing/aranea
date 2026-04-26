@@ -14,12 +14,15 @@ import (
 )
 
 type ChatService struct {
-	repo          repository.Store
-	runtime       *runtime.ADKRuntimeAdapter
-	teamRunEvents *TeamRunEventBroker
-	memoryL0      *MemoryL0Service
-	memoryL1      *MemoryL1Service
-	memoryL2      *MemoryL2Service
+	repo           repository.Store
+	runtime        *runtime.ADKRuntimeAdapter
+	teamRunEvents  *TeamRunEventBroker
+	memoryL0       *MemoryL0Service
+	memoryL1       *MemoryL1Service
+	memoryL2       *MemoryL2Service
+	memoryL3       *MemoryL3Service
+	memoryL4       *MemoryL4Service
+	agentEvolution *AgentEvolutionService
 }
 
 type SendMessageInput struct {
@@ -56,16 +59,25 @@ func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAda
 	memoryL0 := NewMemoryL0Service(repo)
 	memoryL1 := NewMemoryL1Service(repo)
 	memoryL2 := NewMemoryL2Service(repo)
+	memoryL3 := NewMemoryL3Service(repo)
+	memoryL4 := NewMemoryL4Service(repo)
+	agentEvolution := NewAgentEvolutionService(repo)
 	memoryL2.SetL1Source(memoryL1)
 	memoryL0.SetL1Source(memoryL1)
 	memoryL0.SetL2Source(memoryL2)
+	memoryL0.SetL3Source(memoryL3)
+	memoryL0.SetL4Source(memoryL4)
+	memoryL0.SetEvolutionSource(agentEvolution)
 	return &ChatService{
-		repo:          repo,
-		runtime:       runtimeAdapter,
-		teamRunEvents: NewTeamRunEventBroker(),
-		memoryL0:      memoryL0,
-		memoryL1:      memoryL1,
-		memoryL2:      memoryL2,
+		repo:           repo,
+		runtime:        runtimeAdapter,
+		teamRunEvents:  NewTeamRunEventBroker(),
+		memoryL0:       memoryL0,
+		memoryL1:       memoryL1,
+		memoryL2:       memoryL2,
+		memoryL3:       memoryL3,
+		memoryL4:       memoryL4,
+		agentEvolution: agentEvolution,
 	}
 }
 
@@ -80,6 +92,21 @@ func (s *ChatService) MemoryL1() *MemoryL1Service { return s.memoryL1 }
 // MemoryL2 exposes the L2 episodic-memory service so HTTP handlers can
 // serve episode / event / mark endpoints without re-wiring dependencies.
 func (s *ChatService) MemoryL2() *MemoryL2Service { return s.memoryL2 }
+
+// MemoryL3 exposes the L3 semantic-memory service so HTTP handlers and
+// the decay worker can call Upsert / Recall / RunDecayBatch without
+// re-wiring the repository in main.go.
+func (s *ChatService) MemoryL3() *MemoryL3Service { return s.memoryL3 }
+
+// MemoryL4 exposes the L4 persistent-memory / knowledge-graph service so
+// HTTP handlers can serve entity / relation / neighborhood endpoints
+// without re-wiring the repository in main.go.
+func (s *ChatService) MemoryL4() *MemoryL4Service { return s.memoryL4 }
+
+// AgentEvolution exposes the L4 self-evolution service so HTTP handlers
+// can serve identity / strategy / proposal / event endpoints without
+// re-wiring the repository in main.go.
+func (s *ChatService) AgentEvolution() *AgentEvolutionService { return s.agentEvolution }
 
 func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
 	if in.SessionID == "" || in.Content == "" {

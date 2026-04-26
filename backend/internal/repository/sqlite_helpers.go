@@ -1,7 +1,10 @@
 package repository
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"math"
 	"strings"
 	"time"
 )
@@ -48,6 +51,87 @@ func normalizeJSONList(value string) string {
 		return "[]"
 	}
 	return string(encoded)
+}
+
+// decodeJSONFloatMap parses a `{"key":number}` JSON object into a Go map.
+// Empty / invalid input yields nil. Used by the L4 agent evolution
+// repository for tool / provider / model preference columns.
+func decodeJSONFloatMap(raw string) map[string]float64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	out := map[string]float64{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+// encodeJSONFloatMap is the inverse of decodeJSONFloatMap. Empty maps
+// serialise to "{}" so the column never holds an SQL-illegal empty string.
+func encodeJSONFloatMap(in map[string]float64) string {
+	if len(in) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(in)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+// EncodeFloat32Blob serialises a float32 vector as little-endian bytes so
+// it round-trips through SQLite BLOB columns.
+func EncodeFloat32Blob(vec []float32) []byte {
+	if len(vec) == 0 {
+		return nil
+	}
+	out := make([]byte, 4*len(vec))
+	for i, f := range vec {
+		binary.LittleEndian.PutUint32(out[i*4:], math.Float32bits(f))
+	}
+	return out
+}
+
+// decodeFloat32Blob is the inverse of EncodeFloat32Blob. Returns an error
+// when the byte length isn't a multiple of 4.
+func decodeFloat32Blob(blob []byte) ([]float32, error) {
+	if len(blob)%4 != 0 {
+		return nil, errors.New("invalid float32 blob length")
+	}
+	out := make([]float32, len(blob)/4)
+	for i := range out {
+		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(blob[i*4:]))
+	}
+	return out, nil
+}
+
+// vectorNorm returns the L2 norm of a float32 vector. Used both for the
+// query side of cosine similarity and to populate the embedding_norm
+// column.
+func vectorNorm(vec []float32) float64 {
+	if len(vec) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range vec {
+		sum += float64(v) * float64(v)
+	}
+	return math.Sqrt(sum)
+}
+
+// dotProduct is the unrolled-friendly inner product used inside the
+// vector recall path.
+func dotProduct(a []float32, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var sum float64
+	for i := range a {
+		sum += float64(a[i]) * float64(b[i])
+	}
+	return sum
 }
 
 // sanitizePromptFileID converts a free-form prompt file name into a stable id
