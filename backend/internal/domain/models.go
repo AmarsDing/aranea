@@ -197,25 +197,25 @@ type Session struct {
 	MaxContextUsedRatio     float64 `json:"max_context_used_ratio"`
 	LastContextWindowTokens int     `json:"last_context_window_tokens"`
 	ContextStatus           string  `json:"context_status"`
-	DialogMode          string  `json:"dialog_mode"`
-	Provider            string  `json:"provider"`
-	Model               string  `json:"model"`
-	Status              string  `json:"status"`
-	MessageCount        int     `json:"message_count"`
-	RunCount            int     `json:"run_count"`
-	ModelCallCount      int     `json:"model_call_count"`
-	ToolCallCount       int     `json:"tool_call_count"`
-	SkillCallCount      int     `json:"skill_call_count"`
-	MCPCallCount        int     `json:"mcp_call_count"`
-	InputTokens         int     `json:"input_tokens"`
-	OutputTokens        int     `json:"output_tokens"`
-	TotalTokens         int     `json:"total_tokens"`
-	TotalCostMicroUSD   int64   `json:"total_cost_micro_usd"`
-	LastMessageAt       string  `json:"last_message_at"`
-	CreatedAt           string  `json:"created_at"`
-	UpdatedAt           string  `json:"updated_at"`
-	ArchivedAt          string  `json:"archived_at"`
-	DeletedAt           string  `json:"deleted_at"`
+	DialogMode              string  `json:"dialog_mode"`
+	Provider                string  `json:"provider"`
+	Model                   string  `json:"model"`
+	Status                  string  `json:"status"`
+	MessageCount            int     `json:"message_count"`
+	RunCount                int     `json:"run_count"`
+	ModelCallCount          int     `json:"model_call_count"`
+	ToolCallCount           int     `json:"tool_call_count"`
+	SkillCallCount          int     `json:"skill_call_count"`
+	MCPCallCount            int     `json:"mcp_call_count"`
+	InputTokens             int     `json:"input_tokens"`
+	OutputTokens            int     `json:"output_tokens"`
+	TotalTokens             int     `json:"total_tokens"`
+	TotalCostMicroUSD       int64   `json:"total_cost_micro_usd"`
+	LastMessageAt           string  `json:"last_message_at"`
+	CreatedAt               string  `json:"created_at"`
+	UpdatedAt               string  `json:"updated_at"`
+	ArchivedAt              string  `json:"archived_at"`
+	DeletedAt               string  `json:"deleted_at"`
 }
 
 type SessionSearchQuery struct {
@@ -252,6 +252,37 @@ type Message struct {
 	OptionsJSON      string `json:"options_json"`
 	ErrorMessage     string `json:"error_message"`
 	CreatedAt        string `json:"created_at"`
+}
+
+type SessionTimelineItem struct {
+	ID              string   `json:"id"`
+	Kind            string   `json:"kind"`
+	Side            string   `json:"side"`
+	Title           string   `json:"title"`
+	Subtitle        string   `json:"subtitle"`
+	ActorID         string   `json:"actor_id"`
+	ActorName       string   `json:"actor_name"`
+	Status          string   `json:"status"`
+	OccurredAt      string   `json:"occurred_at"`
+	DurationMS      int      `json:"duration_ms"`
+	ContentMarkdown string   `json:"content_markdown"`
+	Preview         string   `json:"preview"`
+	DetailJSON      string   `json:"detail_json"`
+	Tags            []string `json:"tags"`
+}
+
+type SessionTimelineSummary struct {
+	Total        int `json:"total"`
+	MessageCount int `json:"message_count"`
+	ToolCount    int `json:"tool_count"`
+	SkillCount   int `json:"skill_count"`
+	MCPCount     int `json:"mcp_count"`
+}
+
+type SessionTimeline struct {
+	SessionID string                 `json:"session_id"`
+	Items     []SessionTimelineItem  `json:"items"`
+	Summary   SessionTimelineSummary `json:"summary"`
 }
 
 type ModelTokenUsageEvent struct {
@@ -828,13 +859,14 @@ type SkillInvocation struct {
 }
 
 type SkillRunQuery struct {
-	SkillID string `json:"skill_id"`
-	AgentID string `json:"agent_id"`
-	Status  string `json:"status"`
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Limit   int    `json:"limit"`
-	Offset  int    `json:"offset"`
+	SkillID   string `json:"skill_id"`
+	AgentID   string `json:"agent_id"`
+	SessionID string `json:"session_id"`
+	Status    string `json:"status"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
 }
 
 type SkillRunResult struct {

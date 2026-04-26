@@ -118,6 +118,10 @@ func (r *SQLiteRepository) SearchSkillInvocations(query domain.SkillRunQuery) (d
 		where = append(where, "si.agent_id = ?")
 		args = append(args, query.AgentID)
 	}
+	if query.SessionID != "" {
+		where = append(where, "si.session_id = ?")
+		args = append(args, query.SessionID)
+	}
 	if query.Status != "" {
 		where = append(where, "si.status = ?")
 		args = append(args, query.Status)

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"iter"
 	"strings"
@@ -38,10 +39,11 @@ func (m *providerModelLLM) GenerateContent(ctx context.Context, req *model.LLMRe
 			providerModel.Model = strings.TrimSpace(req.Model)
 		}
 		generateReq := GenerateRequest{
-			Agent:         m.agent,
-			ProviderModel: providerModel,
-			Messages:      llmRequestMessages(req),
-			Input:         latestUserInput(req),
+			Agent:            m.agent,
+			ProviderModel:    providerModel,
+			Messages:         llmRequestMessages(req),
+			Input:            latestUserInput(req),
+			ToolDeclarations: llmRequestToolDeclarations(req),
 		}
 		if strings.TrimSpace(generateReq.Input) == "" {
 			generateReq.Input = "Handle the request as specified."
@@ -49,7 +51,7 @@ func (m *providerModelLLM) GenerateContent(ctx context.Context, req *model.LLMRe
 
 		var result GenerateResult
 		var err error
-		if stream {
+		if stream && len(generateReq.ToolDeclarations) == 0 {
 			result, err = m.adapter.streamDirect(ctx, generateReq, nil)
 		} else {
 			result, err = m.adapter.generateDirect(ctx, generateReq)
@@ -84,6 +86,20 @@ func llmRequestMessages(req *model.LLMRequest) []ChatMessage {
 	return messages
 }
 
+func llmRequestToolDeclarations(req *model.LLMRequest) []*genai.FunctionDeclaration {
+	if req == nil || req.Config == nil {
+		return nil
+	}
+	var out []*genai.FunctionDeclaration
+	for _, item := range req.Config.Tools {
+		if item == nil {
+			continue
+		}
+		out = append(out, item.FunctionDeclarations...)
+	}
+	return out
+}
+
 func latestUserInput(req *model.LLMRequest) string {
 	if req == nil {
 		return ""
@@ -111,14 +127,41 @@ func contentText(content *genai.Content) string {
 	}
 	parts := make([]string, 0, len(content.Parts))
 	for _, part := range content.Parts {
-		if part != nil && strings.TrimSpace(part.Text) != "" {
+		if part == nil {
+			continue
+		}
+		if strings.TrimSpace(part.Text) != "" {
 			parts = append(parts, part.Text)
+			continue
+		}
+		if part.FunctionResponse != nil {
+			raw, _ := json.Marshal(part.FunctionResponse.Response)
+			parts = append(parts, fmt.Sprintf("Tool result from %s: %s", part.FunctionResponse.Name, string(raw)))
+			continue
+		}
+		if part.FunctionCall != nil {
+			raw, _ := json.Marshal(part.FunctionCall.Args)
+			parts = append(parts, fmt.Sprintf("Tool call %s: %s", part.FunctionCall.Name, string(raw)))
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 func generateResultToLLMResponse(result GenerateResult) *model.LLMResponse {
+	if len(result.FunctionCalls) > 0 {
+		parts := make([]*genai.Part, 0, len(result.FunctionCalls))
+		for _, call := range result.FunctionCalls {
+			if call != nil {
+				parts = append(parts, genai.NewPartFromFunctionCall(call.Name, call.Args))
+				parts[len(parts)-1].FunctionCall.ID = call.ID
+			}
+		}
+		return &model.LLMResponse{
+			Content:      &genai.Content{Role: genai.RoleModel, Parts: parts},
+			ModelVersion: result.ModelName,
+			TurnComplete: true,
+		}
+	}
 	response := &model.LLMResponse{
 		Content:      genai.NewContentFromText(result.Content, genai.RoleModel),
 		ModelVersion: result.ModelName,

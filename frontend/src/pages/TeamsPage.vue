@@ -84,6 +84,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { copyToClipboard, useQuasar } from "quasar";
+import { useRoute } from "vue-router";
 import { createTeam, deleteTeam, duplicateTeam, listAgents, listTeamRuns, listTeamRunSteps, listTeams, subscribeTeamRunEvents, updateTeam, type Agent, type Team, type TeamDefinition, type TeamRun, type TeamRunEvent, type TeamRunStep } from "../api/client";
 import TeamCard from "../features/teams/TeamCard.vue";
 import TeamEditorDialog from "../features/teams/TeamEditorDialog.vue";
@@ -92,6 +93,7 @@ import TeamToolbar from "../features/teams/TeamToolbar.vue";
 import { buildGraphFromDefinition, defaultDefinition, definitionFromTemplate, parseDefinition, type TeamTemplateKey } from "../features/teams/teamUtils";
 
 const $q = useQuasar();
+const route = useRoute();
 const isDark = computed(() => $q.dark.isActive);
 const rows = ref<Team[]>([]);
 const agents = ref<Agent[]>([]);
@@ -145,6 +147,10 @@ const filteredTeams = computed(() => {
 
 onMounted(loadRows);
 onBeforeUnmount(closeRunEvents);
+watch(
+  () => route.query.edit,
+  () => openRouteEdit()
+);
 watch(runsOpen, (open) => {
   if (!open) closeRunEvents();
 });
@@ -156,11 +162,19 @@ async function loadRows() {
     const [teamRows, agentRows] = await Promise.all([listTeams(), listAgents({ limit: 100 })]);
     rows.value = teamRows;
     agents.value = agentRows;
+    openRouteEdit();
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载 Team 失败";
   } finally {
     loading.value = false;
   }
+}
+
+function openRouteEdit() {
+  const editID = typeof route.query.edit === "string" ? route.query.edit : "";
+  if (!editID || !rows.value.length) return;
+  const team = rows.value.find((row) => row.id === editID);
+  if (team) openEdit(team);
 }
 
 function openCreate() {

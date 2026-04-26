@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"arenea/backend/internal/domain"
+	aruntime "arenea/backend/internal/runtime"
 	"arenea/backend/internal/service"
 )
 
@@ -58,11 +60,14 @@ func (h *HTTPHandler) handleChatMessagesStream(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	var writeMu sync.Mutex
 	writeEvent := func(event string, payload any) error {
 		data, err := json.Marshal(payload)
 		if err != nil {
 			return err
 		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		if _, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
 			return err
 		}
@@ -80,6 +85,19 @@ func (h *HTTPHandler) handleChatMessagesStream(w http.ResponseWriter, r *http.Re
 		OnAgentMessage: func(message domain.Message) error {
 			_ = h.auditSvc.Log("create", "message", message.ID, r.Header.Get("X-Request-Id"), "chat.send.stream")
 			return writeEvent("done", map[string]domain.Message{"agent_message": message})
+		},
+		OnToolEvent: func(event aruntime.ToolEvent) error {
+			return writeEvent("tool_event", event)
+		},
+		OnTeamMemberStart: func(message domain.Message) error {
+			return writeEvent("member_message_start", message)
+		},
+		OnTeamMemberDelta: func(messageID string, delta string) error {
+			return writeEvent("member_delta", map[string]string{"message_id": messageID, "content": delta})
+		},
+		OnTeamMemberMessage: func(message domain.Message) error {
+			_ = h.auditSvc.Log("create", "message", message.ID, r.Header.Get("X-Request-Id"), "chat.team.member.stream")
+			return writeEvent("member_message_done", map[string]domain.Message{"agent_message": message})
 		},
 	})
 	if err != nil {

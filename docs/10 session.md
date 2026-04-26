@@ -4,6 +4,93 @@
 
 ---
 
+## 0. 会话历史追踪弹窗（实施范围）
+
+### 0.1 用户体验
+
+在 Chat 右侧 Session 列表中，每条会话的更多菜单新增 **历史追踪**。点击后弹出 Quasar `QDialog`，内部使用 `QTimeline` 纵向时间轴展示整个会话链路：
+
+| 区域 | 内容 |
+|------|------|
+| 顶部 | 会话标题、事件数量、消息/工具/Skill/MCP 统计 |
+| 中轴 | `QTimeline` 时间轴，按事件发生时间排序 |
+| 左侧 | 对话内容：用户消息、Agent 消息、Team 成员消息，默认折叠预览，点击展开完整 Markdown |
+| 右侧 | 外部调用：Tool、Skill、MCP 等，显示调用标签、状态、耗时、输入输出摘要和错误 |
+
+外部调用使用不同标签：
+
+| 类型 | 标签 | 颜色建议 |
+|------|------|----------|
+| Tool | `Tool` | primary / info |
+| Skill | `Skill` | deep-purple |
+| MCP | `MCP` | teal |
+| Message | `User` / `Agent` / `Team` | grey / primary |
+
+### 0.2 后端 API
+
+新增：
+
+```http
+GET /api/v1/sessions/{session_id}/timeline
+```
+
+返回：
+
+```json
+{
+  "session_id": "xxx",
+  "items": [
+    {
+      "id": "message-id",
+      "kind": "message",
+      "side": "left",
+      "title": "用户消息",
+      "subtitle": "user",
+      "status": "ok",
+      "occurred_at": "2026-04-26T09:00:00Z",
+      "duration_ms": 0,
+      "content_markdown": "消息内容",
+      "preview": "消息内容摘要",
+      "tags": ["User"]
+    },
+    {
+      "id": "tool-inv-id",
+      "kind": "tool",
+      "side": "right",
+      "title": "读取文件",
+      "subtitle": "read_file",
+      "status": "success",
+      "occurred_at": "2026-04-26T09:00:01Z",
+      "duration_ms": 34,
+      "preview": "{\"path\":\"README.md\"}",
+      "detail_json": "{\"input\":...,\"output\":...}",
+      "tags": ["Tool"]
+    }
+  ],
+  "summary": {
+    "total": 8,
+    "message_count": 4,
+    "tool_count": 2,
+    "skill_count": 1,
+    "mcp_count": 1
+  }
+}
+```
+
+### 0.3 当前实施策略
+
+第一版直接聚合已有表：
+
+| 来源表 | 时间字段 | 映射 |
+|--------|----------|------|
+| `messages` | `created_at` | `kind=message`，左侧 |
+| `tool_invocations` | `started_at / created_at` | `kind=tool` 或 `kind=mcp`，右侧 |
+| `skill_invocation` | `started_at / created_at` | `kind=skill`，右侧 |
+
+MCP 当前没有独立调用表时，先通过 `tool_invocations.source == "mcp"` 或 `tool_key` 包含 `mcp` 归类为 `kind=mcp`；后续如果增加 MCP invocation 表，只需在 timeline 聚合服务增加一个来源。
+
+---
+
 ## 1. 核心目标
 
 | 目标 | 说明 |

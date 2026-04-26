@@ -85,6 +85,10 @@
                         </q-item-section>
                         <q-item-section>{{ isFavorite(session.id) ? t("chat.unfavorite") : t("chat.favorite") }}</q-item-section>
                       </q-item>
+                      <q-item clickable v-close-popup @click.stop="openTrace(session.id)">
+                        <q-item-section avatar><q-icon name="timeline" size="18px" /></q-item-section>
+                        <q-item-section>历史追踪</q-item-section>
+                      </q-item>
                       <q-item clickable v-close-popup class="text-negative" @click="$emit('delete', 'session', session.id)">
                         <q-item-section avatar><q-icon name="delete" size="18px" /></q-item-section>
                         <q-item-section>{{ t("chat.remove") }}</q-item-section>
@@ -140,6 +144,7 @@ const emit = defineEmits<{
   "new-session": [];
   rename: [payload: { id: string; title: string }];
   delete: [kind: DeleteKind, id: string];
+  trace: [id: string];
 }>();
 
 const { t } = useI18n();
@@ -184,6 +189,10 @@ function renameSession(session: SessionView) {
   }).onOk((value) => {
     emit("rename", { id: session.id, title: String(value ?? "").trim() });
   });
+}
+
+function openTrace(sessionID: string) {
+  emit("trace", sessionID);
 }
 
 function isPinned(id: string) {

@@ -166,6 +166,37 @@ export type SessionListResult = {
   offset: number;
 };
 
+export type SessionTimelineItem = {
+  id: string;
+  kind: "message" | "tool" | "skill" | "mcp" | string;
+  side: "left" | "right" | string;
+  title: string;
+  subtitle: string;
+  actor_id: string;
+  actor_name: string;
+  status: string;
+  occurred_at: string;
+  duration_ms: number;
+  content_markdown: string;
+  preview: string;
+  detail_json: string;
+  tags: string[];
+};
+
+export type SessionTimelineSummary = {
+  total: number;
+  message_count: number;
+  tool_count: number;
+  skill_count: number;
+  mcp_count: number;
+};
+
+export type SessionTimeline = {
+  session_id: string;
+  items: SessionTimelineItem[];
+  summary: SessionTimelineSummary;
+};
+
 export type Team = {
   id: string;
   team_key: string;
@@ -557,6 +588,21 @@ export async function getSession(id: string): Promise<Session> {
   return data;
 }
 
+export async function getSessionTimeline(id: string): Promise<SessionTimeline> {
+  const { data } = await api.get(`/sessions/${id}/timeline`);
+  return {
+    session_id: data.session_id,
+    items: data.items ?? [],
+    summary: data.summary ?? {
+      total: data.items?.length ?? 0,
+      message_count: 0,
+      tool_count: 0,
+      skill_count: 0,
+      mcp_count: 0
+    }
+  };
+}
+
 export async function createSession(payload: {
   owner_type?: string;
   agent_id?: string;
@@ -608,6 +654,28 @@ export type SendMessageStreamCallbacks = {
   onUserMessage?: (message: Message) => void;
   onDelta?: (content: string) => void;
   onDone?: (message: Message) => void;
+  onToolEvent?: (event: ToolUseEvent) => void;
+  onMemberMessageStart?: (message: Message) => void;
+  onMemberDelta?: (messageID: string, content: string) => void;
+  onMemberMessageDone?: (message: Message) => void;
+};
+
+export type ToolUseEvent = {
+  id: string;
+  phase: "before" | "after" | string;
+  status: "running" | "success" | "failed" | string;
+  agent_id: string;
+  agent_key: string;
+  agent_name: string;
+  agent_icon: string;
+  tool_name: string;
+  tool_label: string;
+  arguments?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: string;
+  occurred_at: string;
+  duration_ms?: number;
+  message_hint?: string;
 };
 
 export async function sendMessageStream(
@@ -664,6 +732,14 @@ function handleStreamEvent(block: string, callbacks: SendMessageStreamCallbacks)
     callbacks.onDelta?.(String(parsed.content ?? ""));
   } else if (event === "done") {
     callbacks.onDone?.(parsed.agent_message as Message);
+  } else if (event === "tool_event") {
+    callbacks.onToolEvent?.(parsed as ToolUseEvent);
+  } else if (event === "member_message_start") {
+    callbacks.onMemberMessageStart?.(parsed as Message);
+  } else if (event === "member_delta") {
+    callbacks.onMemberDelta?.(String(parsed.message_id ?? ""), String(parsed.content ?? ""));
+  } else if (event === "member_message_done") {
+    callbacks.onMemberMessageDone?.(parsed.agent_message as Message);
   } else if (event === "error") {
     throw new Error(String(parsed.message ?? "stream failed"));
   }

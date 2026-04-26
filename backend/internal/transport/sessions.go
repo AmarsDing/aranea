@@ -50,6 +50,24 @@ func (h *HTTPHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 func (h *HTTPHandler) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 	id := idFromPath(r.URL.Path, "/api/v1/sessions/")
+	if strings.HasSuffix(id, "/timeline") {
+		id = strings.TrimSuffix(id, "/timeline")
+		if id == "" {
+			writeErr(w, http.StatusBadRequest, errors.New("session id is required"))
+			return
+		}
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		timeline, err := h.sessionSvc.Timeline(id)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, timeline)
+		return
+	}
 	if strings.HasSuffix(id, "/archive") {
 		id = strings.TrimSuffix(id, "/archive")
 		if id == "" {

@@ -13,13 +13,13 @@ import (
 func TestADKRuntimeAdapterBackendSwitch(t *testing.T) {
 	t.Setenv("RUNTIME_BACKEND", "")
 	adapter := NewADKRuntimeAdapter()
-	if _, ok := adapter.activeBackend().(*directRuntimeBackend); !ok {
-		t.Fatalf("default backend should be direct")
+	if _, ok := adapter.activeBackend().(*runnerRuntimeBackend); !ok {
+		t.Fatalf("default backend should be runner so ADK tools are available")
 	}
 
-	t.Setenv("RUNTIME_BACKEND", "adk_runner")
-	if _, ok := adapter.activeBackend().(*runnerRuntimeBackend); !ok {
-		t.Fatalf("RUNTIME_BACKEND=adk_runner should select runner backend")
+	t.Setenv("RUNTIME_BACKEND", "direct")
+	if _, ok := adapter.activeBackend().(*directRuntimeBackend); !ok {
+		t.Fatalf("RUNTIME_BACKEND=direct should select direct backend")
 	}
 }
 

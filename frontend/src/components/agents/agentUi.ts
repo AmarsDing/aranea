@@ -105,10 +105,14 @@ export function avatarFileUrl(id: string) {
 }
 
 export function isAvatarAssetRef(value: string) {
-  return Boolean(value) && !["smart_toy", "person", "support_agent", "psychology", "auto_awesome"].includes(value);
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return false;
+  if (/^(https?:|data:|blob:)/i.test(trimmed)) return true;
+  return /^avatar_/i.test(trimmed) || /^[a-f0-9]{24}$/i.test(trimmed);
 }
 
 function avatarAssetUrl(id: string, variant: "thumbnail" | "file") {
+  if (/^(https?:|data:|blob:)/i.test(id)) return id;
   const base = String(api.defaults.baseURL || "/api/v1").replace(/\/$/, "");
   return `${base}/avatar-assets/${encodeURIComponent(id)}/${variant}`;
 }

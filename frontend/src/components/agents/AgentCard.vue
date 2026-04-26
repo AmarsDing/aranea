@@ -16,7 +16,7 @@
             :icon="favorite ? 'star' : 'star_border'"
             @click="$emit('toggle-favorite', agent.id)"
           />
-          <div class="text-subtitle1 text-weight-bold ellipsis">{{ agent.display_name }}</div>
+          <div class="agent-card__name text-subtitle1 text-weight-bold ellipsis">{{ agent.display_name }}</div>
         </div>
         <button class="agent-handle" @click="$emit('copy-key', agent.agent_key)">{{ agent.agent_key }}</button>
       </div>
@@ -102,6 +102,10 @@ const avatarIcon = computed(() => (avatarSrc.value ? undefined : props.agent.ico
 
 .agent-card__avatar {
   box-shadow: 0 12px 28px rgba(25, 118, 210, 0.2);
+}
+
+.agent-card__name {
+  color: #101828;
 }
 
 .agent-card__status {
@@ -197,6 +201,11 @@ const avatarIcon = computed(() => (avatarSrc.value ? undefined : props.agent.ico
 .agent-card.agent-card--dark .agent-card__status.is-active {
   background: rgba(22, 101, 52, 0.28);
   color: #86efac;
+}
+
+.agent-card.agent-card--dark .agent-card__name {
+  color: #f8fafc;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 .agent-card.agent-card--dark .agent-card__model,

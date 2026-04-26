@@ -212,7 +212,7 @@ func mustJSON(value any) string {
 func highRiskToolReason(toolName string, args map[string]any) string {
 	name := strings.ToLower(strings.TrimSpace(toolName))
 	argsText := strings.ToLower(mustJSON(args))
-	riskyNames := []string{"delete", "remove", "unlink", "write_file", "exec", "shell", "bash", "powershell", "sql_exec", "db_write", "drop", "truncate"}
+	riskyNames := []string{"delete", "remove", "unlink", "exec", "shell", "bash", "powershell", "sql_exec", "db_write", "drop", "truncate"}
 	for _, item := range riskyNames {
 		if strings.Contains(name, item) {
 			return "tool name matches high-risk operation " + item

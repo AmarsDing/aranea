@@ -3,7 +3,7 @@
     <q-card-section class="team-card__head">
       <div>
         <div class="row items-center q-gutter-sm">
-          <div class="text-h6 ellipsis">{{ team.display_name }}</div>
+          <div class="team-card__name text-h6 ellipsis">{{ team.display_name }}</div>
           <q-chip dense square color="primary" text-color="white">{{ definition.mode }}</q-chip>
           <q-chip v-if="team.is_default" dense square color="amber" text-color="black">默认</q-chip>
         </div>
@@ -24,18 +24,18 @@
         <div v-for="member in definition.members" :key="`${team.id}-${member.agent_id}-${member.role}`" class="member-row">
           <q-avatar size="28px" color="primary" text-color="white" :icon="memberIcon(member.role)" />
           <div class="col min-width-0">
-            <div class="text-weight-medium ellipsis">{{ member.name || agentName(agents, member.agent_id) }}</div>
-            <div class="text-caption text-grey-7">{{ member.role }} · {{ agentName(agents, member.agent_id) }}</div>
+            <div class="member-name text-weight-medium ellipsis">{{ member.name || agentName(agents, member.agent_id) }}</div>
+            <div class="member-meta text-caption">{{ member.role }} · {{ agentName(agents, member.agent_id) }}</div>
           </div>
           <q-badge rounded :color="member.enabled ? 'positive' : 'grey'">{{ member.enabled ? "启用" : "停用" }}</q-badge>
         </div>
-        <div v-if="definition.members.length === 0" class="text-caption text-grey-7">尚未配置成员 Agent。</div>
+        <div v-if="definition.members.length === 0" class="team-empty text-caption">尚未配置成员 Agent。</div>
       </div>
     </q-card-section>
 
     <q-separator />
     <q-card-actions align="between" class="team-card__actions">
-      <span class="text-caption text-grey-7">成员 {{ definition.members.length }} · {{ formatDate(team.updated_at) }}</span>
+      <span class="team-card__foot-meta text-caption">成员 {{ definition.members.length }} · {{ formatDate(team.updated_at) }}</span>
       <div class="q-gutter-xs">
         <q-btn flat dense round color="primary" icon="play_arrow" :to="`/chat?team=${team.id}`">
           <q-tooltip>进入 Chat 测试</q-tooltip>
@@ -107,10 +107,25 @@ const definition = computed(() => parseDefinition(props.team));
   font-weight: 600;
 }
 
+.team-card__name {
+  color: #101828;
+  font-weight: 800;
+}
+
 .team-description {
   min-height: 42px;
   color: #475467;
   line-height: 1.6;
+}
+
+.member-name {
+  color: #101828;
+}
+
+.member-meta,
+.team-empty,
+.team-card__foot-meta {
+  color: #667085;
 }
 
 .topology-strip {
@@ -155,8 +170,17 @@ const definition = computed(() => parseDefinition(props.team));
 }
 
 .team-card.is-dark .team-key,
-.team-card.is-dark .team-description {
+.team-card.is-dark .team-description,
+.team-card.is-dark .member-meta,
+.team-card.is-dark .team-empty,
+.team-card.is-dark .team-card__foot-meta {
   color: #94a3b8;
+}
+
+.team-card.is-dark .team-card__name,
+.team-card.is-dark .member-name {
+  color: #f8fafc;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 .team-card.is-dark .topology-node {

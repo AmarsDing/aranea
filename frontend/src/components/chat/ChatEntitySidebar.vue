@@ -335,7 +335,12 @@ function parseTeamDefinition(raw?: string) {
 }
 
 :global(.body--dark) .chat-entity-item {
-  color: rgba(248, 250, 252, 0.92);
+  color: #f8fafc;
+}
+
+:global(.body--dark) .chat-entity-name {
+  color: #f8fafc;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 .chat-entity-item--active,

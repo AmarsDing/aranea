@@ -15,7 +15,8 @@ import {
   type Agent,
   type SendMessageOptions,
   type Message,
-  type Session
+  type Session,
+  type ToolUseEvent
 } from "../api/client";
 
 export const useAppStore = defineStore("app", {
@@ -125,6 +126,7 @@ export const useAppStore = defineStore("app", {
     async sendStream(content: string, options?: SendMessageOptions, signal?: AbortSignal) {
       if (!this.selectedSession || !this.selectedAgent) return;
       const sessionID = this.selectedSession.id;
+      const agent = this.selectedAgent;
       let streamingMessageID = "";
 
       const appendMessage = (message: Message) => {
@@ -142,6 +144,14 @@ export const useAppStore = defineStore("app", {
         {
           signal,
           onUserMessage: appendMessage,
+          onToolEvent: (event) => {
+            const message = toolEventMessage(sessionID, event);
+            if (this.messages.some((item) => item.id === message.id)) {
+              this.messages = this.messages.map((item) => (item.id === message.id ? message : item));
+            } else {
+              appendMessage(message);
+            }
+          },
           onDelta: (delta) => {
             if (!delta) return;
             if (!streamingMessageID) {
@@ -159,7 +169,14 @@ export const useAppStore = defineStore("app", {
                 latency_ms: 0,
                 status: "streaming",
                 attachments_count: 0,
-                options_json: "",
+                options_json: JSON.stringify({
+                  agent: {
+                    agent_id: agent.id,
+                    agent_key: agent.agent_key,
+                    name: agent.display_name || agent.agent_key,
+                    icon: agent.icon || ""
+                  }
+                }),
                 error_message: "",
                 created_at: new Date().toISOString()
               });
@@ -184,3 +201,42 @@ export const useAppStore = defineStore("app", {
     }
   }
 });
+
+function toolEventMessage(sessionID: string, event: ToolUseEvent): Message {
+  const status = event.status === "running" ? "tool_running" : event.status === "failed" ? "tool_failed" : "tool_success";
+  return {
+    id: `tool-${event.agent_id || event.agent_key || "agent"}-${event.id || event.tool_name}`,
+    session_id: sessionID,
+    parent_message_id: "",
+    turn_index: 0,
+    role: "assistant",
+    content_markdown: toolEventMarkdown(event),
+    model_name: "",
+    token_in: 0,
+    token_out: 0,
+    latency_ms: event.duration_ms ?? 0,
+    status,
+    attachments_count: 0,
+    options_json: JSON.stringify({
+      agent: {
+        agent_id: event.agent_id,
+        agent_key: event.agent_key,
+        name: event.agent_name || event.agent_key,
+        icon: event.agent_icon || ""
+      },
+      tool_event: event
+    }),
+    error_message: event.error || "",
+    created_at: event.occurred_at || new Date().toISOString()
+  };
+}
+
+function toolEventMarkdown(event: ToolUseEvent): string {
+  const label = event.tool_label || event.tool_name;
+  const agent = event.agent_name || event.agent_key || "Agent";
+  const path = typeof event.arguments?.path === "string" ? ` \`${event.arguments.path}\`` : "";
+  if (event.status === "running") return `工具调用：${agent} 正在使用 **${label}**${path}`;
+  if (event.status === "failed") return `工具调用失败：${agent} 使用 **${label}**${path}\n\n${event.error || "未知错误"}`;
+  const duration = event.duration_ms ? `，耗时 ${event.duration_ms}ms` : "";
+  return `工具调用完成：${agent} 已使用 **${label}**${path}${duration}`;
+}

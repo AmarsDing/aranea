@@ -50,9 +50,13 @@ type SendMessageResult struct {
 }
 
 type SendStreamCallbacks struct {
-	OnUserMessage  func(domain.Message) error
-	OnDelta        func(string) error
-	OnAgentMessage func(domain.Message) error
+	OnUserMessage       func(domain.Message) error
+	OnDelta             func(string) error
+	OnAgentMessage      func(domain.Message) error
+	OnToolEvent         func(runtime.ToolEvent) error
+	OnTeamMemberStart   func(domain.Message) error
+	OnTeamMemberDelta   func(messageID string, delta string) error
+	OnTeamMemberMessage func(domain.Message) error
 }
 
 func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAdapter) *ChatService {
@@ -180,15 +184,16 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 	}
 
 	agentMsg := domain.Message{
-		ID:        newID(),
-		SessionID: in.SessionID,
-		Role:      "assistant",
-		Content:   generated.Content,
-		ModelName: generated.ModelName,
-		TokenIn:   generated.PromptTokens,
-		TokenOut:  generated.CompletionTokens,
-		LatencyMS: generated.LatencyMS,
-		Status:    "ok",
+		ID:          newID(),
+		SessionID:   in.SessionID,
+		Role:        "assistant",
+		Content:     generated.Content,
+		ModelName:   generated.ModelName,
+		TokenIn:     generated.PromptTokens,
+		TokenOut:    generated.CompletionTokens,
+		LatencyMS:   generated.LatencyMS,
+		Status:      "ok",
+		OptionsJSON: agentMessageOptions(agent),
 	}
 	agentMsg, err = s.repo.AddMessage(agentMsg)
 	if err != nil {
@@ -273,6 +278,13 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 		ProviderModel: providerModel,
 		Messages:      modelMessages,
 		Input:         in.Content,
+		OnToolEvent: func(event runtime.ToolEvent) error {
+			s.recordToolEvent(in.SessionID, "", event)
+			if callbacks.OnToolEvent != nil {
+				return callbacks.OnToolEvent(event)
+			}
+			return nil
+		},
 	}, callbacks.OnDelta)
 	if err != nil {
 		status := "failed"
@@ -284,15 +296,16 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 	}
 
 	agentMsg := domain.Message{
-		ID:        newID(),
-		SessionID: in.SessionID,
-		Role:      "assistant",
-		Content:   generated.Content,
-		ModelName: generated.ModelName,
-		TokenIn:   generated.PromptTokens,
-		TokenOut:  generated.CompletionTokens,
-		LatencyMS: generated.LatencyMS,
-		Status:    "ok",
+		ID:          newID(),
+		SessionID:   in.SessionID,
+		Role:        "assistant",
+		Content:     generated.Content,
+		ModelName:   generated.ModelName,
+		TokenIn:     generated.PromptTokens,
+		TokenOut:    generated.CompletionTokens,
+		LatencyMS:   generated.LatencyMS,
+		Status:      "ok",
+		OptionsJSON: agentMessageOptions(agent),
 	}
 	agentMsg, err = s.repo.AddMessage(agentMsg)
 	if err != nil {
@@ -306,6 +319,73 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 		return callbacks.OnAgentMessage(agentMsg)
 	}
 	return nil
+}
+
+func agentMessageOptions(agent domain.Agent) string {
+	raw, err := json.Marshal(map[string]any{
+		"agent": map[string]string{
+			"agent_id":  agent.ID,
+			"agent_key": agent.AgentKey,
+			"name":      firstNonEmptyString(agent.DisplayName, agent.AgentKey, agent.ID),
+			"icon":      agent.Icon,
+		},
+	})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func (s *ChatService) recordToolEvent(sessionID string, messageID string, event runtime.ToolEvent) {
+	if event.Phase != "after" {
+		return
+	}
+	metadata, _ := json.Marshal(event)
+	_, _ = s.repo.InsertToolInvocation(domain.ToolInvocation{
+		InvocationID:     event.ID,
+		ToolKey:          event.ToolName,
+		ToolDisplayName:  event.ToolLabel,
+		AgentID:          event.AgentID,
+		AgentKey:         event.AgentKey,
+		AgentDisplayName: event.AgentName,
+		SessionID:        sessionID,
+		MessageID:        messageID,
+		Source:           "adk",
+		Status:           event.Status,
+		StartedAt:        toolStartedAt(event),
+		EndedAt:          event.OccurredAt,
+		DurationMS:       event.DurationMS,
+		InputPreview:     previewJSON(event.Arguments, 300),
+		OutputPreview:    previewJSON(event.Result, 300),
+		ErrorMessage:     event.Error,
+		MetadataJSON:     string(metadata),
+	})
+}
+
+func toolStartedAt(event runtime.ToolEvent) string {
+	if event.DurationMS <= 0 || event.OccurredAt == "" {
+		return ""
+	}
+	ended, err := time.Parse(time.RFC3339Nano, event.OccurredAt)
+	if err != nil {
+		return ""
+	}
+	return ended.Add(-time.Duration(event.DurationMS) * time.Millisecond).UTC().Format(time.RFC3339Nano)
+}
+
+func previewJSON(value any, limit int) string {
+	if value == nil {
+		return ""
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	text := string(raw)
+	if limit <= 0 || len([]rune(text)) <= limit {
+		return text
+	}
+	return string([]rune(text)[:limit]) + "..."
 }
 
 // assembleL0Prompt builds the prompt through MemoryL0Service and translates

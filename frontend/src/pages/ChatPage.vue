@@ -65,6 +65,7 @@
         @select="onSelectSession"
         @new-session="onNewSession"
         @rename="onRenameSession"
+        @trace="openSessionTrace"
         @delete="openDelete"
       />
     </div>
@@ -93,6 +94,12 @@
       :deleting="deleting"
       @confirm="onConfirmDelete"
     />
+
+    <SessionTimelineDialog
+      v-model="traceOpen"
+      :session-id="traceSessionId"
+      :session-title="traceSessionTitle"
+    />
   </q-page>
 </template>
 
@@ -106,7 +113,9 @@ import ChatEntitySidebar from "../components/chat/ChatEntitySidebar.vue";
 import ChatMessagePanel from "../components/chat/ChatMessagePanel.vue";
 import ChatSessionSidebar from "../components/chat/ChatSessionSidebar.vue";
 import ChatSideToggle from "../components/chat/ChatSideToggle.vue";
+import SessionTimelineDialog from "../components/chat/SessionTimelineDialog.vue";
 import { createSession, deleteTeam, listChatOptions, listMessages, listTeams, listTeamSessions, sendMessageStream, updateAgent, updateSessionTitle, updateTeam } from "../api/client";
+import type { ToolUseEvent } from "../api/client";
 import {
   listPlatformResources,
   listPlatformResourceTree,
@@ -131,33 +140,6 @@ import {
   saveModelToStorage
 } from "../config/chatOptions";
 import { useAppStore } from "../stores/app";
-
-function mockTeamSession(
-  id: string,
-  teamID: string,
-  title: string,
-  contextUsedRatio: number,
-  at: string
-): Session & { at: string } {
-  const now = new Date().toISOString();
-  return {
-    id,
-    owner_type: "team",
-    agent_id: "",
-    team_id: teamID,
-    title,
-    context_used_ratio: contextUsedRatio,
-    dialog_mode: "",
-    provider: "",
-    model: "",
-    status: "active",
-    last_message_at: now,
-    created_at: now,
-    updated_at: now,
-    deleted_at: "",
-    at
-  };
-}
 
 function mockMessage(id: string, sessionID: string, role: string, content: string): Message {
   return {
@@ -201,23 +183,9 @@ const fileRef = ref<HTMLInputElement | null>(null);
 
 const displayAgents = ref<Agent[]>([]);
 const categoryTree = ref<PlatformResourceTreeNode[]>([]);
-const displayTeams = ref<TeamRow[]>([
-  { id: "team-default-1", display_name: "Default Team", isDefault: true, isWorking: false },
-  { id: "team-ops-1", display_name: "Ops", isDefault: false, isWorking: true }
-]);
-
-const teamSessions = ref<Record<string, Array<Session & { at: string }>>>({
-  "team-default-1": [
-    mockTeamSession("mock-ts-1", "team-default-1", "Sprint", 0.22, "14:00")
-  ],
-  "team-ops-1": []
-});
-
-const teamMessages = ref<Record<string, Message[]>>({
-  "mock-ts-1": [
-    mockMessage("m1", "mock-ts-1", "user", "排期同步一下？")
-  ]
-});
+const displayTeams = ref<TeamRow[]>([]);
+const teamSessions = ref<Record<string, Array<Session & { at: string }>>>({});
+const teamMessages = ref<Record<string, Message[]>>({});
 
 const inputText = ref("");
 const dialogMode = ref(loadDialogModeFromStorage("default"));
@@ -245,6 +213,9 @@ const deleteNameInput = ref("");
 const deleteBlockBusy = ref(false);
 const deleteBlockDefault = ref(false);
 const deleting = ref(false);
+const traceOpen = ref(false);
+const traceSessionId = ref<string | null>(null);
+const traceSessionTitle = ref("");
 
 const settingsTitle = computed(() => {
   if (settingsMode.value === "agent") return t("chat.settingsTitleAgent");
@@ -459,6 +430,13 @@ async function onRenameSession(payload: { id: string; title: string }) {
   await store.renameSessionLocal(payload.id, title);
 }
 
+function openSessionTrace(sessionId: string) {
+  const session = displaySessions.value.find((item) => item.id === sessionId);
+  traceSessionId.value = sessionId;
+  traceSessionTitle.value = session?.title ?? t("chat.untitledSession");
+  traceOpen.value = true;
+}
+
 async function onNewSession(title?: string) {
   if (selectedEntityKind.value === "agent" && store.selectedAgent) {
     const selectedModel = selectedProviderModel.value;
@@ -472,11 +450,14 @@ async function onNewSession(title?: string) {
   }
 
   if (selectedEntityKind.value === "team" && selectedTeamId.value) {
+    const selectedModel = selectedProviderModel.value;
     const created = await createSession({
       owner_type: "team",
       team_id: selectedTeamId.value,
       title: title || t("chat.untitledSession"),
-      dialog_mode: dialogMode.value
+      dialog_mode: dialogMode.value,
+      provider: selectedModel?.provider || "",
+      model: selectedModel?.model || ""
     });
     teamSessions.value[selectedTeamId.value] = [
       { ...created, at: formatSessionTime(created.last_message_at || created.updated_at || created.created_at) },
@@ -531,6 +512,8 @@ async function onSend() {
       if (!teamSelectedSessionId.value) await onNewSession(makeSessionTitle(content));
       const sessionId = teamSelectedSessionId.value;
       if (!sessionId) return;
+      const session = teamSessions.value[selectedTeamId.value]?.find((item) => item.id === sessionId);
+      const selectedModel = selectedProviderModel.value;
       inputText.value = "";
       let streamingMessageID = "";
       await sendMessageStream(
@@ -540,6 +523,8 @@ async function onSend() {
           content,
           options: {
             dialog_mode: dialogMode.value,
+            provider: selectedModel?.provider || session?.provider || "",
+            model: selectedModel?.model || session?.model || "",
             attachments: attachments.value.map((item) => ({ id: item.id }))
           }
         },
@@ -547,6 +532,13 @@ async function onSend() {
           signal: streamAbortController.value.signal,
           onUserMessage: (message) => {
             teamMessages.value[sessionId] = [...(teamMessages.value[sessionId] ?? []), message];
+          },
+          onToolEvent: (event) => {
+            const message = toolEventMessage(sessionId, event);
+            const current = teamMessages.value[sessionId] ?? [];
+            teamMessages.value[sessionId] = current.some((item) => item.id === message.id)
+              ? current.map((item) => (item.id === message.id ? message : item))
+              : [...current, message];
           },
           onDelta: (delta) => {
             if (!streamingMessageID) {
@@ -564,6 +556,22 @@ async function onSend() {
             teamMessages.value[sessionId] = streamingMessageID
               ? (teamMessages.value[sessionId] ?? []).map((item) => (item.id === streamingMessageID ? message : item))
               : [...(teamMessages.value[sessionId] ?? []), message];
+          },
+          onMemberMessageStart: (message) => {
+            if ((teamMessages.value[sessionId] ?? []).some((item) => item.id === message.id)) return;
+            teamMessages.value[sessionId] = [...(teamMessages.value[sessionId] ?? []), message];
+          },
+          onMemberDelta: (messageID, delta) => {
+            if (!messageID || !delta) return;
+            teamMessages.value[sessionId] = (teamMessages.value[sessionId] ?? []).map((message) =>
+              message.id === messageID ? { ...message, content_markdown: `${message.content_markdown}${delta}` } : message
+            );
+          },
+          onMemberMessageDone: (message) => {
+            const current = teamMessages.value[sessionId] ?? [];
+            teamMessages.value[sessionId] = current.some((item) => item.id === message.id)
+              ? current.map((item) => (item.id === message.id ? message : item))
+              : [...current, message];
           }
         }
       );
@@ -611,9 +619,52 @@ function formatSessionTime(iso: string) {
   }
 }
 
+function toolEventMessage(sessionID: string, event: ToolUseEvent): Message {
+  const status = event.status === "running" ? "tool_running" : event.status === "failed" ? "tool_failed" : "tool_success";
+  return {
+    id: `tool-${event.agent_id || event.agent_key || "agent"}-${event.id || event.tool_name}`,
+    session_id: sessionID,
+    parent_message_id: "",
+    turn_index: 0,
+    role: "assistant",
+    content_markdown: toolEventMarkdown(event),
+    model_name: "",
+    token_in: 0,
+    token_out: 0,
+    latency_ms: event.duration_ms ?? 0,
+    status,
+    attachments_count: 0,
+    options_json: JSON.stringify({
+      agent: {
+        agent_id: event.agent_id,
+        agent_key: event.agent_key,
+        name: event.agent_name || event.agent_key,
+        icon: event.agent_icon || ""
+      },
+      tool_event: event
+    }),
+    error_message: event.error || "",
+    created_at: event.occurred_at || new Date().toISOString()
+  };
+}
+
+function toolEventMarkdown(event: ToolUseEvent): string {
+  const label = event.tool_label || event.tool_name;
+  const agent = event.agent_name || event.agent_key || "Agent";
+  const path = typeof event.arguments?.path === "string" ? ` \`${event.arguments.path}\`` : "";
+  if (event.status === "running") return `工具调用：${agent} 正在使用 **${label}**${path}`;
+  if (event.status === "failed") return `工具调用失败：${agent} 使用 **${label}**${path}\n\n${event.error || "未知错误"}`;
+  const duration = event.duration_ms ? `，耗时 ${event.duration_ms}ms` : "";
+  return `工具调用完成：${agent} 已使用 **${label}**${path}${duration}`;
+}
+
 async function openSettings(kind: ChatEntityKind, id: string) {
   if (kind === "agent") {
     await router.push(`/agents/${id}/settings`);
+    return;
+  }
+  if (kind === "team") {
+    await router.push({ name: "team", query: { edit: id } });
     return;
   }
 
@@ -812,7 +863,7 @@ onMounted(async () => {
     if (store.selectedSession) await store.loadMessages();
   } else if (store.agents[0]) {
     await selectAgent(store.agents[0]);
-  } else {
+  } else if (displayTeams.value[0]) {
     await selectTeam(displayTeams.value[0]!);
   }
 });
@@ -824,19 +875,17 @@ async function loadCategoryTree() {
 async function loadTeams() {
   try {
     const rows = await listTeams();
-    if (rows.length) {
-      displayTeams.value = rows.map((team) => ({
-        id: team.id,
-        team_key: team.team_key,
-        display_name: team.display_name,
-        status: team.status,
-        isDefault: team.is_default,
-        isWorking: /work|run|busy|ing/i.test(team.status || ""),
-        definition_json: team.definition_json
-      }));
-    }
+    displayTeams.value = rows.map((team) => ({
+      id: team.id,
+      team_key: team.team_key,
+      display_name: team.display_name,
+      status: team.status,
+      isDefault: team.is_default,
+      isWorking: /work|run|busy|ing/i.test(team.status || ""),
+      definition_json: team.definition_json
+    }));
   } catch {
-    // Keep placeholder teams when the backend has not seeded teams yet.
+    displayTeams.value = [];
   }
 }
 

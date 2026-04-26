@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"arenea/backend/internal/domain"
+	"google.golang.org/genai"
 )
 
 // ADKRuntimeAdapter 是对 adk-go 的适配边界。
@@ -48,10 +49,12 @@ type directRuntimeBackend struct {
 }
 
 type GenerateRequest struct {
-	Agent         domain.Agent
-	ProviderModel domain.PlatformResource
-	Messages      []ChatMessage
-	Input         string
+	Agent            domain.Agent
+	ProviderModel    domain.PlatformResource
+	Messages         []ChatMessage
+	Input            string
+	ToolDeclarations []*genai.FunctionDeclaration
+	OnToolEvent      ToolEventFunc
 }
 
 type ChatMessage struct {
@@ -65,9 +68,30 @@ type GenerateResult struct {
 	PromptTokens     int
 	CompletionTokens int
 	LatencyMS        int
+	FunctionCalls    []*genai.FunctionCall
 }
 
 type DeltaFunc func(delta string) error
+
+type ToolEventFunc func(event ToolEvent) error
+
+type ToolEvent struct {
+	ID          string         `json:"id"`
+	Phase       string         `json:"phase"`
+	Status      string         `json:"status"`
+	AgentID     string         `json:"agent_id"`
+	AgentKey    string         `json:"agent_key"`
+	AgentName   string         `json:"agent_name"`
+	AgentIcon   string         `json:"agent_icon"`
+	ToolName    string         `json:"tool_name"`
+	ToolLabel   string         `json:"tool_label"`
+	Arguments   map[string]any `json:"arguments,omitempty"`
+	Result      map[string]any `json:"result,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	OccurredAt  string         `json:"occurred_at"`
+	DurationMS  int            `json:"duration_ms,omitempty"`
+	MessageHint string         `json:"message_hint,omitempty"`
+}
 
 type providerConfig struct {
 	ProviderType    string `json:"provider_type"`
@@ -128,7 +152,14 @@ func (a *ADKRuntimeAdapter) StreamGenerate(ctx context.Context, req GenerateRequ
 }
 
 func (a *ADKRuntimeAdapter) activeBackend() runtimeBackend {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("RUNTIME_BACKEND")), "adk_runner") && a.runner != nil {
+	backend := strings.ToLower(strings.TrimSpace(os.Getenv("RUNTIME_BACKEND")))
+	if backend == "direct" || backend == "legacy_direct" {
+		if a.backend != nil {
+			return a.backend
+		}
+		return a.direct
+	}
+	if a.runner != nil {
 		return a.runner
 	}
 	if a.backend != nil {
@@ -251,20 +282,55 @@ func parseProviderConfig(raw string) (providerConfig, error) {
 	return cfg, nil
 }
 
+func openAIToolParameters(declaration *genai.FunctionDeclaration) any {
+	if declaration == nil {
+		return map[string]any{"type": "object", "properties": map[string]any{}}
+	}
+	if declaration.ParametersJsonSchema != nil {
+		return declaration.ParametersJsonSchema
+	}
+	if declaration.Parameters != nil {
+		return declaration.Parameters
+	}
+	return map[string]any{"type": "object", "properties": map[string]any{}}
+}
+
 func (a *ADKRuntimeAdapter) generateOpenAICompatible(ctx context.Context, cfg providerConfig, req GenerateRequest) (GenerateResult, error) {
 	type message struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
+	type openAITool struct {
+		Type     string `json:"type"`
+		Function any    `json:"function"`
+	}
 	payload := struct {
-		Model     string    `json:"model"`
-		Messages  []message `json:"messages"`
-		Stream    bool      `json:"stream"`
-		MaxTokens int       `json:"max_tokens,omitempty"`
+		Model      string       `json:"model"`
+		Messages   []message    `json:"messages"`
+		Stream     bool         `json:"stream"`
+		MaxTokens  int          `json:"max_tokens,omitempty"`
+		Tools      []openAITool `json:"tools,omitempty"`
+		ToolChoice string       `json:"tool_choice,omitempty"`
 	}{
 		Model:     req.ProviderModel.Model,
 		Stream:    false,
 		MaxTokens: resolveMaxOutputTokens(cfg),
+	}
+	for _, declaration := range req.ToolDeclarations {
+		if declaration == nil || strings.TrimSpace(declaration.Name) == "" {
+			continue
+		}
+		payload.Tools = append(payload.Tools, openAITool{
+			Type: "function",
+			Function: map[string]any{
+				"name":        declaration.Name,
+				"description": declaration.Description,
+				"parameters":  openAIToolParameters(declaration),
+			},
+		})
+	}
+	if len(payload.Tools) > 0 {
+		payload.ToolChoice = "auto"
 	}
 	if system := buildSystemPrompt(req.Agent); system != "" {
 		payload.Messages = append(payload.Messages, message{Role: "system", Content: system})
@@ -281,7 +347,15 @@ func (a *ADKRuntimeAdapter) generateOpenAICompatible(ctx context.Context, cfg pr
 		Model   string `json:"model"`
 		Choices []struct {
 			Message struct {
-				Content string `json:"content"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID       string `json:"id"`
+					Type     string `json:"type"`
+					Function struct {
+						Name      string `json:"name"`
+						Arguments string `json:"arguments"`
+					} `json:"function"`
+				} `json:"tool_calls"`
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
@@ -292,7 +366,25 @@ func (a *ADKRuntimeAdapter) generateOpenAICompatible(ctx context.Context, cfg pr
 	if err := a.postJSON(ctx, chatCompletionsURL(cfg.APIBaseURL), cfg.APIKey, payload, &out, nil); err != nil {
 		return GenerateResult{}, err
 	}
-	if len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
+	if len(out.Choices) == 0 {
+		return GenerateResult{}, fmt.Errorf("model returned empty response")
+	}
+	functionCalls := make([]*genai.FunctionCall, 0, len(out.Choices[0].Message.ToolCalls))
+	for _, call := range out.Choices[0].Message.ToolCalls {
+		if strings.TrimSpace(call.Function.Name) == "" {
+			continue
+		}
+		args := map[string]any{}
+		if strings.TrimSpace(call.Function.Arguments) != "" {
+			_ = json.Unmarshal([]byte(call.Function.Arguments), &args)
+		}
+		functionCalls = append(functionCalls, &genai.FunctionCall{
+			ID:   call.ID,
+			Name: call.Function.Name,
+			Args: args,
+		})
+	}
+	if len(functionCalls) == 0 && strings.TrimSpace(out.Choices[0].Message.Content) == "" {
 		return GenerateResult{}, fmt.Errorf("model returned empty response")
 	}
 	return GenerateResult{
@@ -300,6 +392,7 @@ func (a *ADKRuntimeAdapter) generateOpenAICompatible(ctx context.Context, cfg pr
 		ModelName:        firstNonEmpty(out.Model, req.ProviderModel.Model),
 		PromptTokens:     out.Usage.PromptTokens,
 		CompletionTokens: out.Usage.CompletionTokens,
+		FunctionCalls:    functionCalls,
 	}, nil
 }
 

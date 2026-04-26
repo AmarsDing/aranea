@@ -189,7 +189,7 @@ func TestChatServiceRunTeamParallelRecordsPartialFailure(t *testing.T) {
 		{AgentID: "missing", Role: "reviewer", Name: "Reviewer", SortOrder: 2},
 	}
 
-	steps, err := svc.runTeamParallel(context.Background(), run, members, SendMessageInput{SessionID: "s1", Content: "hello"}, domain.Session{ID: "s1"}, nil, 2)
+	steps, err := svc.runTeamParallel(context.Background(), run, members, SendMessageInput{SessionID: "s1", Content: "hello"}, domain.Session{ID: "s1"}, nil, 2, nil)
 	if err != nil {
 		t.Fatalf("expected partial success to return nil error, got %v", err)
 	}
@@ -212,7 +212,7 @@ func TestChatServiceRunTeamParallelRecordsPartialFailure(t *testing.T) {
 			failed = item
 		}
 	}
-	if failed.AgentID != "missing" || !strings.Contains(failed.ErrorMessage, "no rows") {
+	if failed.AgentID != "missing" || !strings.Contains(failed.ErrorMessage, `team member agent "missing" was not found`) {
 		t.Fatalf("expected missing agent failure to be recorded, got %#v", failed)
 	}
 }
