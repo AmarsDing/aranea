@@ -37,7 +37,15 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 		return GenerateResult{}, fmt.Errorf("empty input")
 	}
 	started := time.Now()
-	rootAgent, err := b.buildAgent(req)
+	emittedPartial := false
+	modelDelta := func(delta string) error {
+		emittedPartial = true
+		if onDelta == nil {
+			return nil
+		}
+		return onDelta(delta)
+	}
+	rootAgent, err := b.buildAgent(req, modelDelta)
 	if err != nil {
 		return GenerateResult{}, err
 	}
@@ -57,7 +65,6 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 	}
 
 	var finalText string
-	emittedPartial := false
 	for event, runErr := range r.Run(ctx, "aranea-user", runnerSessionID(req), genai.NewContentFromText(req.Input, genai.RoleUser), agent.RunConfig{}) {
 		if runErr != nil {
 			return GenerateResult{}, runErr
@@ -95,8 +102,8 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 	}, nil
 }
 
-func (b *runnerRuntimeBackend) buildAgent(req GenerateRequest) (agent.Agent, error) {
-	tools, err := adkFilesystemTools()
+func (b *runnerRuntimeBackend) buildAgent(req GenerateRequest, onDelta DeltaFunc) (agent.Agent, error) {
+	tools, err := adkRuntimeTools(req)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +112,7 @@ func (b *runnerRuntimeBackend) buildAgent(req GenerateRequest) (agent.Agent, err
 		Name:                adkAgentName(req),
 		Description:         strings.TrimSpace(req.Agent.AgentDescription),
 		Instruction:         buildSystemPrompt(req.Agent),
-		Model:               newProviderModelLLM(b.adapter, req.Agent, req.ProviderModel),
+		Model:               newProviderModelLLM(b.adapter, req.Agent, req.ProviderModel, onDelta),
 		Tools:               tools,
 		BeforeToolCallbacks: []llmagent.BeforeToolCallback{beforeTool},
 		AfterToolCallbacks:  []llmagent.AfterToolCallback{afterTool},

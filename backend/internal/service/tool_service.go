@@ -247,6 +247,7 @@ var toolGroups = map[string][]string{
 
 var toolProfiles = map[string][]string{
 	"minimal":      {"datetime"},
+	"safe":         {"datetime", "read_file", "list_files", "web_fetch"},
 	"coding":       {"group:filesystem", "group:web", "group:skill", "datetime"},
 	"research":     {"web_search", "web_fetch", "read_file", "skill_search", "memory_search", "datetime"},
 	"system_admin": {"group:cli_admin", "web_fetch", "datetime"},

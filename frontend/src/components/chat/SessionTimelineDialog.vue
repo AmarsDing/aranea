@@ -200,7 +200,7 @@ function prettyJSON(value: string) {
 
 <style scoped>
 .session-trace {
-  width: min(1200px, 100vw);
+  width: 1200px;
   max-height: 88vh;
   display: flex;
   flex-direction: column;

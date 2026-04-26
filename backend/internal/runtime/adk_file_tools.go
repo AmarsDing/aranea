@@ -1,11 +1,17 @@
 package runtime
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"arenea/backend/internal/domain"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 )
@@ -26,6 +32,10 @@ type editFileArgs struct {
 	Path      string `json:"path"`
 	OldString string `json:"old_string"`
 	NewString string `json:"new_string"`
+}
+
+type webFetchArgs struct {
+	URL string `json:"url"`
 }
 
 func adkFilesystemTools() ([]tool.Tool, error) {
@@ -85,6 +95,125 @@ func adkFilesystemTools() ([]tool.Tool, error) {
 		tools = append(tools, t)
 	}
 	return tools, nil
+}
+
+func adkRuntimeTools(req GenerateRequest) ([]tool.Tool, error) {
+	tools, err := adkFilesystemTools()
+	if err != nil {
+		return nil, err
+	}
+	extras, err := adkUtilityTools()
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, extras...)
+	return filterADKToolsBySettings(tools, req.ToolSettings), nil
+}
+
+func adkUtilityTools() ([]tool.Tool, error) {
+	definitions := []struct {
+		name    string
+		factory func() (tool.Tool, error)
+	}{
+		{
+			name: "datetime",
+			factory: func() (tool.Tool, error) {
+				return functiontool.New(functiontool.Config{
+					Name:        "datetime",
+					Description: "Return the current local and UTC time.",
+				}, runDateTimeTool)
+			},
+		},
+		{
+			name: "web_fetch",
+			factory: func() (tool.Tool, error) {
+				return functiontool.New(functiontool.Config{
+					Name:        "web_fetch",
+					Description: "Fetch a public HTTP/HTTPS URL and return a short text preview. Args: { url }.",
+				}, runWebFetchTool)
+			},
+		},
+	}
+	tools := make([]tool.Tool, 0, len(definitions))
+	for _, definition := range definitions {
+		t, err := definition.factory()
+		if err != nil {
+			return nil, fmt.Errorf("create ADK utility tool %s: %w", definition.name, err)
+		}
+		tools = append(tools, t)
+	}
+	return tools, nil
+}
+
+func filterADKToolsBySettings(tools []tool.Tool, settings *domain.AgentRuntimeSettings) []tool.Tool {
+	if settings == nil {
+		return tools
+	}
+	if !settings.ToolsEnabled {
+		return nil
+	}
+	profile := strings.TrimSpace(settings.ToolsProfile)
+	allow := runtimeToolSet(jsonStringList(settings.ToolsAllowJSON))
+	deny := runtimeToolSet(jsonStringList(settings.ToolsDenyJSON))
+	out := make([]tool.Tool, 0, len(tools))
+	for _, t := range tools {
+		if t == nil {
+			continue
+		}
+		name := t.Name()
+		allowed := profile == "" || profile == "full" || runtimeProfileAllows(profile, name) || allow[name]
+		if !allowed || deny[name] {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func jsonStringList(raw string) []string {
+	var items []string
+	if strings.TrimSpace(raw) == "" || json.Unmarshal([]byte(raw), &items) != nil {
+		return nil
+	}
+	return items
+}
+
+func runtimeToolSet(items []string) map[string]bool {
+	out := map[string]bool{}
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		switch item {
+		case "group:filesystem":
+			for _, key := range []string{"read_file", "write_file", "list_files", "edit_file"} {
+				out[key] = true
+			}
+		case "group:web":
+			out["web_fetch"] = true
+		case "edit":
+			out["edit_file"] = true
+		case "browser":
+			out["web_fetch"] = true
+		case "":
+		default:
+			out[item] = true
+		}
+	}
+	return out
+}
+
+func runtimeProfileAllows(profile string, name string) bool {
+	switch strings.TrimSpace(profile) {
+	case "minimal":
+		return name == "datetime"
+	case "safe":
+		return name == "datetime" || name == "read_file" || name == "list_files" || name == "web_fetch"
+	case "coding":
+		return name == "datetime" || name == "read_file" || name == "write_file" || name == "list_files" || name == "edit_file" || name == "web_fetch"
+	case "research":
+		return name == "datetime" || name == "read_file" || name == "list_files" || name == "web_fetch"
+	default:
+		return false
+	}
 }
 
 func runReadFileTool(_ tool.Context, args fileToolPathArgs) (map[string]any, error) {
@@ -185,6 +314,50 @@ func runEditFileTool(_ tool.Context, args editFileArgs) (map[string]any, error) 
 	return map[string]any{
 		"path":         rel,
 		"replacements": 1,
+	}, nil
+}
+
+func runDateTimeTool(_ tool.Context, _ map[string]any) (map[string]any, error) {
+	now := time.Now()
+	return map[string]any{
+		"local": now.Format(time.RFC3339),
+		"utc":   now.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func runWebFetchTool(_ tool.Context, args webFetchArgs) (map[string]any, error) {
+	url := strings.TrimSpace(args.URL)
+	if url == "" {
+		return nil, fmt.Errorf("url is required")
+	}
+	if !strings.HasPrefix(strings.ToLower(url), "http://") && !strings.HasPrefix(strings.ToLower(url), "https://") {
+		return nil, fmt.Errorf("only http and https URLs are supported")
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Aranea-Agent/1.0")
+	client := &http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	if err != nil {
+		return nil, err
+	}
+	text := strings.Join(strings.Fields(string(body)), " ")
+	if len([]rune(text)) > 6000 {
+		runes := []rune(text)
+		text = string(runes[:6000]) + "..."
+	}
+	return map[string]any{
+		"url":          url,
+		"status_code":  resp.StatusCode,
+		"content_type": resp.Header.Get("Content-Type"),
+		"text":         text,
 	}, nil
 }
 

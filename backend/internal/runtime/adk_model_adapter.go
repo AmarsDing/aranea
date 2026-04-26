@@ -16,10 +16,11 @@ type providerModelLLM struct {
 	adapter       *ADKRuntimeAdapter
 	agent         domain.Agent
 	providerModel domain.PlatformResource
+	onDelta       DeltaFunc
 }
 
-func newProviderModelLLM(adapter *ADKRuntimeAdapter, agent domain.Agent, providerModel domain.PlatformResource) model.LLM {
-	return &providerModelLLM{adapter: adapter, agent: agent, providerModel: providerModel}
+func newProviderModelLLM(adapter *ADKRuntimeAdapter, agent domain.Agent, providerModel domain.PlatformResource, onDelta DeltaFunc) model.LLM {
+	return &providerModelLLM{adapter: adapter, agent: agent, providerModel: providerModel, onDelta: onDelta}
 }
 
 func (m *providerModelLLM) Name() string {
@@ -51,8 +52,8 @@ func (m *providerModelLLM) GenerateContent(ctx context.Context, req *model.LLMRe
 
 		var result GenerateResult
 		var err error
-		if stream && len(generateReq.ToolDeclarations) == 0 {
-			result, err = m.adapter.streamDirect(ctx, generateReq, nil)
+		if stream && (len(generateReq.ToolDeclarations) == 0 || llmRequestHasFunctionResponse(req)) {
+			result, err = m.adapter.streamDirect(ctx, generateReq, m.onDelta)
 		} else {
 			result, err = m.adapter.generateDirect(ctx, generateReq)
 		}
@@ -62,6 +63,23 @@ func (m *providerModelLLM) GenerateContent(ctx context.Context, req *model.LLMRe
 		}
 		yield(generateResultToLLMResponse(result), nil)
 	}
+}
+
+func llmRequestHasFunctionResponse(req *model.LLMRequest) bool {
+	if req == nil {
+		return false
+	}
+	for _, content := range req.Contents {
+		if content == nil {
+			continue
+		}
+		for _, part := range content.Parts {
+			if part != nil && part.FunctionResponse != nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func llmRequestMessages(req *model.LLMRequest) []ChatMessage {

@@ -523,6 +523,7 @@ func (s *ChatService) generateTeamStep(ctx context.Context, run domain.TeamRun, 
 		ProviderModel: providerModel,
 		Messages:      messages,
 		Input:         prompt,
+		ToolSettings:  s.runtimeToolSettings(agent.ID),
 	}
 	if callbacks != nil {
 		req.OnToolEvent = func(event runtime.ToolEvent) error {

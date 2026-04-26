@@ -278,6 +278,7 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 		ProviderModel: providerModel,
 		Messages:      modelMessages,
 		Input:         in.Content,
+		ToolSettings:  s.runtimeToolSettings(agent.ID),
 		OnToolEvent: func(event runtime.ToolEvent) error {
 			s.recordToolEvent(in.SessionID, "", event)
 			if callbacks.OnToolEvent != nil {
@@ -334,6 +335,17 @@ func agentMessageOptions(agent domain.Agent) string {
 		return ""
 	}
 	return string(raw)
+}
+
+func (s *ChatService) runtimeToolSettings(agentID string) *domain.AgentRuntimeSettings {
+	if strings.TrimSpace(agentID) == "" {
+		return nil
+	}
+	settings, err := s.repo.GetAgentRuntimeSettings(agentID)
+	if err != nil {
+		return nil
+	}
+	return &settings
 }
 
 func (s *ChatService) recordToolEvent(sessionID string, messageID string, event runtime.ToolEvent) {

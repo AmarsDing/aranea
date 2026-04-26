@@ -54,6 +54,7 @@ type GenerateRequest struct {
 	Messages         []ChatMessage
 	Input            string
 	ToolDeclarations []*genai.FunctionDeclaration
+	ToolSettings     *domain.AgentRuntimeSettings
 	OnToolEvent      ToolEventFunc
 }
 

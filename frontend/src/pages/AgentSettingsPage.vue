@@ -148,7 +148,7 @@
                     </q-card-section>
                     <q-separator />
                     <q-card-section v-if="config.tools.enabled" class="q-gutter-sm">
-                      <q-select v-model="config.tools.profile" dense outlined label="配置文件" :options="['full', 'safe', 'minimal']" />
+                      <q-select v-model="config.tools.profile" dense outlined label="配置文件" :options="['full', 'coding', 'research', 'safe', 'minimal']" />
                       <q-input v-model="config.tools.tool_call_prefix" dense outlined label="工具调用前缀" hint="如 proxy_，解析前会从工具名中剥离。" />
                       <q-select v-model="config.tools.allow" dense outlined multiple use-chips label="允许" :options="toolOptions" />
                       <q-select v-model="config.tools.deny" dense outlined multiple use-chips label="拒绝" :options="toolOptions" />
@@ -577,7 +577,7 @@ const filteredProviderModelOptions = computed(() => {
   );
 });
 const selectedProviderModelID = computed(() => providerModelOptions.value.find((row) => row.provider === form.provider && row.model === form.model)?.value ?? "");
-const toolOptions = ["browser", "edit", "list_files", "read_file", "write_file", "create_image", "create_video", "stt"];
+const toolOptions = ["datetime", "web_fetch", "list_files", "read_file", "write_file", "edit_file"];
 const toolConflicts = computed(() => config.tools.allow.filter((tool) => config.tools.deny.includes(tool)));
 const truncateStrategyOptions = ["summary", "drop_oldest", "drop_tool_results", "hybrid"].map((value) => ({ label: value, value }));
 const snapshotModeOptions = ["always", "on_warning", "off"].map((value) => ({ label: value, value }));
