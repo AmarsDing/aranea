@@ -148,7 +148,16 @@
                     </q-card-section>
                     <q-separator />
                     <q-card-section v-if="config.tools.enabled" class="q-gutter-sm">
-                      <q-select v-model="config.tools.profile" dense outlined label="配置文件" :options="['full', 'coding', 'research', 'safe', 'minimal']" />
+                      <q-select
+                        v-model="config.tools.profile"
+                        dense
+                        outlined
+                        emit-value
+                        map-options
+                        label="工具配置文件"
+                        hint="按意图选择 Agent 的工具能力面：chat_only 仅对话；read_only 只读 + 时间；coding 代码 + 网页；research 网页 + 检索；full 全开放（高权限）。"
+                        :options="toolProfileOptions"
+                      />
                       <q-input v-model="config.tools.tool_call_prefix" dense outlined label="工具调用前缀" hint="如 proxy_，解析前会从工具名中剥离。" />
                       <q-select v-model="config.tools.allow" dense outlined multiple use-chips label="允许" :options="toolOptions" />
                       <q-select v-model="config.tools.deny" dense outlined multiple use-chips label="拒绝" :options="toolOptions" />
@@ -450,7 +459,7 @@ const config = reactive({
   },
   tools: {
     enabled: true,
-    profile: "full",
+    profile: "chat_only",
     tool_call_prefix: "",
     allow: [] as string[],
     deny: [] as string[],
@@ -579,6 +588,16 @@ const filteredProviderModelOptions = computed(() => {
 const selectedProviderModelID = computed(() => providerModelOptions.value.find((row) => row.provider === form.provider && row.model === form.model)?.value ?? "");
 const toolOptions = ["datetime", "web_fetch", "list_files", "read_file", "write_file", "edit_file"];
 const toolConflicts = computed(() => config.tools.allow.filter((tool) => config.tools.deny.includes(tool)));
+// Profile options surface the current canonical names to the user.
+// Backend still accepts legacy values (minimal/safe/system_admin) so
+// existing agents keep their behaviour even before they are re-saved.
+const toolProfileOptions = [
+  { label: "chat_only · 仅对话（无工具）", value: "chat_only" },
+  { label: "read_only · 只读 + 时间", value: "read_only" },
+  { label: "coding · 文件读写 + 网页 + 技能", value: "coding" },
+  { label: "research · 网页 + 检索 + 技能", value: "research" },
+  { label: "full · 全工具（高权限，慎用）", value: "full" }
+];
 const truncateStrategyOptions = ["summary", "drop_oldest", "drop_tool_results", "hybrid"].map((value) => ({ label: value, value }));
 const snapshotModeOptions = ["always", "on_warning", "off"].map((value) => ({ label: value, value }));
 const memoryScopeOptions = ["agent", "user", "team", "workspace", "global"].map((value) => ({ label: value, value }));

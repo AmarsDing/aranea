@@ -131,7 +131,8 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 		return SendMessageResult{}, err
 	}
 	s.publishTeamRunEvent(TeamRunEvent{Type: "run_started", TeamID: run.TeamID, RunID: run.ID, Run: &run})
-	steps, runErr := s.runTeamTopology(runCtx, run, def, members, in, session, history, mode, callbacks)
+	teamRC := s.teamRuntimeContext(session, team, def, members, mode, in.Options)
+	steps, runErr := s.runTeamTopology(runCtx, run, def, members, in, session, history, mode, teamRC, callbacks)
 	partialSuccess := runErr != nil && mode == "parallel" && hasSuccessfulTeamSteps(steps)
 	if runErr != nil && !partialSuccess {
 		run.Status = teamErrorStatus(runErr)
@@ -145,7 +146,7 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 		s.publishTeamRunEvent(TeamRunEvent{Type: "run_finished", TeamID: run.TeamID, RunID: run.ID, Run: &run})
 		return SendMessageResult{}, runErr
 	}
-	content, steps, err := s.synthesizeTeamFinal(runCtx, run, def, team, mode, steps, in, session, history, callbacks)
+	content, steps, err := s.synthesizeTeamFinal(runCtx, run, def, team, mode, steps, in, session, history, teamRC, callbacks)
 	if err != nil {
 		run.Status = teamErrorStatus(err)
 		run.ErrorMessage = err.Error()
@@ -201,16 +202,16 @@ func (s *ChatService) sendTeam(ctx context.Context, in SendMessageInput, session
 	return SendMessageResult{UserMessage: userMsg, AgentMessage: agentMsg}, nil
 }
 
-func (s *ChatService) runTeamTopology(ctx context.Context, run domain.TeamRun, def teamDefinition, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, mode string, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
+func (s *ChatService) runTeamTopology(ctx context.Context, run domain.TeamRun, def teamDefinition, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, mode string, teamRC *runtime.RuntimeContext, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
 	switch mode {
 	case "parallel":
-		return s.runTeamParallel(ctx, run, members, in, session, history, def.MaxConcurrency, callbacks)
+		return s.runTeamParallel(ctx, run, members, in, session, history, def.MaxConcurrency, teamRC, callbacks)
 	case "coordinator":
-		return s.runTeamCoordinator(ctx, run, members, in, session, history, callbacks)
+		return s.runTeamCoordinator(ctx, run, members, in, session, history, teamRC, callbacks)
 	case "critic_loop":
-		return s.runTeamCriticLoop(ctx, run, def, members, in, session, history, callbacks)
+		return s.runTeamCriticLoop(ctx, run, def, members, in, session, history, teamRC, callbacks)
 	default:
-		return s.runTeamSequential(ctx, run, def, members, in, session, history, in.Content, callbacks)
+		return s.runTeamSequential(ctx, run, def, members, in, session, history, in.Content, teamRC, callbacks)
 	}
 }
 
@@ -275,7 +276,7 @@ func enabledTeamMembers(def teamDefinition) []teamMember {
 	return items
 }
 
-func (s *ChatService) runTeamSequential(ctx context.Context, run domain.TeamRun, def teamDefinition, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, input string, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
+func (s *ChatService) runTeamSequential(ctx context.Context, run domain.TeamRun, def teamDefinition, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, input string, teamRC *runtime.RuntimeContext, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
 	steps := make([]teamStepResult, 0, len(members))
 	current := buildA2AEnvelope(def, teamMember{Name: "User", Role: "user"}, members[0], "task", in.Content, input, run.ID)
 	for index, member := range members {
@@ -285,7 +286,7 @@ func (s *ChatService) runTeamSequential(ctx context.Context, run domain.TeamRun,
 			_, _ = s.recordTeamRunStep(run, step, index)
 			return steps, err
 		}
-		step, err := s.generateTeamStep(ctx, run, index, member, in, session, history, current, callbacks)
+		step, err := s.generateTeamStep(ctx, run, index, member, in, session, history, current, teamRC, callbacks)
 		steps = append(steps, step)
 		_, _ = s.recordTeamRunStep(run, step, index)
 		if err != nil {
@@ -298,7 +299,7 @@ func (s *ChatService) runTeamSequential(ctx context.Context, run domain.TeamRun,
 	return steps, nil
 }
 
-func (s *ChatService) runTeamParallel(ctx context.Context, run domain.TeamRun, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, maxConcurrency int, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
+func (s *ChatService) runTeamParallel(ctx context.Context, run domain.TeamRun, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, maxConcurrency int, teamRC *runtime.RuntimeContext, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
 	if maxConcurrency <= 0 {
 		maxConcurrency = len(members)
 	}
@@ -323,7 +324,7 @@ func (s *ChatService) runTeamParallel(ctx context.Context, run domain.TeamRun, m
 				return
 			}
 			input := buildA2AEnvelope(parseTeamDefinition(run.TopologyJSON), teamMember{Name: "User", Role: "user"}, item, "parallel_task", in.Content, in.Content, run.ID)
-			step, err := s.generateTeamStep(ctx, run, index, item, in, session, history, input, callbacks)
+			step, err := s.generateTeamStep(ctx, run, index, item, in, session, history, input, teamRC, callbacks)
 			if err != nil && step.Err == nil {
 				step.Err = err
 			}
@@ -343,14 +344,14 @@ func (s *ChatService) runTeamParallel(ctx context.Context, run domain.TeamRun, m
 	return steps, nil
 }
 
-func (s *ChatService) runTeamCoordinator(ctx context.Context, run domain.TeamRun, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
+func (s *ChatService) runTeamCoordinator(ctx context.Context, run domain.TeamRun, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, teamRC *runtime.RuntimeContext, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
 	coordinator, workers := splitTeamRole(members, "coordinator")
 	if coordinator.AgentID == "" {
 		coordinator = members[0]
 		workers = members[1:]
 	}
 	planPrompt := buildA2AEnvelope(parseTeamDefinition(run.TopologyJSON), teamMember{Name: "User", Role: "user"}, coordinator, "plan_request", in.Content, "请把用户任务拆解为可执行计划，明确每个成员应完成的工作、依赖和最终汇总口径。", run.ID)
-	planStep, err := s.generateTeamStep(ctx, run, 0, coordinator, in, session, history, planPrompt, callbacks)
+	planStep, err := s.generateTeamStep(ctx, run, 0, coordinator, in, session, history, planPrompt, teamRC, callbacks)
 	steps := []teamStepResult{planStep}
 	_, _ = s.recordTeamRunStep(run, planStep, 0)
 	if err != nil {
@@ -362,7 +363,7 @@ func (s *ChatService) runTeamCoordinator(ctx context.Context, run domain.TeamRun
 	current := fmt.Sprintf("用户任务：%s\n\nCoordinator 计划：\n%s\n\n请按你的角色完成计划中分配给你的部分。", in.Content, planStep.Generated.Content)
 	for index, member := range workers {
 		workerInput := buildA2AEnvelope(parseTeamDefinition(run.TopologyJSON), coordinator, member, "delegation", in.Content, current, run.ID)
-		step, err := s.generateTeamStep(ctx, run, index+1, member, in, session, history, workerInput, callbacks)
+		step, err := s.generateTeamStep(ctx, run, index+1, member, in, session, history, workerInput, teamRC, callbacks)
 		steps = append(steps, step)
 		_, _ = s.recordTeamRunStep(run, step, index+1)
 		if err != nil {
@@ -373,7 +374,7 @@ func (s *ChatService) runTeamCoordinator(ctx context.Context, run domain.TeamRun
 	return steps, nil
 }
 
-func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun, def teamDefinition, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
+func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun, def teamDefinition, members []teamMember, in SendMessageInput, session domain.Session, history []domain.Message, teamRC *runtime.RuntimeContext, callbacks *SendStreamCallbacks) ([]teamStepResult, error) {
 	generator, remaining := splitTeamRole(members, "generator")
 	if generator.AgentID == "" {
 		generator = members[0]
@@ -394,7 +395,7 @@ func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun,
 	steps := []teamStepResult{}
 	defForEnvelope := parseTeamDefinition(run.TopologyJSON)
 	draftPrompt := buildA2AEnvelope(defForEnvelope, teamMember{Name: "User", Role: "user"}, generator, "draft_request", in.Content, "请先产出可评审的初稿。", run.ID)
-	draft, err := s.generateTeamStep(ctx, run, 0, generator, in, session, history, draftPrompt, callbacks)
+	draft, err := s.generateTeamStep(ctx, run, 0, generator, in, session, history, draftPrompt, teamRC, callbacks)
 	steps = append(steps, draft)
 	_, _ = s.recordTeamRunStep(run, draft, 0)
 	if err != nil || critic.AgentID == "" {
@@ -404,7 +405,7 @@ func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun,
 	for iteration := 1; iteration <= maxIterations; iteration++ {
 		criticPayload := fmt.Sprintf("请评审第 %d 轮初稿，指出是否通过、关键问题和修改建议。\n\n初稿：\n%s", iteration, currentDraft)
 		criticPrompt := buildA2AEnvelope(defForEnvelope, generator, critic, "review_request", in.Content, criticPayload, run.ID)
-		review, err := s.generateTeamStep(ctx, run, len(steps), critic, in, session, history, criticPrompt, callbacks)
+		review, err := s.generateTeamStep(ctx, run, len(steps), critic, in, session, history, criticPrompt, teamRC, callbacks)
 		steps = append(steps, review)
 		_, _ = s.recordTeamRunStep(run, review, len(steps)-1)
 		if err != nil {
@@ -415,7 +416,7 @@ func (s *ChatService) runTeamCriticLoop(ctx context.Context, run domain.TeamRun,
 		}
 		revisionPayload := fmt.Sprintf("请根据 critic 意见修订初稿，输出完整最终稿。\n\n当前初稿：\n%s\n\nCritic 意见：\n%s", currentDraft, review.Generated.Content)
 		revisionPrompt := buildA2AEnvelope(defForEnvelope, critic, generator, "revision_request", in.Content, revisionPayload, run.ID)
-		revision, err := s.generateTeamStep(ctx, run, len(steps), generator, in, session, history, revisionPrompt, callbacks)
+		revision, err := s.generateTeamStep(ctx, run, len(steps), generator, in, session, history, revisionPrompt, teamRC, callbacks)
 		steps = append(steps, revision)
 		_, _ = s.recordTeamRunStep(run, revision, len(steps)-1)
 		if err != nil {
@@ -456,7 +457,7 @@ func criticNeedsRevision(content string) bool {
 	return false
 }
 
-func (s *ChatService) generateTeamStep(ctx context.Context, run domain.TeamRun, index int, member teamMember, in SendMessageInput, session domain.Session, history []domain.Message, input string, callbacks *SendStreamCallbacks) (teamStepResult, error) {
+func (s *ChatService) generateTeamStep(ctx context.Context, run domain.TeamRun, index int, member teamMember, in SendMessageInput, session domain.Session, history []domain.Message, input string, teamRC *runtime.RuntimeContext, callbacks *SendStreamCallbacks) (teamStepResult, error) {
 	agent, err := s.repo.GetAgentByID(member.AgentID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -518,12 +519,15 @@ func (s *ChatService) generateTeamStep(ctx context.Context, run domain.TeamRun, 
 		messages = append(messages, runtime.ChatMessage{Role: "user", Content: prompt})
 	}
 
+	memberRoleLabel := firstNonEmptyString(member.Role, "member")
+	memberRC := teamRC.CloneWithRole(memberRoleLabel)
 	req := runtime.GenerateRequest{
-		Agent:         agent,
-		ProviderModel: providerModel,
-		Messages:      messages,
-		Input:         prompt,
-		ToolSettings:  s.runtimeToolSettings(agent.ID),
+		Agent:          agent,
+		ProviderModel:  providerModel,
+		Messages:       messages,
+		Input:          prompt,
+		ToolSettings:   s.runtimeToolSettings(agent.ID),
+		RuntimeContext: memberRC,
 	}
 	if callbacks != nil {
 		req.OnToolEvent = func(event runtime.ToolEvent) error {
@@ -663,7 +667,7 @@ func (s *ChatService) recordTeamRunStep(run domain.TeamRun, step teamStepResult,
 	return created, err
 }
 
-func (s *ChatService) synthesizeTeamFinal(ctx context.Context, run domain.TeamRun, def teamDefinition, team domain.Team, mode string, steps []teamStepResult, in SendMessageInput, session domain.Session, history []domain.Message, callbacks *SendStreamCallbacks) (string, []teamStepResult, error) {
+func (s *ChatService) synthesizeTeamFinal(ctx context.Context, run domain.TeamRun, def teamDefinition, team domain.Team, mode string, steps []teamStepResult, in SendMessageInput, session domain.Session, history []domain.Message, teamRC *runtime.RuntimeContext, callbacks *SendStreamCallbacks) (string, []teamStepResult, error) {
 	if strings.TrimSpace(def.SynthesizerAgent) == "" {
 		return synthesizeTeamOutput(team, mode, steps), steps, nil
 	}
@@ -677,7 +681,7 @@ func (s *ChatService) synthesizeTeamFinal(ctx context.Context, run domain.TeamRu
 		SortOrder: maxTeamStepSortOrder(steps) + 10,
 	}
 	prompt := buildSynthesizerPrompt(team, mode, in.Content, steps)
-	step, err := s.generateTeamStep(ctx, run, len(steps), member, in, session, history, prompt, callbacks)
+	step, err := s.generateTeamStep(ctx, run, len(steps), member, in, session, history, prompt, teamRC, callbacks)
 	steps = append(steps, step)
 	_, _ = s.recordTeamRunStep(run, step, len(steps)-1)
 	if err != nil {
@@ -892,4 +896,37 @@ func (s *ChatService) estimateGeneratedCost(providerModel domain.PlatformResourc
 	inputCost := costMicroUSD(generated.PromptTokens, pricing.InputPriceMicroUSDPer1K)
 	outputCost := costMicroUSD(generated.CompletionTokens, pricing.OutputPriceMicroUSDPer1K)
 	return inputCost + outputCost
+}
+
+// teamRuntimeContext builds the structured runtime context shared by all
+// members of a team run. It captures who is in the team, which mode is
+// orchestrating them, and the session metadata. Each member then clones
+// this context with its specific role before the LLM call.
+func (s *ChatService) teamRuntimeContext(session domain.Session, team domain.Team, def teamDefinition, members []teamMember, mode string, options SendMessageOptions) *runtime.RuntimeContext {
+	dialogMode := strings.TrimSpace(options.DialogMode)
+	if dialogMode == "" {
+		dialogMode = strings.TrimSpace(session.DialogMode)
+	}
+	teamMembers := make([]runtime.TeamMemberContext, 0, len(members))
+	for _, member := range members {
+		name := firstNonEmptyString(member.Name, member.Role, member.AgentID)
+		teamMembers = append(teamMembers, runtime.TeamMemberContext{
+			AgentID: member.AgentID,
+			Role:    firstNonEmptyString(member.Role, "member"),
+			Name:    name,
+		})
+	}
+	return &runtime.RuntimeContext{
+		Session: runtime.SessionContext{
+			SessionID:  session.ID,
+			DialogMode: dialogMode,
+			StartedAt:  session.CreatedAt,
+		},
+		Team: &runtime.TeamContext{
+			TeamID:      team.ID,
+			DisplayName: firstNonEmptyString(team.DisplayName, team.TeamKey),
+			Mode:        firstNonEmptyString(mode, def.Mode),
+			Members:     teamMembers,
+		},
+	}
 }

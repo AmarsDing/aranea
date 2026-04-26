@@ -18,6 +18,47 @@ import (
 
 const fileToolMaxReadBytes = 1024 * 1024
 
+// Tool descriptions are written to be both informative and protective.
+// Each one explicitly states (1) what the tool does, (2) what data class
+// it operates on (filesystem bytes, datetime, or HTTP), and (3) the kinds
+// of questions that MUST NOT trigger the tool. Without this hardening the
+// model has historically called read_file / list_files to answer questions
+// about teams, members, sessions, providers — none of which live on disk.
+// Tool descriptions deliberately avoid curly-brace argument examples
+// (e.g. "{ path }") because ADK's instruction processor treats `{name}`
+// patterns as session-state placeholders and will fail injection if
+// the descriptions reach a system prompt template.
+const (
+	readFileToolDescription = "Read raw bytes of a UTF-8 text file located inside the workspace source tree. " +
+		"Argument: path (string) relative to the project root, e.g. \"backend/internal/domain/models.go\". " +
+		"Use only when the user explicitly asks to read or inspect a source file. " +
+		"DO NOT use to answer questions about teams, members, sessions, agents, providers, models, dialog mode or any in-app metadata — that information is supplied in the Runtime Context block, not on disk."
+
+	listFilesToolDescription = "List files and directories under a workspace path. " +
+		"Argument: path (string), empty or \".\" lists the project root. " +
+		"Use only for source-tree exploration when the user asked about files or folders. " +
+		"DO NOT use to count team members, sessions, agents or any in-app entity; those counts are present in the Runtime Context block."
+
+	writeFileToolDescription = "Create or overwrite a UTF-8 file inside the workspace sandbox. " +
+		"Arguments: path (string), content (string). Parent directories are created automatically. " +
+		"Use only when the user explicitly asked to save, write or generate a file. " +
+		"DO NOT use to take notes about the conversation, persist memory or store agent state."
+
+	editFileToolDescription = "Replace exactly one text occurrence in an existing workspace file. " +
+		"Arguments: path (string), old_string (string), new_string (string). Fails if old_string is missing or ambiguous. " +
+		"Use only after read_file confirmed the exact target text. " +
+		"DO NOT call speculatively — if you don't already know the precise old_string, refuse and ask the user."
+
+	datetimeToolDescription = "Return the current local and UTC clock time as RFC3339 strings. " +
+		"Use only when the user asks for the current time or the answer depends on now. " +
+		"DO NOT call to ground unrelated reasoning; the Runtime Context already records when the session started."
+
+	webFetchToolDescription = "Fetch a single public HTTP or HTTPS URL and return a truncated plain-text preview. " +
+		"Argument: url (string). Use only when the user explicitly provided a URL or asked you to look something up online. " +
+		"DO NOT use to query application data, internal databases or anything described in the Runtime Context. " +
+		"If the same URL fails twice, stop and report the limitation instead of retrying."
+)
+
 type fileToolPathArgs struct {
 	Path string `json:"path"`
 }
@@ -46,41 +87,41 @@ func adkFilesystemTools() ([]tool.Tool, error) {
 	}{
 		{
 			name:        "read_file",
-			description: "Read a UTF-8 text file inside the workspace sandbox. Args: { path }.",
+			description: readFileToolDescription,
 			factory: func() (tool.Tool, error) {
 				return functiontool.New(functiontool.Config{
 					Name:        "read_file",
-					Description: "Read a UTF-8 text file inside the workspace sandbox. The path may be relative to the project root.",
+					Description: readFileToolDescription,
 				}, runReadFileTool)
 			},
 		},
 		{
 			name:        "list_files",
-			description: "List files and directories inside a workspace directory. Args: { path }.",
+			description: listFilesToolDescription,
 			factory: func() (tool.Tool, error) {
 				return functiontool.New(functiontool.Config{
 					Name:        "list_files",
-					Description: "List files and directories inside a workspace directory. The path may be empty or relative to the project root.",
+					Description: listFilesToolDescription,
 				}, runListFilesTool)
 			},
 		},
 		{
 			name:        "write_file",
-			description: "Create or overwrite a file inside the workspace sandbox. Args: { path, content }.",
+			description: writeFileToolDescription,
 			factory: func() (tool.Tool, error) {
 				return functiontool.New(functiontool.Config{
 					Name:        "write_file",
-					Description: "Create or overwrite a file inside the workspace sandbox. Parent directories are created automatically.",
+					Description: writeFileToolDescription,
 				}, runWriteFileTool)
 			},
 		},
 		{
 			name:        "edit_file",
-			description: "Replace exactly one text occurrence in an existing workspace file. Args: { path, old_string, new_string }.",
+			description: editFileToolDescription,
 			factory: func() (tool.Tool, error) {
 				return functiontool.New(functiontool.Config{
 					Name:        "edit_file",
-					Description: "Replace exactly one text occurrence in an existing workspace file. Fails if old_string is missing or ambiguous.",
+					Description: editFileToolDescription,
 				}, runEditFileTool)
 			},
 		},
@@ -120,7 +161,7 @@ func adkUtilityTools() ([]tool.Tool, error) {
 			factory: func() (tool.Tool, error) {
 				return functiontool.New(functiontool.Config{
 					Name:        "datetime",
-					Description: "Return the current local and UTC time.",
+					Description: datetimeToolDescription,
 				}, runDateTimeTool)
 			},
 		},
@@ -129,7 +170,7 @@ func adkUtilityTools() ([]tool.Tool, error) {
 			factory: func() (tool.Tool, error) {
 				return functiontool.New(functiontool.Config{
 					Name:        "web_fetch",
-					Description: "Fetch a public HTTP/HTTPS URL and return a short text preview. Args: { url }.",
+					Description: webFetchToolDescription,
 				}, runWebFetchTool)
 			},
 		},
@@ -201,16 +242,24 @@ func runtimeToolSet(items []string) map[string]bool {
 	return out
 }
 
+// runtimeProfileAllows decides whether a tool name is allowed under a
+// given profile. The profile vocabulary mirrors service.toolProfiles
+// and accepts both canonical and legacy names so settings stored
+// before the rename keep working without a database migration.
 func runtimeProfileAllows(profile string, name string) bool {
-	switch strings.TrimSpace(profile) {
-	case "minimal":
-		return name == "datetime"
-	case "safe":
-		return name == "datetime" || name == "read_file" || name == "list_files" || name == "web_fetch"
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "chat_only", "minimal":
+		// chat_only intentionally exposes no tools — the agent must
+		// answer purely from the prompt and the runtime context.
+		return false
+	case "read_only", "safe":
+		return name == "datetime" || name == "read_file" || name == "list_files"
 	case "coding":
 		return name == "datetime" || name == "read_file" || name == "write_file" || name == "list_files" || name == "edit_file" || name == "web_fetch"
 	case "research":
 		return name == "datetime" || name == "read_file" || name == "list_files" || name == "web_fetch"
+	case "system_admin", "full":
+		return true
 	default:
 		return false
 	}
@@ -226,7 +275,7 @@ func runReadFileTool(_ tool.Context, args fileToolPathArgs) (map[string]any, err
 		return nil, err
 	}
 	if info.IsDir() {
-		return nil, fmt.Errorf("path %q is a directory", rel)
+		return runListFilesTool(nil, fileToolPathArgs{Path: rel})
 	}
 	if info.Size() > fileToolMaxReadBytes {
 		return nil, fmt.Errorf("file %q is too large (%d bytes, max %d)", rel, info.Size(), fileToolMaxReadBytes)

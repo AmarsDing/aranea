@@ -13,14 +13,15 @@ import (
 )
 
 type providerModelLLM struct {
-	adapter       *ADKRuntimeAdapter
-	agent         domain.Agent
-	providerModel domain.PlatformResource
-	onDelta       DeltaFunc
+	adapter        *ADKRuntimeAdapter
+	agent          domain.Agent
+	providerModel  domain.PlatformResource
+	runtimeContext *RuntimeContext
+	onDelta        DeltaFunc
 }
 
-func newProviderModelLLM(adapter *ADKRuntimeAdapter, agent domain.Agent, providerModel domain.PlatformResource, onDelta DeltaFunc) model.LLM {
-	return &providerModelLLM{adapter: adapter, agent: agent, providerModel: providerModel, onDelta: onDelta}
+func newProviderModelLLM(adapter *ADKRuntimeAdapter, agent domain.Agent, providerModel domain.PlatformResource, runtimeContext *RuntimeContext, onDelta DeltaFunc) model.LLM {
+	return &providerModelLLM{adapter: adapter, agent: agent, providerModel: providerModel, runtimeContext: runtimeContext, onDelta: onDelta}
 }
 
 func (m *providerModelLLM) Name() string {
@@ -45,6 +46,7 @@ func (m *providerModelLLM) GenerateContent(ctx context.Context, req *model.LLMRe
 			Messages:         llmRequestMessages(req),
 			Input:            latestUserInput(req),
 			ToolDeclarations: llmRequestToolDeclarations(req),
+			RuntimeContext:   m.runtimeContext,
 		}
 		if strings.TrimSpace(generateReq.Input) == "" {
 			generateReq.Input = "Handle the request as specified."
@@ -52,7 +54,11 @@ func (m *providerModelLLM) GenerateContent(ctx context.Context, req *model.LLMRe
 
 		var result GenerateResult
 		var err error
-		if stream && (len(generateReq.ToolDeclarations) == 0 || llmRequestHasFunctionResponse(req)) {
+		anthropicWithInitialTools := false
+		if cfg, cfgErr := parseProviderConfig(providerModel.ConfigJSON); cfgErr == nil {
+			anthropicWithInitialTools = isAnthropicProvider(cfg.ProviderType) && len(generateReq.ToolDeclarations) > 0 && !llmRequestHasFunctionResponse(req)
+		}
+		if stream && !anthropicWithInitialTools {
 			result, err = m.adapter.streamDirect(ctx, generateReq, m.onDelta)
 		} else {
 			result, err = m.adapter.generateDirect(ctx, generateReq)

@@ -173,10 +173,12 @@ func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessag
 	}
 
 	generated, err := s.runtime.Generate(ctx, runtime.GenerateRequest{
-		Agent:         agent,
-		ProviderModel: providerModel,
-		Messages:      modelMessages,
-		Input:         in.Content,
+		Agent:          agent,
+		ProviderModel:  providerModel,
+		Messages:       modelMessages,
+		Input:          in.Content,
+		ToolSettings:   s.runtimeToolSettings(agent.ID),
+		RuntimeContext: s.singleAgentRuntimeContext(session, agent, in.Options),
 	})
 	if err != nil {
 		_ = s.recordModelTokenUsage(agent, session, providerModel, in.Options, runtime.GenerateResult{}, domain.Message{}, false, "failed", err)
@@ -274,11 +276,12 @@ func (s *ChatService) SendStream(ctx context.Context, in SendMessageInput, callb
 	}
 
 	generated, err := s.runtime.StreamGenerate(ctx, runtime.GenerateRequest{
-		Agent:         agent,
-		ProviderModel: providerModel,
-		Messages:      modelMessages,
-		Input:         in.Content,
-		ToolSettings:  s.runtimeToolSettings(agent.ID),
+		Agent:          agent,
+		ProviderModel:  providerModel,
+		Messages:       modelMessages,
+		Input:          in.Content,
+		ToolSettings:   s.runtimeToolSettings(agent.ID),
+		RuntimeContext: s.singleAgentRuntimeContext(session, agent, in.Options),
 		OnToolEvent: func(event runtime.ToolEvent) error {
 			s.recordToolEvent(in.SessionID, "", event)
 			if callbacks.OnToolEvent != nil {
@@ -346,6 +349,25 @@ func (s *ChatService) runtimeToolSettings(agentID string) *domain.AgentRuntimeSe
 		return nil
 	}
 	return &settings
+}
+
+// singleAgentRuntimeContext builds the structured runtime context that
+// is rendered into the agent's system prompt for non-team chats. The
+// context tells the model exactly which session it's running in, what
+// dialog mode is active and that it operates in a single-agent role.
+func (s *ChatService) singleAgentRuntimeContext(session domain.Session, agent domain.Agent, options SendMessageOptions) *runtime.RuntimeContext {
+	dialogMode := strings.TrimSpace(options.DialogMode)
+	if dialogMode == "" {
+		dialogMode = strings.TrimSpace(session.DialogMode)
+	}
+	return &runtime.RuntimeContext{
+		Session: runtime.SessionContext{
+			SessionID:  session.ID,
+			DialogMode: dialogMode,
+			StartedAt:  session.CreatedAt,
+		},
+		SelfRole: "single_agent",
+	}
 }
 
 func (s *ChatService) recordToolEvent(sessionID string, messageID string, event runtime.ToolEvent) {

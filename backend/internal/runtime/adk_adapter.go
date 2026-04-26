@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -55,6 +56,7 @@ type GenerateRequest struct {
 	Input            string
 	ToolDeclarations []*genai.FunctionDeclaration
 	ToolSettings     *domain.AgentRuntimeSettings
+	RuntimeContext   *RuntimeContext
 	OnToolEvent      ToolEventFunc
 }
 
@@ -333,7 +335,7 @@ func (a *ADKRuntimeAdapter) generateOpenAICompatible(ctx context.Context, cfg pr
 	if len(payload.Tools) > 0 {
 		payload.ToolChoice = "auto"
 	}
-	if system := buildSystemPrompt(req.Agent); system != "" {
+	if system := buildSystemPrompt(req.Agent, req.RuntimeContext); system != "" {
 		payload.Messages = append(payload.Messages, message{Role: "system", Content: system})
 	}
 	for _, item := range trimMessagesByContext(req.Messages, cfg.ContextWindowK) {
@@ -409,7 +411,7 @@ func (a *ADKRuntimeAdapter) generateAnthropic(ctx context.Context, cfg providerC
 		Messages  []message `json:"messages"`
 	}{
 		Model:     req.ProviderModel.Model,
-		System:    buildSystemPrompt(req.Agent),
+		System:    buildSystemPrompt(req.Agent, req.RuntimeContext),
 		MaxTokens: resolveMaxOutputTokens(cfg),
 	}
 	for _, item := range trimMessagesByContext(req.Messages, cfg.ContextWindowK) {
@@ -460,17 +462,39 @@ func (a *ADKRuntimeAdapter) streamOpenAICompatible(ctx context.Context, cfg prov
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
+	type openAITool struct {
+		Type     string `json:"type"`
+		Function any    `json:"function"`
+	}
 	payload := struct {
-		Model     string    `json:"model"`
-		Messages  []message `json:"messages"`
-		Stream    bool      `json:"stream"`
-		MaxTokens int       `json:"max_tokens,omitempty"`
+		Model      string       `json:"model"`
+		Messages   []message    `json:"messages"`
+		Stream     bool         `json:"stream"`
+		MaxTokens  int          `json:"max_tokens,omitempty"`
+		Tools      []openAITool `json:"tools,omitempty"`
+		ToolChoice string       `json:"tool_choice,omitempty"`
 	}{
 		Model:     req.ProviderModel.Model,
 		Stream:    true,
 		MaxTokens: resolveMaxOutputTokens(cfg),
 	}
-	if system := buildSystemPrompt(req.Agent); system != "" {
+	for _, declaration := range req.ToolDeclarations {
+		if declaration == nil || strings.TrimSpace(declaration.Name) == "" {
+			continue
+		}
+		payload.Tools = append(payload.Tools, openAITool{
+			Type: "function",
+			Function: map[string]any{
+				"name":        declaration.Name,
+				"description": declaration.Description,
+				"parameters":  openAIToolParameters(declaration),
+			},
+		})
+	}
+	if len(payload.Tools) > 0 {
+		payload.ToolChoice = "auto"
+	}
+	if system := buildSystemPrompt(req.Agent, req.RuntimeContext); system != "" {
 		payload.Messages = append(payload.Messages, message{Role: "system", Content: system})
 	}
 	for _, item := range trimMessagesByContext(req.Messages, cfg.ContextWindowK) {
@@ -489,6 +513,12 @@ func (a *ADKRuntimeAdapter) streamOpenAICompatible(ctx context.Context, cfg prov
 
 	var content strings.Builder
 	result := GenerateResult{ModelName: req.ProviderModel.Model}
+	type streamedToolCall struct {
+		ID        string
+		Name      string
+		Arguments strings.Builder
+	}
+	toolCalls := map[int]*streamedToolCall{}
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
@@ -504,7 +534,16 @@ func (a *ADKRuntimeAdapter) streamOpenAICompatible(ctx context.Context, cfg prov
 			Model   string `json:"model"`
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
 				} `json:"delta"`
 			} `json:"choices"`
 			Usage struct {
@@ -535,13 +574,47 @@ func (a *ADKRuntimeAdapter) streamOpenAICompatible(ctx context.Context, cfg prov
 					return GenerateResult{}, err
 				}
 			}
+			for _, call := range choice.Delta.ToolCalls {
+				item := toolCalls[call.Index]
+				if item == nil {
+					item = &streamedToolCall{}
+					toolCalls[call.Index] = item
+				}
+				if strings.TrimSpace(call.ID) != "" {
+					item.ID = call.ID
+				}
+				if strings.TrimSpace(call.Function.Name) != "" {
+					item.Name = call.Function.Name
+				}
+				if call.Function.Arguments != "" {
+					item.Arguments.WriteString(call.Function.Arguments)
+				}
+			}
 		}
 	}
 	if err = scanner.Err(); err != nil {
 		return GenerateResult{}, err
 	}
 	result.Content = content.String()
-	if strings.TrimSpace(result.Content) == "" {
+	if len(toolCalls) > 0 {
+		indexes := make([]int, 0, len(toolCalls))
+		for index := range toolCalls {
+			indexes = append(indexes, index)
+		}
+		sort.Ints(indexes)
+		for _, index := range indexes {
+			item := toolCalls[index]
+			if item == nil || strings.TrimSpace(item.Name) == "" {
+				continue
+			}
+			args := map[string]any{}
+			if raw := strings.TrimSpace(item.Arguments.String()); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &args)
+			}
+			result.FunctionCalls = append(result.FunctionCalls, &genai.FunctionCall{ID: item.ID, Name: item.Name, Args: args})
+		}
+	}
+	if strings.TrimSpace(result.Content) == "" && len(result.FunctionCalls) == 0 {
 		return GenerateResult{}, fmt.Errorf("model returned empty response")
 	}
 	if result.PromptTokens == 0 {
@@ -566,7 +639,7 @@ func (a *ADKRuntimeAdapter) streamAnthropic(ctx context.Context, cfg providerCon
 		Messages  []message `json:"messages"`
 	}{
 		Model:     req.ProviderModel.Model,
-		System:    buildSystemPrompt(req.Agent),
+		System:    buildSystemPrompt(req.Agent, req.RuntimeContext),
 		MaxTokens: resolveMaxOutputTokens(cfg),
 		Stream:    true,
 	}
@@ -723,7 +796,7 @@ func (a *ADKRuntimeAdapter) postStream(ctx context.Context, endpoint string, api
 	return nil, fmt.Errorf("model stream request failed: status %d: %s", response.StatusCode, strings.TrimSpace(string(data)))
 }
 
-func buildSystemPrompt(agent domain.Agent) string {
+func buildSystemPrompt(agent domain.Agent, rc *RuntimeContext) string {
 	parts := []string{}
 	if strings.TrimSpace(agent.DisplayName) != "" {
 		parts = append(parts, "You are "+strings.TrimSpace(agent.DisplayName)+".")
@@ -731,7 +804,11 @@ func buildSystemPrompt(agent domain.Agent) string {
 	if strings.TrimSpace(agent.AgentDescription) != "" {
 		parts = append(parts, strings.TrimSpace(agent.AgentDescription))
 	}
-	return strings.Join(parts, "\n")
+	prompt := strings.Join(parts, "\n")
+	if block := renderRuntimeContextBlock(rc); block != "" {
+		prompt = strings.TrimRight(prompt, "\n") + block
+	}
+	return strings.TrimRight(prompt, "\n")
 }
 
 func normalizeChatRole(role string) string {
@@ -815,7 +892,7 @@ func trimMessagesByContext(messages []ChatMessage, contextWindowK int) []ChatMes
 }
 
 func estimatePromptTokens(req GenerateRequest, cfg providerConfig) int {
-	total := estimateTokens(buildSystemPrompt(req.Agent))
+	total := estimateTokens(buildSystemPrompt(req.Agent, req.RuntimeContext))
 	for _, message := range trimMessagesByContext(req.Messages, cfg.ContextWindowK) {
 		total += estimateTokens(message.Content)
 	}

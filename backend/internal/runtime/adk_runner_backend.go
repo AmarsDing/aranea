@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,16 @@ import (
 	"google.golang.org/adk/session"
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
+)
+
+// Tool call governance constants. These are deliberately conservative
+// because they only kick in when the model is misbehaving — well-formed
+// turns rarely exceed a couple of tool calls. The numbers act as a
+// safety net so a model that gets stuck in a tool loop cannot DoS the
+// session or burn provider credit.
+const (
+	toolCallBudgetPerTurn  = 8
+	toolFailureBudgetPerArg = 2
 )
 
 type runnerRuntimeBackend struct {
@@ -64,8 +76,18 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 		return GenerateResult{}, err
 	}
 
+	// ADK only invokes the underlying model with stream=true when the
+	// run-config explicitly requests StreamingModeSSE. Without this,
+	// providerModelLLM.GenerateContent falls back to generateDirect and
+	// the frontend never receives SSE deltas for either single agents
+	// or team members.
+	runConfig := agent.RunConfig{}
+	if onDelta != nil {
+		runConfig.StreamingMode = agent.StreamingModeSSE
+	}
+
 	var finalText string
-	for event, runErr := range r.Run(ctx, "aranea-user", runnerSessionID(req), genai.NewContentFromText(req.Input, genai.RoleUser), agent.RunConfig{}) {
+	for event, runErr := range r.Run(ctx, "aranea-user", runnerSessionID(req), genai.NewContentFromText(req.Input, genai.RoleUser), runConfig) {
 		if runErr != nil {
 			return GenerateResult{}, runErr
 		}
@@ -76,12 +98,12 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 		if text == "" {
 			continue
 		}
-		finalText = text
-		if onDelta != nil && event.LLMResponse.Partial {
-			if err = onDelta(text); err != nil {
-				return GenerateResult{}, err
-			}
-			emittedPartial = true
+		// providerModelLLM.GenerateContent yields exactly one terminal
+		// LLMResponse per turn — incremental tokens are surfaced
+		// through modelDelta inside streamDirect. The final, non-partial
+		// event carries the full text we persist.
+		if !event.LLMResponse.Partial {
+			finalText = text
 		}
 	}
 	if strings.TrimSpace(finalText) == "" {
@@ -107,54 +129,162 @@ func (b *runnerRuntimeBackend) buildAgent(req GenerateRequest, onDelta DeltaFunc
 	if err != nil {
 		return nil, err
 	}
-	beforeTool, afterTool := runnerToolCallbacks(req)
+	rc := enrichRuntimeContextWithTools(req.RuntimeContext, tools)
+	guardedReq := req
+	guardedReq.RuntimeContext = rc
+	beforeTool, afterTool := runnerToolCallbacks(guardedReq)
 	return llmagent.New(llmagent.Config{
 		Name:                adkAgentName(req),
 		Description:         strings.TrimSpace(req.Agent.AgentDescription),
-		Instruction:         buildSystemPrompt(req.Agent),
-		Model:               newProviderModelLLM(b.adapter, req.Agent, req.ProviderModel, onDelta),
+		Instruction:         buildSystemPrompt(req.Agent, rc),
+		Model:               newProviderModelLLM(b.adapter, req.Agent, req.ProviderModel, rc, onDelta),
 		Tools:               tools,
 		BeforeToolCallbacks: []llmagent.BeforeToolCallback{beforeTool},
 		AfterToolCallbacks:  []llmagent.AfterToolCallback{afterTool},
 	})
 }
 
+// enrichRuntimeContextWithTools rewrites the context's Tools slice to
+// reflect the actual tool surface assembled for this turn. Without
+// this step the rendered policy block would advertise tools the
+// agent's profile silently filters out, confusing the model.
+func enrichRuntimeContextWithTools(rc *RuntimeContext, tools []tool.Tool) *RuntimeContext {
+	if len(tools) == 0 {
+		if rc == nil {
+			return &RuntimeContext{}
+		}
+		clone := *rc
+		clone.Tools = nil
+		return &clone
+	}
+	hints := make([]ToolHint, 0, len(tools))
+	for _, t := range tools {
+		if t == nil {
+			continue
+		}
+		hints = append(hints, ToolHint{Name: t.Name(), Description: t.Description()})
+	}
+	if rc == nil {
+		return &RuntimeContext{Tools: hints}
+	}
+	clone := *rc
+	clone.Tools = hints
+	return &clone
+}
+
 func runnerToolCallbacks(req GenerateRequest) (llmagent.BeforeToolCallback, llmagent.AfterToolCallback) {
 	var mu sync.Mutex
 	started := map[string]time.Time{}
-	before := func(ctx tool.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
-		if req.OnToolEvent != nil && t != nil {
-			id := toolEventID(ctx, t.Name())
-			mu.Lock()
-			started[id] = time.Now()
-			mu.Unlock()
-			if err := req.OnToolEvent(newRunnerToolEvent(req, id, "before", "running", t.Name(), args, nil, nil, 0)); err != nil {
-				return nil, err
-			}
+	totalCalls := 0
+	failures := map[string]int{} // key = tool|argsFingerprint -> failure count
+
+	emitEvent := func(id string, phase, status, name string, args, result map[string]any, toolErr error, durationMS int) {
+		if req.OnToolEvent == nil {
+			return
 		}
+		_ = req.OnToolEvent(newRunnerToolEvent(req, id, phase, status, name, args, result, toolErr, durationMS))
+	}
+
+	before := func(ctx tool.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
+		if t == nil {
+			return nil, nil
+		}
+		name := t.Name()
+		id := toolEventID(ctx, name)
+		fingerprint := name + "|" + toolArgsFingerprint(args)
+
+		mu.Lock()
+		if totalCalls >= toolCallBudgetPerTurn {
+			mu.Unlock()
+			result := map[string]any{
+				"status":  "blocked",
+				"reason":  fmt.Sprintf("tool call budget for this turn exceeded (max %d calls)", toolCallBudgetPerTurn),
+				"hint":    "Stop calling tools. Answer the user from context and explain that you reached the per-turn tool call limit.",
+				"tool":    name,
+				"blocked": true,
+			}
+			emitEvent(id, "before", "blocked", name, args, nil, nil, 0)
+			emitEvent(id, "after", "blocked", name, args, result, nil, 0)
+			return result, nil
+		}
+		if count := failures[fingerprint]; count >= toolFailureBudgetPerArg {
+			mu.Unlock()
+			result := map[string]any{
+				"status":  "blocked",
+				"reason":  fmt.Sprintf("tool %q already failed %d times with these arguments; further attempts are suppressed", name, count),
+				"hint":    "Do not retry. Report the limitation to the user and continue without this tool.",
+				"tool":    name,
+				"blocked": true,
+			}
+			emitEvent(id, "before", "blocked", name, args, nil, nil, 0)
+			emitEvent(id, "after", "blocked", name, args, result, nil, 0)
+			return result, nil
+		}
+		totalCalls++
+		started[id] = time.Now()
+		mu.Unlock()
+
+		emitEvent(id, "before", "running", name, args, nil, nil, 0)
 		return nil, nil
 	}
 	after := func(ctx tool.Context, t tool.Tool, args, result map[string]any, toolErr error) (map[string]any, error) {
-		if req.OnToolEvent != nil && t != nil {
-			id := toolEventID(ctx, t.Name())
-			durationMS := 0
-			mu.Lock()
-			if at, ok := started[id]; ok {
-				durationMS = int(time.Since(at).Milliseconds())
-				delete(started, id)
-			}
-			mu.Unlock()
-			status := "success"
-			if toolErr != nil {
-				status = "failed"
-			}
-			if err := req.OnToolEvent(newRunnerToolEvent(req, id, "after", status, t.Name(), args, result, toolErr, durationMS)); err != nil {
-				return nil, err
-			}
+		if t == nil {
+			return nil, nil
 		}
+		name := t.Name()
+		id := toolEventID(ctx, name)
+		fingerprint := name + "|" + toolArgsFingerprint(args)
+
+		mu.Lock()
+		durationMS := 0
+		if at, ok := started[id]; ok {
+			durationMS = int(time.Since(at).Milliseconds())
+			delete(started, id)
+		}
+		if toolErr != nil {
+			failures[fingerprint]++
+		}
+		mu.Unlock()
+
+		status := "success"
+		if toolErr != nil {
+			status = "failed"
+		}
+		emitEvent(id, "after", status, name, args, result, toolErr, durationMS)
 		return nil, nil
 	}
 	return before, after
+}
+
+// toolArgsFingerprint returns a stable identifier for a tool argument
+// map so we can recognize "same call again" without depending on map
+// iteration order. We deliberately do NOT include large content fields
+// in full (they are truncated by sanitizeToolArgs upstream) — repeated
+// edits with different bodies but same path still count as repetition,
+// which is what we want for the failure budget.
+func toolArgsFingerprint(args map[string]any) string {
+	if len(args) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		raw, err := json.Marshal(args[k])
+		if err != nil {
+			parts = append(parts, k+"=?")
+			continue
+		}
+		value := string(raw)
+		if len(value) > 96 {
+			value = value[:96]
+		}
+		parts = append(parts, k+"="+value)
+	}
+	return strings.Join(parts, "&")
 }
 
 func newRunnerToolEvent(req GenerateRequest, id string, phase string, status string, toolName string, args map[string]any, result map[string]any, toolErr error, durationMS int) ToolEvent {

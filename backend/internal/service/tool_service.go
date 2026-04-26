@@ -170,7 +170,7 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 
 	return domain.AgentEffectiveTools{
 		ToolsEnabled: settings.ToolsEnabled,
-		Profile:      settings.ToolsProfile,
+		Profile:      canonicalToolProfile(settings.ToolsProfile),
 		Allow:        allow,
 		Deny:         deny,
 		Items:        items,
@@ -245,10 +245,50 @@ var toolGroups = map[string][]string{
 	"cli_admin": repository.CLIAdminToolKeys(),
 }
 
+// toolProfiles defines the canonical, semantically meaningful tool
+// surfaces an agent can be granted. The names are deliberately
+// intent-driven (chat_only / read_only / coding / research / full)
+// instead of implementation-driven so operators can reason about an
+// agent's capability scope without reading the tool list.
+//
+// Legacy names ("minimal", "safe", "system_admin") are preserved here
+// so existing rows in agents.tools_profile keep their original
+// behaviour. Frontends should expose the new names; legacy values are
+// gracefully mapped to a comparable new profile via canonicalToolProfile.
 var toolProfiles = map[string][]string{
-	"minimal":      {"datetime"},
-	"safe":         {"datetime", "read_file", "list_files", "web_fetch"},
-	"coding":       {"group:filesystem", "group:web", "group:skill", "datetime"},
-	"research":     {"web_search", "web_fetch", "read_file", "skill_search", "memory_search", "datetime"},
+	"chat_only": {},
+	"read_only": {"datetime", "read_file", "list_files"},
+	"coding":    {"group:filesystem", "group:web", "group:skill", "datetime"},
+	"research":  {"web_search", "web_fetch", "read_file", "list_files", "skill_search", "memory_search", "datetime"},
+	"full":      {"group:filesystem", "group:web", "group:skill", "group:memory", "group:media", "group:runtime", "group:cli_admin", "datetime"},
+
+	// Legacy aliases retained for backward compatibility with stored
+	// agent settings. Treat them as deprecated — new UI flows should
+	// pick from chat_only / read_only / coding / research / full.
+	"minimal":      {},
+	"safe":         {"datetime", "read_file", "list_files"},
 	"system_admin": {"group:cli_admin", "web_fetch", "datetime"},
+}
+
+// canonicalToolProfile normalizes any profile string (including legacy
+// names) into one of the supported canonical profiles. It is used by
+// the runtime / API layer when reporting an agent's effective profile
+// so the frontend can render a consistent label.
+func canonicalToolProfile(profile string) string {
+	switch strings.ToLower(strings.TrimSpace(profile)) {
+	case "":
+		return ""
+	case "chat_only", "minimal":
+		return "chat_only"
+	case "read_only", "safe":
+		return "read_only"
+	case "coding":
+		return "coding"
+	case "research":
+		return "research"
+	case "system_admin", "full":
+		return "full"
+	default:
+		return profile
+	}
 }

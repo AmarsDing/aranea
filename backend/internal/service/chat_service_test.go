@@ -189,7 +189,7 @@ func TestChatServiceRunTeamParallelRecordsPartialFailure(t *testing.T) {
 		{AgentID: "missing", Role: "reviewer", Name: "Reviewer", SortOrder: 2},
 	}
 
-	steps, err := svc.runTeamParallel(context.Background(), run, members, SendMessageInput{SessionID: "s1", Content: "hello"}, domain.Session{ID: "s1"}, nil, 2, nil)
+	steps, err := svc.runTeamParallel(context.Background(), run, members, SendMessageInput{SessionID: "s1", Content: "hello"}, domain.Session{ID: "s1"}, nil, 2, nil, nil)
 	if err != nil {
 		t.Fatalf("expected partial success to return nil error, got %v", err)
 	}

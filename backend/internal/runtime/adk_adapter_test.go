@@ -244,7 +244,7 @@ func TestModelRouterRoutesCodeAndLongContext(t *testing.T) {
 }
 
 func TestProviderModelLLMUsesRoutedRequestModel(t *testing.T) {
-	llm := newProviderModelLLM(NewADKRuntimeAdapter(), domain.Agent{AgentKey: "router_test"}, domain.PlatformResource{Model: "base-model"}, nil)
+	llm := newProviderModelLLM(NewADKRuntimeAdapter(), domain.Agent{AgentKey: "router_test"}, domain.PlatformResource{Model: "base-model"}, nil, nil)
 	req := &model.LLMRequest{
 		Model:    "routed-model",
 		Contents: []*genai.Content{genai.NewContentFromText("hello", genai.RoleUser)},
