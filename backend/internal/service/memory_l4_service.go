@@ -537,24 +537,144 @@ func (s *MemoryL4Service) SearchByText(ctx context.Context, scope domain.ScopeTy
 
 // --- Pipeline stubs ---------------------------------------------------------
 
-// ExtractFromEpisode is the Phase 2 entry point for episode-driven
-// entity extraction. The Phase 1 implementation returns an empty report
-// so the HTTP handler can be wired now.
+// ExtractFromEpisode runs the Phase 2 dictionary-based extractor over
+// an episode's title / goal / outcome / failure_reason fields. Each
+// match becomes (or refreshes) a knowledge-graph entity in the agent's
+// scope; the episode itself is *not* reverse-linked because the schema
+// does not yet provide an episode↔entity index — Phase 3 will widen the
+// link table. Returns Skipped=N when nothing matched.
 func (s *MemoryL4Service) ExtractFromEpisode(ctx context.Context, episodeID string) (ExtractionReport, error) {
 	if episodeID == "" {
 		return ExtractionReport{}, validationError("episode id is required")
 	}
-	return ExtractionReport{Note: "extraction pipeline not yet implemented (see §12 Phase 2)"}, nil
+	episode, err := s.repo.GetEpisode(episodeID)
+	if err != nil {
+		return ExtractionReport{}, err
+	}
+
+	text := strings.Join([]string{
+		episode.Title,
+		episode.Goal,
+		episode.Outcome,
+		episode.OutcomeSummary,
+		episode.ResultPreview,
+		episode.FailureReason,
+	}, "\n")
+
+	matches := scanExtractionMatches(text)
+	if len(matches) == 0 {
+		return ExtractionReport{Note: "no dictionary matches"}, nil
+	}
+
+	scopeType, scopeID := extractionScopeFromEpisode(episode)
+	if scopeType == "" {
+		return ExtractionReport{Skipped: len(matches), Note: "episode lacks a usable scope"}, nil
+	}
+
+	report := ExtractionReport{}
+	for _, m := range matches {
+		existing, _ := s.repo.GetEntityByName(scopeType, scopeID, m.Type, normalizeEntityName(m.Name))
+		_, err := s.UpsertEntity(ctx, EntityUpsertInput{
+			ScopeType:   scopeType,
+			ScopeID:     scopeID,
+			WorkspaceID: episode.TeamID,
+			EntityType:  m.Type,
+			Name:        m.Name,
+			Aliases:     m.Aliases,
+			Importance:  0.4,
+			Confidence:  0.55,
+			SourceKind:  domain.GraphSourceExtracted,
+			By:          "extractor",
+			Reason:      "extract_from_episode:" + episode.ID,
+			Metadata: map[string]any{
+				"source_episode_id": episode.ID,
+			},
+		})
+		if err != nil {
+			report.Errors++
+			continue
+		}
+		if existing.ID == "" {
+			report.NewEntities++
+		} else {
+			report.UpdatedEntities++
+		}
+	}
+	return report, nil
 }
 
-// ExtractFromFact is the Phase 2 entry point for fact-driven entity
-// extraction. The Phase 1 implementation returns an empty report so the
-// HTTP handler can be wired now.
+// ExtractFromFact runs the Phase 2 dictionary-based extractor over a
+// fact's statement + details_markdown. Each match becomes (or refreshes)
+// a knowledge-graph entity in the fact's scope and is reverse-linked
+// through `memory_entity_facts` so future neighborhood queries can
+// surface the originating fact alongside the entity.
 func (s *MemoryL4Service) ExtractFromFact(ctx context.Context, factID string) (ExtractionReport, error) {
 	if factID == "" {
 		return ExtractionReport{}, validationError("fact id is required")
 	}
-	return ExtractionReport{Note: "extraction pipeline not yet implemented (see §12 Phase 2)"}, nil
+	fact, err := s.repo.GetFact(factID)
+	if err != nil {
+		return ExtractionReport{}, err
+	}
+
+	text := strings.TrimSpace(fact.Statement)
+	if fact.DetailsMarkdown != "" {
+		text = text + "\n" + fact.DetailsMarkdown
+	}
+
+	matches := scanExtractionMatches(text)
+	if len(matches) == 0 {
+		return ExtractionReport{Note: "no dictionary matches"}, nil
+	}
+
+	report := ExtractionReport{}
+	for _, m := range matches {
+		existing, _ := s.repo.GetEntityByName(fact.ScopeType, fact.ScopeID, m.Type, normalizeEntityName(m.Name))
+		entity, err := s.UpsertEntity(ctx, EntityUpsertInput{
+			ScopeType:   fact.ScopeType,
+			ScopeID:     fact.ScopeID,
+			WorkspaceID: fact.WorkspaceID,
+			UserID:      fact.UserID,
+			EntityType:  m.Type,
+			Name:        m.Name,
+			Aliases:     m.Aliases,
+			Importance:  0.45,
+			Confidence:  0.6,
+			SourceKind:  domain.GraphSourceExtracted,
+			By:          "extractor",
+			Reason:      "extract_from_fact:" + fact.ID,
+			Metadata: map[string]any{
+				"source_fact_id": fact.ID,
+			},
+		})
+		if err != nil {
+			report.Errors++
+			continue
+		}
+		if existing.ID == "" {
+			report.NewEntities++
+		} else {
+			report.UpdatedEntities++
+		}
+		if err := s.repo.UpsertEntityFact(entity.ID, fact.ID, 1.0); err != nil {
+			report.Errors++
+		}
+	}
+	return report, nil
+}
+
+// extractionScopeFromEpisode picks the most specific scope an episode
+// can attach to. Agent-owned episodes attach to the agent's scope so
+// extraction stays per-persona; team-owned episodes attach to the team
+// scope; everything else is skipped because there is no obvious owner.
+func extractionScopeFromEpisode(episode domain.MemoryEpisode) (domain.ScopeType, string) {
+	if episode.AgentID != "" {
+		return domain.ScopeAgent, episode.AgentID
+	}
+	if episode.TeamID != "" {
+		return domain.ScopeTeam, episode.TeamID
+	}
+	return "", ""
 }
 
 // --- L0 prompt rendering -----------------------------------------------------
@@ -615,12 +735,88 @@ func (s *MemoryL4Service) RenderForPrompt(n domain.GraphNeighborhood, maxChars i
 }
 
 // NeighborhoodSegmentForL0 is the L0RecallSource shim: given a session /
-// agent / query (currently unused — the center entity is resolved via
-// agent attention focus in Phase 4), it returns a `memory.l4` segment.
-// The Phase 1 wiring leaves this as a no-op so InjectL4 does not crash
-// when no center entity is configured.
+// agent / query, it picks a center entity by keyword search across the
+// scopes the agent can see (agent → workspace → user → global), expands
+// to its k-hop neighborhood, and renders a `memory.l4.graph` segment.
+//
+// All limits come from `agent_runtime_settings` (§3.3): the segment is
+// gated by `l4_enabled` AND `l4_graph_inject_neighbors`, neighbor count
+// is capped at `l4_graph_max_neighbors`, and traversal hops at
+// `l4_graph_max_hops` (clamped to ≤3 to keep latency bounded).
+//
+// Returns ok=false when the feature is disabled, the query is empty,
+// no candidate entity matches, or the neighborhood renders to an empty
+// block — so L0 simply omits the segment.
 func (s *MemoryL4Service) NeighborhoodSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
-	return domain.L0Segment{}, false
+	_ = sessionID
+	if strings.TrimSpace(query) == "" || agentID == "" {
+		return domain.L0Segment{}, false
+	}
+	settings, _ := s.repo.GetAgentRuntimeSettings(agentID)
+	if !settings.L4Enabled || !settings.L4GraphInjectNeighbors {
+		return domain.L0Segment{}, false
+	}
+
+	hops := firstPositive(settings.L4GraphMaxHops, 1)
+	if hops > 3 {
+		hops = 3
+	}
+	maxNodes := firstPositive(settings.L4GraphMaxNeighbors, 6)
+	if maxNodes > 20 {
+		maxNodes = 20
+	}
+
+	center, ok := s.findCenterEntity(agentID, query)
+	if !ok {
+		return domain.L0Segment{}, false
+	}
+
+	n, err := s.repo.GetNeighborhood(center.ID, hops, maxNodes)
+	if err != nil {
+		return domain.L0Segment{}, false
+	}
+	if n.Center.ID == "" {
+		n.Center = center
+	}
+	body, ok := s.RenderForPrompt(n, l4MaxNeighborChars)
+	if !ok {
+		return domain.L0Segment{}, false
+	}
+
+	_ = s.repo.BumpEntityUseCount(center.ID, s.now())
+
+	return domain.L0Segment{
+		Section: "memory.l4.graph",
+		Role:    "system",
+		Source:  fmt.Sprintf("memory.l4:%s", center.ID),
+		Tokens:  estimateTokensApprox(body),
+		Content: body,
+		Preview: previewText(body, l0PreviewLimit),
+	}, true
+}
+
+// findCenterEntity walks the scope hierarchy an agent can see (agent →
+// workspace → user → global) and returns the first active entity whose
+// name / aliases / description match the query. Phase 2's attention
+// pipeline will replace this keyword search with vector recall.
+func (s *MemoryL4Service) findCenterEntity(agentID, query string) (domain.MemoryEntity, bool) {
+	candidates := []repository.EntityListQuery{
+		{ScopeType: domain.ScopeAgent, ScopeID: agentID},
+		{ScopeType: domain.ScopeWorkspace},
+		{ScopeType: domain.ScopeUser},
+		{ScopeType: domain.ScopeGlobal},
+	}
+	for _, q := range candidates {
+		q.Status = domain.EntityStatusActive
+		q.Keyword = query
+		q.Limit = 1
+		items, _, err := s.repo.ListEntities(q)
+		if err != nil || len(items) == 0 {
+			continue
+		}
+		return items[0], true
+	}
+	return domain.MemoryEntity{}, false
 }
 
 // --- Audit helper -----------------------------------------------------------

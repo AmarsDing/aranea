@@ -385,8 +385,26 @@ func (s *AgentEvolutionService) Propose(ctx context.Context, in ProposalInput) (
 	if throttleHours <= 0 {
 		throttleHours = 24
 	}
-	cutoff := time.Now().UTC().Add(time.Duration(throttleHours) * time.Hour).Format(time.RFC3339)
-	_, _ = s.repo.SupersedeProposalsByTarget(in.AgentID, in.TargetField, cutoff)
+	cutoff := time.Now().UTC().Add(-time.Duration(throttleHours) * time.Hour).Format(time.RFC3339)
+
+	// Throttle: §13 says "24h 内同 target_field 第二次 proposal 被标记
+	// superseded" — i.e. the *new* proposal arriving within the window
+	// is superseded so the earliest one survives.
+	status := domain.EvoProposalPending
+	recent, _, err := s.repo.ListEvolutionProposals(repository.EvolutionProposalQuery{
+		AgentID:     in.AgentID,
+		TargetField: in.TargetField,
+		Status:      domain.EvoProposalPending,
+		Limit:       50,
+	})
+	if err == nil {
+		for _, p := range recent {
+			if p.CreatedAt > cutoff {
+				status = domain.EvoProposalSuperseded
+				break
+			}
+		}
+	}
 
 	ttlDays := in.TTLDays
 	if ttlDays <= 0 {
@@ -412,7 +430,7 @@ func (s *AgentEvolutionService) Propose(ctx context.Context, in ProposalInput) (
 		ExpectedImpact:    in.ExpectedImpact,
 		RiskLevel:         defaultIfEmpty(in.RiskLevel, domain.EvoRiskLow),
 		ApprovalRequired:  in.ApprovalRequired,
-		Status:            domain.EvoProposalPending,
+		Status:            status,
 		ExpiresAt:         expiresAt,
 		Source:            defaultIfEmpty(in.Source, domain.EvoSourceUser),
 		CreatedAt:         now,
@@ -733,6 +751,26 @@ func (s *AgentEvolutionService) ResolveToolWhitelist(ctx context.Context, agentI
 		return profile.ToolPreference[out[i]] > profile.ToolPreference[out[j]]
 	})
 	return out, nil
+}
+
+// ToolPolicyForAgent returns the agent's strategy.tool_blacklist plus a
+// copy of strategy.tool_preference. Used by ToolService.EffectiveForAgent
+// to surface evolution-driven denials and reorder allowed tools by the
+// agent's preference scores. Returns empty values + nil error when no
+// strategy row exists yet (cold start).
+func (s *AgentEvolutionService) ToolPolicyForAgent(ctx context.Context, agentID string) ([]string, map[string]float64, error) {
+	if agentID == "" {
+		return nil, nil, nil
+	}
+	profile, err := s.GetStrategy(ctx, agentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	prefs := map[string]float64{}
+	for k, v := range profile.ToolPreference {
+		prefs[k] = v
+	}
+	return append([]string(nil), profile.ToolBlacklist...), prefs, nil
 }
 
 // ResolveModelRouting reorders model candidates by `BaseScore *

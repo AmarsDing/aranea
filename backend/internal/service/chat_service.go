@@ -364,6 +364,18 @@ func resolveProviderModel(options SendMessageOptions, session domain.Session, ag
 	return agent.Provider, agent.Model
 }
 
+// RouteAgentModelCandidates orders the supplied (provider, model)
+// candidates according to the agent's self-evolution model preference
+// (§5.9 ResolveModelRouting). Returns the input unchanged when no
+// preferences are recorded yet. Used by future fallback / retry logic
+// and exposed for tests.
+func (s *ChatService) RouteAgentModelCandidates(ctx context.Context, agentID string, candidates []ModelCandidate) ([]ModelCandidate, error) {
+	if s.agentEvolution == nil || agentID == "" || len(candidates) == 0 {
+		return candidates, nil
+	}
+	return s.agentEvolution.ResolveModelRouting(ctx, agentID, candidates)
+}
+
 func (s *ChatService) updateSessionContextRatio(sessionID string, agent domain.Agent, providerModel domain.PlatformResource, generated runtime.GenerateResult) error {
 	contextTokens := providerContextWindowTokens(providerModel, agent)
 	if sessionID == "" || contextTokens <= 0 || generated.PromptTokens <= 0 {

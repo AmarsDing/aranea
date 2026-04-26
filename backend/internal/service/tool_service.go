@@ -1,9 +1,11 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 
 	"arenea/backend/internal/domain"
@@ -19,12 +21,31 @@ type toolStore interface {
 	UpsertAgentRuntimeSettings(settings domain.AgentRuntimeSettings) (domain.AgentRuntimeSettings, error)
 }
 
+// EvolutionToolPolicySource is the narrow contract ToolService uses to
+// fold the agent's self-evolution tool blacklist and preference scores
+// into the EffectiveForAgent view. Implemented by *AgentEvolutionService.
+//
+// The seam keeps the tool surface independent of L4: when no source is
+// wired, EffectiveForAgent falls back to the static profile / allow /
+// deny computation only.
+type EvolutionToolPolicySource interface {
+	ToolPolicyForAgent(ctx context.Context, agentID string) (blacklist []string, preference map[string]float64, err error)
+}
+
 type ToolService struct {
-	store toolStore
+	store     toolStore
+	evolution EvolutionToolPolicySource
 }
 
 func NewToolService(store toolStore) *ToolService {
 	return &ToolService{store: store}
+}
+
+// SetEvolutionPolicySource wires the optional self-evolution source used
+// by EffectiveForAgent. Callers (e.g. server bootstrap) should pass the
+// AgentEvolutionService instance after constructing both services.
+func (s *ToolService) SetEvolutionPolicySource(src EvolutionToolPolicySource) {
+	s.evolution = src
 }
 
 func (s *ToolService) Search(query domain.ToolListQuery) (domain.ToolListResult, error) {
@@ -99,6 +120,12 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 		}
 		denySet[key] = true
 	}
+	evoBlacklist, evoPreference := s.resolveEvolutionPolicy(agentID)
+	evoBlacklistSet := map[string]bool{}
+	for _, k := range evoBlacklist {
+		evoBlacklistSet[k] = true
+	}
+
 	items := make([]domain.EffectiveAgentTool, 0, len(all.Items))
 	for _, tool := range all.Items {
 		state := "denied"
@@ -111,6 +138,10 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 		if denySet[tool.Key] {
 			state = "denied"
 			reason = "agent_deny"
+		}
+		if evoBlacklistSet[tool.Key] {
+			state = "denied"
+			reason = "evolution_blacklist"
 		}
 		if !settings.ToolsEnabled {
 			reason = "agent_tools_disabled"
@@ -125,6 +156,18 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 			Reason:         reason,
 		})
 	}
+
+	if len(evoPreference) > 0 {
+		sort.SliceStable(items, func(i, j int) bool {
+			if items[i].EffectiveState != items[j].EffectiveState {
+				// Allowed items always sort before denied ones so the
+				// agent prompt renders the actionable subset first.
+				return items[i].EffectiveState == "allowed"
+			}
+			return evoPreference[items[i].ToolKey] > evoPreference[items[j].ToolKey]
+		})
+	}
+
 	return domain.AgentEffectiveTools{
 		ToolsEnabled: settings.ToolsEnabled,
 		Profile:      settings.ToolsProfile,
@@ -132,6 +175,21 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 		Deny:         deny,
 		Items:        items,
 	}, nil
+}
+
+// resolveEvolutionPolicy looks up the agent's self-evolution tool
+// blacklist + preference scores via the optional source. Returns nils
+// when no source is wired or the lookup fails — callers must tolerate
+// the empty case so the tool view degrades gracefully.
+func (s *ToolService) resolveEvolutionPolicy(agentID string) ([]string, map[string]float64) {
+	if s.evolution == nil {
+		return nil, nil
+	}
+	bl, pref, err := s.evolution.ToolPolicyForAgent(context.Background(), agentID)
+	if err != nil {
+		return nil, nil
+	}
+	return bl, pref
 }
 
 func (s *ToolService) UpdateAgentPolicy(agentID string, input domain.AgentEffectiveTools) (domain.AgentEffectiveTools, error) {

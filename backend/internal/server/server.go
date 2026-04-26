@@ -114,6 +114,9 @@ func Run(ctx context.Context, opts Options) error {
 	logger.Printf("skill storage root: %s", skillStorageRoot)
 	skillSvc := service.NewSkillService(repo, runtimeAdapter, skillStorageRoot)
 	toolSvc := service.NewToolService(repo)
+	if evo := chatSvc.AgentEvolution(); evo != nil {
+		toolSvc.SetEvolutionPolicySource(evo)
+	}
 	cronRunner := service.NewCronRunner(repo, chatSvc)
 
 	var background sync.WaitGroup

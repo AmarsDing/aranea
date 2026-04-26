@@ -11,6 +11,69 @@ import (
 	"arenea/backend/internal/runtime"
 )
 
+// §13 – ChatService exposes the agent-evolution model-routing accessor
+// so future fallback / retry logic can pick the agent's preferred model
+// from a candidate set.
+func TestChatServiceRouteAgentModelCandidatesUsesPreference(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chat-route.db")
+	repo, err := repository.NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	defer repo.Close()
+	if err = repo.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	svc := NewChatService(repo, runtime.NewADKRuntimeAdapter())
+	if _, err := svc.AgentEvolution().UpdateStrategy(context.Background(), "agent-route", StrategyPatch{
+		ModelPreference: map[string]float64{
+			"openai/gpt-4o-mini": 0.95,
+			"openai/gpt-3.5":     0.10,
+		},
+	}); err != nil {
+		t.Fatalf("update strategy: %v", err)
+	}
+	candidates := []ModelCandidate{
+		{ProviderKey: "openai", Model: "gpt-3.5", BaseScore: 1.0},
+		{ProviderKey: "openai", Model: "gpt-4o-mini", BaseScore: 1.0},
+	}
+	out, err := svc.RouteAgentModelCandidates(context.Background(), "agent-route", candidates)
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if len(out) != 2 || out[0].Model != "gpt-4o-mini" {
+		t.Fatalf("expected gpt-4o-mini ranked first, got %#v", out)
+	}
+}
+
+// §13 – RouteAgentModelCandidates returns the input unchanged when the
+// agent has no preferences yet so default fallback ordering survives.
+func TestChatServiceRouteAgentModelCandidatesPassthrough(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "chat-route-pass.db")
+	repo, err := repository.NewSQLiteRepository(dbPath)
+	if err != nil {
+		t.Fatalf("new repo: %v", err)
+	}
+	defer repo.Close()
+	if err = repo.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	svc := NewChatService(repo, runtime.NewADKRuntimeAdapter())
+	candidates := []ModelCandidate{
+		{ProviderKey: "openai", Model: "gpt-4o-mini", BaseScore: 1.0},
+		{ProviderKey: "openrouter", Model: "claude-3.5-sonnet", BaseScore: 0.5},
+	}
+	out, err := svc.RouteAgentModelCandidates(context.Background(), "agent-pass", candidates)
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	// Without preferences both candidates collapse to base*0.5; ordering
+	// is stable so the original first entry should remain first.
+	if len(out) != 2 || out[0].Model != "gpt-4o-mini" {
+		t.Fatalf("expected stable order, got %#v", out)
+	}
+}
+
 func TestChatServiceSend(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	repo, err := repository.NewSQLiteRepository(dbPath)
