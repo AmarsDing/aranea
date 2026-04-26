@@ -71,17 +71,17 @@ func TestL4UpsertCreatesEntityAndV1Version(t *testing.T) {
 func TestL4UpsertDedupsByNaturalKey(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	first := mustUpsertEntity(t, svc, EntityUpsertInput{
-		ScopeType:  domain.ScopeWorkspace,
-		ScopeID:    "ws_acme",
-		EntityType: domain.EntityProject,
-		Name:       "Aranea Backend",
+		ScopeType:   domain.ScopeWorkspace,
+		ScopeID:     "ws_acme",
+		EntityType:  domain.EntityProject,
+		Name:        "Aranea Backend",
 		Description: "first description",
 	})
 	second := mustUpsertEntity(t, svc, EntityUpsertInput{
-		ScopeType:  domain.ScopeWorkspace,
-		ScopeID:    "ws_acme",
-		EntityType: domain.EntityProject,
-		Name:       "  aranea backend  ",
+		ScopeType:   domain.ScopeWorkspace,
+		ScopeID:     "ws_acme",
+		EntityType:  domain.EntityProject,
+		Name:        "  aranea backend  ",
 		Description: "second description",
 	})
 	if first.ID != second.ID {
@@ -425,6 +425,108 @@ func TestL4ExtractFromFactNoMatchesIsBenign(t *testing.T) {
 	}
 	if report.NewEntities != 0 || report.UpdatedEntities != 0 || report.Note == "" {
 		t.Fatalf("expected zero counts + note, got %#v", report)
+	}
+}
+
+func TestL3UpsertFactTriggersL4Extraction(t *testing.T) {
+	l4, repo := newTestL4Service(t)
+	l3 := NewMemoryL3Service(repo)
+	l3.SetL4ExtractionSource(l4)
+
+	fact, err := l3.UpsertFact(context.Background(), domain.FactUpsertInput{
+		ScopeType: domain.ScopeAgent,
+		ScopeID:   "agent-auto-extract",
+		AgentID:   "agent-auto-extract",
+		Statement: "Use TypeScript with React 19 for the memory center UI.",
+		Kind:      domain.FactRule,
+	})
+	if err != nil {
+		t.Fatalf("upsert fact: %v", err)
+	}
+	links, err := l4.ListEntityFacts(context.Background(), "", 10)
+	if err == nil && len(links) > 0 {
+		t.Fatalf("empty entity id should not return links: %#v", links)
+	}
+	entities, err := l4.SearchByText(context.Background(), domain.ScopeAgent, "agent-auto-extract", "TypeScript", 10)
+	if err != nil {
+		t.Fatalf("search entities: %v", err)
+	}
+	if len(entities) == 0 {
+		t.Fatalf("expected L4 extraction to create an entity for fact %s", fact.ID)
+	}
+	foundLinked := false
+	for _, entity := range entities {
+		entityLinks, err := l4.ListEntityFacts(context.Background(), entity.ID, 10)
+		if err != nil {
+			t.Fatalf("list entity facts: %v", err)
+		}
+		for _, link := range entityLinks {
+			if link.FactID == fact.ID {
+				foundLinked = true
+			}
+		}
+	}
+	if !foundLinked {
+		t.Fatalf("expected extracted entity to be linked back to fact %s", fact.ID)
+	}
+}
+
+func TestL2CreateEpisodeTriggersL4Extraction(t *testing.T) {
+	l4, repo := newTestL4Service(t)
+	l2 := NewMemoryL2Service(repo)
+	l2.SetL4ExtractionSource(l4)
+	seedAgentAndSession(t, repo, "agent-episode-extract", "sess-episode-extract")
+
+	episode, err := l2.CreateMilestoneEpisode(context.Background(), CreateEpisodeInput{
+		SessionID: "sess-episode-extract",
+		AgentID:   "agent-episode-extract",
+		Title:     "React migration",
+		Goal:      "Move the frontend to React and TypeScript",
+	})
+	if err != nil {
+		t.Fatalf("create episode: %v", err)
+	}
+	entities, err := l4.SearchByText(context.Background(), domain.ScopeAgent, "agent-episode-extract", "React", 10)
+	if err != nil {
+		t.Fatalf("search entities: %v", err)
+	}
+	if len(entities) == 0 {
+		t.Fatalf("expected L4 extraction to create an entity for episode %s", episode.ID)
+	}
+}
+
+func TestL3RecallSegmentUsesTeamScopeContext(t *testing.T) {
+	l4, repo := newTestL4Service(t)
+	_ = l4
+	l3 := NewMemoryL3Service(repo)
+	if _, err := repo.UpsertAgentRuntimeSettings(domain.AgentRuntimeSettings{
+		AgentID:            "agent-team-scope",
+		L3Enabled:          true,
+		L3RecallTopK:       3,
+		L3RecallMinScore:   0.1,
+		L3RecallScopesJSON: `["team"]`,
+	}); err != nil {
+		t.Fatalf("settings: %v", err)
+	}
+	if _, err := l3.UpsertFact(context.Background(), domain.FactUpsertInput{
+		ScopeType: domain.ScopeTeam,
+		ScopeID:   "team-alpha",
+		TeamID:    "team-alpha",
+		Statement: "Team Alpha prefers Postgres for analytics workloads.",
+		Kind:      domain.FactPreference,
+	}); err != nil {
+		t.Fatalf("upsert fact: %v", err)
+	}
+	if _, ok := l3.RecallSegmentForL0(context.Background(), "sess", "agent-team-scope", "analytics Postgres"); ok {
+		t.Fatalf("legacy L0 recall should not see team scope without context")
+	}
+	if seg, ok := l3.RecallSegmentForL0WithContext(context.Background(), domain.L0MemoryScopeContext{
+		SessionID: "sess",
+		AgentID:   "agent-team-scope",
+		TeamID:    "team-alpha",
+		Query:     "analytics Postgres",
+	}); !ok || !strings.Contains(seg.Content, "Postgres") {
+		t.Fatalf("context-rich L0 recall should include team fact, ok=%v seg=%#v", ok, seg)
 	}
 }
 

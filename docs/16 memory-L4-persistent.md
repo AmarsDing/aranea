@@ -18,6 +18,16 @@ L4 与 ADK 模型的对应：ADK 的 `MemoryService` 主要服务 L3；L4 在 AD
 
 > 关联文档：`memery.md` §6～§10、`12～15`、`5 agent-setting.md`、`6 agent-skill.md`、`7 agent-evolution.md`、`11 multi-agent.md`、`30 ecosystem.md`。
 
+> **实现状态（后端，截至 2026-04）**  
+> - **L4 图谱、启发式实体抽取、Agent 身份/策略/Proposal/Event、L0 邻居与 self 段、Tool 黑名单/排序与模型路由** 已在 `aranea/backend` 落地。  
+> - **EvolutionWorker**：`RunEvolutionScan` 为**启发式**（`tool_invocations` → `agent_skill_stats`、§5.5 触发/节流/可选自动应用）；`POST …/evolution/scan` 可手动触发；`internal/server` 中 **每 30 分钟** 对 `evo_enabled=true` 的 Agent 轮询一次。  
+> - **增量窗口**：`agent_strategy_profile.stats_json` 中保留 `last_scan_at`（与 `last_scan_report` 快照），episode / 负反馈按「自上次扫描以来」计数；**技能统计** 仍用固定 **30 天** 滚动窗聚合，避免相邻两次扫描间信号断裂。  
+> - **负反馈触发**：`memory_fact_feedback` 中 `agent_id` 匹配、类型为 `reject` / `refine`、时间 ≥ 窗口下界的条数，与 `evo_min_negative_feedback` 比较。  
+> - **回滚率刹车**：30 天窗口内 EvolutionEvent 的 `reverted` 比例 > 20% 且样本 ≥ 5 时，将 `evo_auto_apply` 置为 `0`，并记审计 `agent.evolution.scanner.rollback_alarm`（与 §10 一致）。  
+> - **未接线**：`tool_invocations` 已提供 `Insert` 与检索，**Chat / 外部 ADK runtime 在每次工具调用结束时自动写入** 尚待对接待办（否则扫描主要依赖手测/集成写入）。  
+> - **后续可选**：`RunEvolutionScan` 中「LLM JSON 自反思」可替换/叠加当前启发式，见 §5.5。  
+> - **前端** §8（含 §8.6 提议中心）仍为待办。详见 §12。
+
 ---
 
 ## 1. 心智模型与边界
@@ -925,6 +935,7 @@ type ScanReport struct {
 	AutoApplied           int
 	ThrottledProposals    int
 	Errors                int
+	Note                  string   // 如 evo_enabled=false、trigger conditions not met
 }
 
 type ModelCandidate struct {
@@ -936,25 +947,39 @@ type ModelCandidate struct {
 
 ### 5.5 进化扫描器（EvolutionWorker）核心逻辑
 
+**当前实现**（`internal/service/agent_evolution_scanner.go`，经 `AgentEvolutionService` 对外暴露；与下文「LLM 模式」可二选一或未来叠加）：
+
 ```text
 RunEvolutionScan(agent_id):
-  1. 检查 evo_enabled；否则 return
-  2. 计算窗口：
-     - episodes_in_window = L2.list_episodes(agent_id, since=last_scan_at)
-     - feedbacks_in_window = L3.feedback_history(agent_id) 与本 agent 关联 facts
-     - skill_stats = AgentSkillStat 最近聚合
-  3. 触发条件：
-     - len(episodes_in_window) >= evo_min_episodes
-     - or count(negative feedback) >= evo_min_negative_feedback
-     - or 任何 tool failure_rate > 0.3
-  4. 不满足 → return
-  5. 调 LLM JSON 模式（自我反思 prompt）：
+  0. 若 evo_enabled=false → return
+  0.1 回滚率刹车（先执行）：若 evo_auto_apply=1，考察近 30 天 EvolutionEvent（不含 kind=rollback 自身），
+      reverted 比例 > 0.2 且样本数 ≥ 5 → Upsert evo_auto_apply=0，audit agent.evolution.scanner.rollback_alarm
+  1. 从 strategy.stats["last_scan_at"] 得到 trigger_since；缺省或非法则 since = now-30d；若早于 now-30d 则截断为 now-30d
+  2. 双轨窗口（关键）：
+     - 触发统计：episodes = CountAgentEpisodesSince(agent_id, trigger_since)
+                neg = CountAgentFactFeedbackSince(agent_id, {reject, refine}, trigger_since)
+     - 技能统计：对 tool_invocations 做 since_agg = now-30d 的滚动聚合 → Upsert agent_skill_stats
+  3. 触发条件（OR）：
+     - episodes >= evo_min_episodes
+     - neg >= evo_min_negative_feedback
+     - 任一技能桶 invocations >= 5 且 failure_rate > 0.3
+  4. 不满足 → 仍 persist stats.last_scan_at / last_scan_report，return
+  5. 启发式生成 Proposal（不调用 LLM）：
+     - failure_rate > 0.3 且未在 tool_blacklist → proposal strategy.tool_blacklist
+     - success_rate > 0.85 且当前 tool_preference < 0.7 → proposal strategy.tool_preference[tool_key]=0.8
+  6. 经 Propose → 同 target_field 在 evo_throttle_hours 内重复 → 新单 status=superseded
+  7. 若 evo_auto_apply=1 且 risk=low 且 proposal=pending → Approve（内部 Apply）
+  8. 再次 GetStrategy 后写回 stats.last_scan_at（读库合并，避免覆盖 Apply 刚写入的 blacklist 等）
+  9. audit / metrics：rollback 已记；全量指标 emit 待增强
+  10. 后台：server 内 30m ticker 对 ListAgents 中 evo_enabled 者各跑一次；另 HTTP POST .../evolution/scan
+```
+
+**可选升级（原设计 / Phase 5+）** — LLM JSON 自反思，替换或接在步骤 5 前：
+
+```text
+  5' 调 LLM JSON 模式（自我反思 prompt）：
      输入：identity + strategy + 最近 episode 摘要 + skill 统计
      输出：proposals[] = [{kind, target_field, proposed_value, rationale, evidence, risk_level}]
-  6. 节流：同 target_field 在 evo_throttle_hours 内最多 1 条 → 否则 status=superseded
-  7. 写入 ProposalInput 列表
-  8. 若 evo_auto_apply == 1 且 risk_level == low → 自动 Approve → Apply
-  9. 写 audit_logs；emit metrics
 ```
 
 ### 5.6 Apply 流程
@@ -1078,7 +1103,7 @@ POST   /api/v1/agents/{id}/evolution/scan        # 手动触发一次扫描
 GET    /api/v1/agents/{id}/skill-stats?limit=50
 ```
 
-### 6.5 训练数据导出（Phase 4）
+### 6.5 训练数据导出（Phase 5，未实现）
 
 ```http
 GET    /api/v1/agents/{id}/evolution/training-data?since=2026-01-01&format=jsonl
@@ -1101,7 +1126,10 @@ GET    /api/v1/agents/{id}/evolution/training-data?since=2026-01-01&format=jsonl
 | `internal/service/chat_service.go` | 加载 agent 时调 `BuildSelfPromptAppend` 拼接到 system；调 `ResolveToolWhitelist` 与 `ResolveModelRouting` |
 | `internal/transport/memory_l4.go`（新） | 暴露 §6.2~§6.3 |
 | `internal/transport/agent_evolution.go`（新） | 暴露 §6.4 |
-| `cmd/server/main.go` | 启动 EvolutionWorker（按 agent 串行扫描）；启动实体抽取 worker |
+| `internal/server/server.go` | 启动 L3 衰减循环、**EvolutionScanner 循环**（~30m，`evo_enabled`） |
+| `internal/repository` | `CountAgentEpisodesSince`、`CountAgentFactFeedbackSince`、`InsertToolInvocation` 等供扫描与聚合使用 |
+| `internal/service/agent_evolution_scanner.go` | `RunEvolutionScan`、`AggregateSkillStats` |
+| `cmd/server` 或 launcher | 与 `internal/server` 复用同一路 `Run` |
 | `7 agent-evolution.md` 中的 `evolution_*` 字段 | 视为 evo_* 别名；在迁移阶段双写 |
 
 ---
@@ -1209,7 +1237,8 @@ GET    /api/v1/agents/{id}/evolution/training-data?since=2026-01-01&format=jsonl
 - **审计**：所有 entity / relation / proposal / event / identity / strategy 变更写 `audit_logs`。
 - **告警**：
   - 单 Agent 24h 内 EvolutionEvent ≥ 10 → 告警
-  - 自动应用的 proposal 24h 内被回滚率 > 20% → 关闭 evo_auto_apply
+  - **已实现（后端）**：近 30 天 EvolutionEvent 中 `reverted` 占已应用事件比例 > 20% 且样本数 ≥ 5 时，将 `evo_auto_apply` 置 0，并记审计 `agent.evolution.scanner.rollback_alarm`（与 §13 一致；不等同于「仅统计自动应用 proposal 的回滚」，当前实现按事件级 reverted 计）
+  - 产品级「自动应用的 proposal 被回滚」细粒度比例 → 可后续在审计或 metadata 上收紧
 
 ---
 
@@ -1233,30 +1262,31 @@ L4 直接影响 Agent 行为，必须强约束：
 
 ### Phase 1（图谱 MVP，2 周）
 
-- [ ] §3.1 表落库；§3.3 ALTER（仅 l4_*）。
-- [ ] `MemoryL4GraphService.{UpsertEntity,UpsertRelation,GetEntity,Neighborhood,SearchByText}`。
-- [ ] §6.2 接口。
+- [x] §3.1 表落库；§3.3 ALTER（仅 l4_*）（见 `migrations/0001_init.sql`）。
+- [x] `MemoryL4Service`：实体/关系/邻居/抽取 API 等（与早期命名 `MemoryL4GraphService` 对齐）。
+- [x] §6.2 接口（HTTP 已接）。
 - [ ] §8.7 知识图谱浏览器（基础）。
-- [ ] L0 Assemble 注入 neighborhood 段。
+- [x] L0 Assemble 注入 `memory.l4.graph` neighborhood 段（受 `l4_*` 开关约束）。
 
 ### Phase 2（实体抽取，1～2 周）
 
-- [ ] `ExtractFromFact` / `ExtractFromEpisode`（基于触发词 + LLM JSON 模式）。
-- [ ] L3 / L2 写入后异步触发抽取。
-- [ ] Entity 合并/拆分/重命名 UI。
+- [x] `ExtractFromFact` / `ExtractFromEpisode`（**当前：词典/边界扫描启发式**；LLM JSON 为可选增强）。
+- [ ] L3 / L2 写入后**异步**自动触发抽取（可用手动/管线调用 `POST …/extract/...` 替代）。
+- [ ] Entity 合并/拆分/重命名 UI（后端 API 见 §6.2 若已实现）。
 
 ### Phase 3（Agent 进化基础，2 周）
 
-- [ ] §3.2 表落库；§3.3 ALTER（evo_*）。
-- [ ] `AgentEvolutionService.{GetIdentity, UpdateIdentity, GetStrategy, UpdateStrategy, Apply, Revert, BuildSelfPromptAppend, ResolveToolWhitelist, ResolveModelRouting}`。
-- [ ] ChatService 接入 self_prompt + tool whitelist 解析。
-- [ ] §8.3 / §8.4 / §8.5 / §8.2 前端面板。
+- [x] §3.2 表；§3.3 `evo_*`（迁移已含）。
+- [x] `AgentEvolutionService`：含 `Get/Update` Identity&Strategy、`Apply`、`Revert`、`BuildSelfPromptAppend`、`ResolveToolWhitelist`、`ResolveModelRouting`；`ToolService` 已接进化黑名单/排序；`ChatService` 可路由模型候选。
+- [x] ChatService / L0 侧接 self 段与工具策略（以当前代码为准；持续对齐 spec）。
+- [ ] §8.2～§8.5 等**前端**面板。
 
 ### Phase 4（自动进化扫描，2 周）
 
-- [ ] EvolutionWorker `RunEvolutionScan`（含 LLM JSON proposal 抽取）。
-- [ ] §8.6 提议中心。
-- [ ] 节流 + 自动应用低风险（feature flag 默认关闭）。
+- [x] `RunEvolutionScan` + 后台轮询 + `POST …/evolution/scan`；**当前为启发式提案**，LLM JSON 自反思为 **Phase 5+ 可选**（见 §5.5）。
+- [ ] §8.6 提议中心（前端）。
+- [x] 节流 + 低风险自动应用（`evo_auto_apply`，默认 0；与 §13 回滚率刹车同轨）。
+- [x] 增量 `last_scan_at`、负反馈 `evo_min_negative_feedback` 触发、**回滚率 >20% 关闭 auto_apply**（见 §5.5、§10）。
 
 ### Phase 5（高级）
 
@@ -1269,25 +1299,27 @@ L4 直接影响 Agent 行为，必须强约束：
 
 ## 13. 验收标准
 
+> **图例**：[x] 后端已具备可测行为；[ ] 未满足、依赖前端/外部 runtime 或需人工 e2e。浏览器 / UI 类单独注明。
+
 ### 知识图谱
 
-- [ ] 创建 Entity 后可在浏览器中以节点形式展示；Neighborhood API 返回 1～2 跳邻居。
-- [ ] L3 Fact 中提到 `React 19` 时，自动抽取为 `tech` 类型 Entity，并与 fact 反向链接。
-- [ ] Merge 操作后，源 entity status=merged，merged_into 指向目标；Neighborhood 不再返回源。
-- [ ] L0 prompt 中出现 `memory.l4.graph` 段，且节点数 ≤ `l4_graph_max_neighbors`。
+- [ ] 创建 Entity 后可在**浏览器**中以节点形式展示；[x] Neighborhood API 可返回 1～2 跳邻居（`hops` / `max` 约束）。
+- [x] L3 Fact 中命中抽取词典时，可经 `ExtractFromFact` 建 Entity（如 `tech`）并挂接 fact；全文「React 19」依赖词典是否含该别名。
+- [x] Merge 后源 entity 标记与 `merged_into` 等（以 API 为准）；[ ] 浏览器中可视化。
+- [x] L0 可注入 `memory.l4.graph` 段，节点数受 `l4_graph_max_neighbors` 等配置约束。
 
 ### Agent 进化
 
-- [ ] 首次创建 Agent 时自动写入空白 `agent_identity` / `agent_strategy_profile`，version=1。
-- [ ] 启用 `evo_enabled` 后，连续 ≥ `evo_min_episodes` episode 完成后自动触发 `RunEvolutionScan`，写入 ≥ 1 条 proposal。
-- [ ] 用户在 UI 批准 proposal 后，对应 EvolutionEvent 写入；agent_identity / strategy / runtime_settings 同步更新；ChatService 下次调用使用新值。
-- [ ] Revert EvolutionEvent 后，identity / strategy 恢复到 before；原 event reverted=1。
-- [ ] System prompt 中出现 `<self_evolution>` 段，且字符不超过 `evo_persona_max_chars`。
-- [ ] tool_blacklist 中的工具不会出现在新 session 的 prompt 工具列表里。
-- [ ] PII（如手机号）出现在 persona 时被拒绝写入；返回 4xx。
-- [ ] 24h 内同 target_field 第二次 proposal 被标记 superseded。
-- [ ] 回滚率 > 20% 后，evo_auto_apply 自动转为 0 并发出告警。
-- [ ] 关闭 `l4_enabled` 后，下次 prompt 中不出现 memory.l4.graph 段；但 self_prompt 仍可注入（由 `l4_identity_inject` 单独控制）。
+- [x] 首次 `GetIdentity` / `GetStrategy` 时写入冷启动行（version=1 等，见服务实现）。
+- [x] `evo_enabled` 时，在 episode 数 **或** 负反馈 **或** 高工具失败率等条件下可触发 `RunEvolutionScan` 并产生 proposal（不限于「仅 min_episodes」单一路径）；后台 + `POST …/evolution/scan`。
+- [x] Approve/Apply 路径写入 EvolutionEvent 与档案；[ ] 仅在 **UI** 上点批准（HTTP 已通）。
+- [x] Revert 后原事件打回滚链；identity/strategy 与事件一致（以测试与服务为准）。
+- [x] `BuildSelfPromptAppend` 等限制 persona 长度与注入开关；`<self_evolution>` 产品文案可再统一。
+- [x] `tool_blacklist` 经 `ToolService`+进化源影响有效工具与展示（denied/排序）。
+- [x] Persona 等 PII 校验与拒绝（服务层，返回可验证错误语义）。
+- [x] 同 `target_field` 在 `evo_throttle_hours` 内新 proposal 可标记为 `superseded`（见 `Propose`）。
+- [x] 回滚率超阈值时 `evo_auto_apply` 置 0，审计 `agent.evolution.scanner.rollback_alarm`（见 §5.5/§10；**事件级 reverted 比例，非仅「自动应用」子集**）。
+- [x] 关闭 `l4_enabled` 可关闭 graph 段；`l4_identity_inject` 单独控制 self 段（`agent_runtime_settings`）。
 
 ---
 

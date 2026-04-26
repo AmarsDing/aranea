@@ -6,6 +6,7 @@
 package transport
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -66,9 +67,63 @@ func (h *HTTPHandler) handleAgentEvolution(w http.ResponseWriter, r *http.Reques
 		h.handleAgentSkillStats(w, r, svc, agentID)
 	case "scan":
 		h.handleAgentEvolutionScan(w, r, svc, agentID)
+	case "metrics":
+		h.handleAgentEvolutionMetrics(w, r, svc, agentID)
+	case "suggestions":
+		h.handleAgentEvolutionSuggestions(w, r, svc, agentID)
+	case "training-data":
+		h.handleAgentEvolutionTrainingData(w, r, svc, agentID)
 	default:
 		writeErr(w, http.StatusNotFound, errors.New("unknown evolution sub-resource"))
 	}
+}
+
+// handleAgentEvolutionAgentPath dispatches the spec-compatible
+// /api/v1/agents/{id}/identity, /strategy, and /evolution/... aliases while
+// keeping /api/v1/agent-evolution/{id}/... backwards-compatible.
+func (h *HTTPHandler) handleAgentEvolutionAgentPath(w http.ResponseWriter, r *http.Request, pathSuffix string) bool {
+	svc := h.evolutionService()
+	if svc == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("agent evolution service is not configured"))
+		return true
+	}
+	parts := strings.Split(strings.Trim(pathSuffix, "/"), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		return false
+	}
+	agentID := parts[0]
+	switch parts[1] {
+	case "identity":
+		h.handleAgentIdentity(w, r, svc, agentID)
+	case "strategy":
+		h.handleAgentStrategy(w, r, svc, agentID)
+	case "skill-stats":
+		h.handleAgentSkillStats(w, r, svc, agentID)
+	case "evolution":
+		if len(parts) < 3 {
+			writeErr(w, http.StatusBadRequest, errors.New("evolution sub-resource is required"))
+			return true
+		}
+		switch parts[2] {
+		case "events":
+			h.handleAgentEvents(w, r, svc, agentID, parts[3:])
+		case "proposals":
+			h.handleAgentProposals(w, r, svc, agentID, parts[3:])
+		case "scan":
+			h.handleAgentEvolutionScan(w, r, svc, agentID)
+		case "metrics":
+			h.handleAgentEvolutionMetrics(w, r, svc, agentID)
+		case "suggestions":
+			h.handleAgentEvolutionSuggestions(w, r, svc, agentID)
+		case "training-data":
+			h.handleAgentEvolutionTrainingData(w, r, svc, agentID)
+		default:
+			writeErr(w, http.StatusNotFound, errors.New("unknown evolution sub-resource"))
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 // --- Identity ---------------------------------------------------------------
@@ -160,11 +215,24 @@ func (h *HTTPHandler) handleAgentProposals(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	if tail[0] == "" || len(tail) < 2 {
-		writeErr(w, http.StatusBadRequest, errors.New("proposal id and action are required"))
+	if tail[0] == "" {
+		writeErr(w, http.StatusBadRequest, errors.New("proposal id is required"))
 		return
 	}
 	proposalID := tail[0]
+	if len(tail) == 1 {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		prop, err := svc.GetProposal(r.Context(), proposalID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, prop)
+		return
+	}
 	switch tail[1] {
 	case "approve":
 		h.handleProposalApprove(w, r, svc, proposalID)
@@ -321,4 +389,60 @@ func (h *HTTPHandler) handleAgentEvolutionScan(w http.ResponseWriter, r *http.Re
 	}
 	_ = h.auditSvc.Log("agent.evolution.scan", "agent_identity", agentID, r.Header.Get("X-Request-Id"), report.Note)
 	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *HTTPHandler) handleAgentEvolutionMetrics(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	report, err := svc.Metrics(r.Context(), agentID, r.URL.Query().Get("range"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *HTTPHandler) handleAgentEvolutionSuggestions(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 20)
+	items, err := svc.Suggestions(r.Context(), agentID, r.URL.Query().Get("range"), limit)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if items == nil {
+		items = []service.EvolutionSuggestion{}
+	}
+	writeJSON(w, http.StatusOK, listResponse[service.EvolutionSuggestion]{Items: items})
+}
+
+func (h *HTTPHandler) handleAgentEvolutionTrainingData(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 100)
+	items, err := svc.TrainingData(r.Context(), agentID, limit)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if r.URL.Query().Get("format") == "jsonl" {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.WriteHeader(http.StatusOK)
+		enc := json.NewEncoder(w)
+		for _, item := range items {
+			_ = enc.Encode(item)
+		}
+		return
+	}
+	if items == nil {
+		items = []service.EvolutionTrainingExample{}
+	}
+	writeJSON(w, http.StatusOK, listResponse[service.EvolutionTrainingExample]{Items: items})
 }

@@ -39,6 +39,8 @@ type L0AssemblyRequest struct {
 	SpanID            string      `json:"span_id,omitempty"`
 	AgentID           string      `json:"agent_id,omitempty"`
 	TeamID            string      `json:"team_id,omitempty"`
+	UserID            string      `json:"user_id,omitempty"`
+	WorkspaceID       string      `json:"workspace_id,omitempty"`
 	Provider          string      `json:"provider,omitempty"`
 	Model             string      `json:"model,omitempty"`
 	ContextWindow     int         `json:"context_window,omitempty"`
@@ -46,6 +48,19 @@ type L0AssemblyRequest struct {
 	UserMessage       string      `json:"user_message"`
 	UserMessageID     string      `json:"user_message_id,omitempty"`
 	ExtraSystemBlocks []L0Segment `json:"extra_system_blocks,omitempty"`
+}
+
+// L0MemoryScopeContext carries the caller's visible memory scopes from L0
+// into L3 / L4 recall. Older call sites only supplied session_id + agent_id,
+// which meant user/team/workspace recall scopes in runtime settings could not
+// participate in the main chat assembly path.
+type L0MemoryScopeContext struct {
+	SessionID   string `json:"session_id,omitempty"`
+	AgentID     string `json:"agent_id,omitempty"`
+	TeamID      string `json:"team_id,omitempty"`
+	UserID      string `json:"user_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Query       string `json:"query,omitempty"`
 }
 
 // L0ChatMessage is the role / content tuple given back to ChatService so it

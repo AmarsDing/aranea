@@ -20,12 +20,16 @@ import (
 // neighborhood endpoints and the admin-only extraction / stats
 // endpoints. Admin endpoints live under /api/v1/admin/memory/l4/.
 func (h *HTTPHandler) registerMemoryL4Routes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/v1/memory/l4/entities:search", h.handleL4EntitiesSearch)
 	mux.HandleFunc("/api/v1/memory/l4/entities", h.handleL4EntitiesCollection)
 	mux.HandleFunc("/api/v1/memory/l4/entities/", h.handleL4EntitiesItem)
 	mux.HandleFunc("/api/v1/memory/l4/relations", h.handleL4RelationsCollection)
 	mux.HandleFunc("/api/v1/memory/l4/relations/", h.handleL4RelationsItem)
+	mux.HandleFunc("/api/v1/memory/l4/nodes/", h.handleL4NodeRelations)
 	mux.HandleFunc("/api/v1/memory/l4/neighborhood", h.handleL4Neighborhood)
 	mux.HandleFunc("/api/v1/memory/l4/search", h.handleL4Search)
+	mux.HandleFunc("/api/v1/memory/l4/extract/episode/", h.handleL4ExtractEpisodePath)
+	mux.HandleFunc("/api/v1/memory/l4/extract/fact/", h.handleL4ExtractFactPath)
 
 	mux.HandleFunc("/api/v1/admin/memory/l4/extract/episode", h.handleL4ExtractEpisode)
 	mux.HandleFunc("/api/v1/admin/memory/l4/extract/fact", h.handleL4ExtractFact)
@@ -113,6 +117,8 @@ func (h *HTTPHandler) handleL4EntitiesItem(w http.ResponseWriter, r *http.Reques
 		h.handleL4EntityVersions(w, r, svc, entityID)
 	case "facts":
 		h.handleL4EntityFacts(w, r, svc, entityID)
+	case "neighborhood":
+		h.handleL4EntityNeighborhood(w, r, svc, entityID)
 	case "rename":
 		h.handleL4EntityRename(w, r, svc, entityID)
 	case "merge":
@@ -223,17 +229,24 @@ func (h *HTTPHandler) handleL4EntityMerge(w http.ResponseWriter, r *http.Request
 	}
 	var in struct {
 		Sources []string `json:"sources"`
+		Into    string   `json:"into"`
 		By      string   `json:"by"`
 		Reason  string   `json:"reason"`
 	}
 	if !decodeBody(w, r, &in) {
 		return
 	}
-	if err := svc.MergeEntities(r.Context(), primaryID, in.Sources, in.By, in.Reason); err != nil {
+	targetID := primaryID
+	sources := in.Sources
+	if in.Into != "" && len(sources) == 0 {
+		targetID = in.Into
+		sources = []string{primaryID}
+	}
+	if err := svc.MergeEntities(r.Context(), targetID, sources, in.By, in.Reason); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	_ = h.auditSvc.Log("l4.merge_entities", "memory_entities", primaryID, r.Header.Get("X-Request-Id"), in.Reason)
+	_ = h.auditSvc.Log("l4.merge_entities", "memory_entities", targetID, r.Header.Get("X-Request-Id"), in.Reason)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -331,6 +344,34 @@ func (h *HTTPHandler) handleL4RelationsItem(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+func (h *HTTPHandler) handleL4NodeRelations(w http.ResponseWriter, r *http.Request) {
+	svc := h.l4Service()
+	if svc == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("memory L4 service is not configured"))
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/memory/l4/nodes/")
+	parts := strings.Split(strings.Trim(rest, "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] != "relations" {
+		writeErr(w, http.StatusNotFound, errors.New("unknown node relation path"))
+		return
+	}
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
+	rels, err := svc.ListRelationsForNode(r.Context(), parts[0], limit)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if rels == nil {
+		rels = []domain.MemoryRelation{}
+	}
+	writeJSON(w, http.StatusOK, listResponse[domain.MemoryRelation]{Items: rels})
+}
+
 // --- Neighborhood / search --------------------------------------------------
 
 func (h *HTTPHandler) handleL4Neighborhood(w http.ResponseWriter, r *http.Request) {
@@ -354,6 +395,21 @@ func (h *HTTPHandler) handleL4Neighborhood(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, nb)
 }
 
+func (h *HTTPHandler) handleL4EntityNeighborhood(w http.ResponseWriter, r *http.Request, svc *service.MemoryL4Service, entityID string) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w)
+		return
+	}
+	hops := parsePositiveInt(r.URL.Query().Get("hops"), 1)
+	maxNodes := parsePositiveInt(firstNonEmptyQuery(r, "max", "max_nodes"), 12)
+	nb, err := svc.Neighborhood(r.Context(), entityID, hops, maxNodes)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, nb)
+}
+
 func (h *HTTPHandler) handleL4Search(w http.ResponseWriter, r *http.Request) {
 	svc := h.l4Service()
 	if svc == nil {
@@ -369,6 +425,42 @@ func (h *HTTPHandler) handleL4Search(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	topK := parsePositiveInt(r.URL.Query().Get("top_k"), 10)
 	hits, err := svc.SearchByText(r.Context(), scope, scopeID, query, topK)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if hits == nil {
+		hits = []domain.MemoryEntity{}
+	}
+	writeJSON(w, http.StatusOK, listResponse[domain.MemoryEntity]{Items: hits})
+}
+
+func (h *HTTPHandler) handleL4EntitiesSearch(w http.ResponseWriter, r *http.Request) {
+	svc := h.l4Service()
+	if svc == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("memory L4 service is not configured"))
+		return
+	}
+	var in struct {
+		ScopeType domain.ScopeType `json:"scope_type"`
+		ScopeID   string           `json:"scope_id"`
+		Query     string           `json:"query"`
+		TopK      int              `json:"top_k"`
+	}
+	if r.Method == http.MethodPost {
+		if !decodeBody(w, r, &in) {
+			return
+		}
+	} else if r.Method == http.MethodGet {
+		in.ScopeType = domain.ScopeType(r.URL.Query().Get("scope_type"))
+		in.ScopeID = r.URL.Query().Get("scope_id")
+		in.Query = firstNonEmptyQuery(r, "query", "q")
+		in.TopK = parsePositiveInt(r.URL.Query().Get("top_k"), 10)
+	} else {
+		methodNotAllowed(w)
+		return
+	}
+	hits, err := svc.SearchByText(r.Context(), in.ScopeType, in.ScopeID, in.Query, in.TopK)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -429,4 +521,52 @@ func (h *HTTPHandler) handleL4ExtractFact(w http.ResponseWriter, r *http.Request
 	}
 	_ = h.auditSvc.Log("l4.extract_fact", "memory_entities", in.FactID, r.Header.Get("X-Request-Id"), "")
 	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *HTTPHandler) handleL4ExtractEpisodePath(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	svc := h.l4Service()
+	if svc == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("memory L4 service is not configured"))
+		return
+	}
+	episodeID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/memory/l4/extract/episode/"), "/")
+	report, err := svc.ExtractFromEpisode(r.Context(), episodeID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (h *HTTPHandler) handleL4ExtractFactPath(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	svc := h.l4Service()
+	if svc == nil {
+		writeErr(w, http.StatusServiceUnavailable, errors.New("memory L4 service is not configured"))
+		return
+	}
+	factID := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/memory/l4/extract/fact/"), "/")
+	report, err := svc.ExtractFromFact(r.Context(), factID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func firstNonEmptyQuery(r *http.Request, keys ...string) string {
+	for _, key := range keys {
+		value := strings.TrimSpace(r.URL.Query().Get(key))
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

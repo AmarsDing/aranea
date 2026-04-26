@@ -63,6 +63,8 @@ func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAda
 	memoryL4 := NewMemoryL4Service(repo)
 	agentEvolution := NewAgentEvolutionService(repo)
 	memoryL2.SetL1Source(memoryL1)
+	memoryL2.SetL4ExtractionSource(memoryL4)
+	memoryL3.SetL4ExtractionSource(memoryL4)
 	memoryL0.SetL1Source(memoryL1)
 	memoryL0.SetL2Source(memoryL2)
 	memoryL0.SetL3Source(memoryL3)

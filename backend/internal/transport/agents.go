@@ -72,6 +72,9 @@ func (h *HTTPHandler) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		h.handleAgentToolPolicy(w, r, strings.TrimSuffix(id, "/tools/policy"))
 		return
 	}
+	if h.handleAgentEvolutionAgentPath(w, r, id) {
+		return
+	}
 	if id == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("agent id is required"))
 		return

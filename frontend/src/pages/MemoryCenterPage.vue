@@ -85,13 +85,25 @@ import MemorySettingsStatusPanel from "../features/memory/MemorySettingsStatusPa
 import MemorySnapshotDrawer from "../features/memory/MemorySnapshotDrawer.vue";
 import {
   listAgents,
+  listEvolutionEvents,
+  listEvolutionProposals,
   listL0Snapshots,
   listL1Tasks,
   listMemoryFacts,
+  listMemoryEntities,
+  getAgentIdentity,
+  getAgentStrategy,
+  getEvolutionMetrics,
   searchSessions,
   type Agent,
+  type AgentIdentity,
+  type AgentStrategyProfile,
+  type EvolutionEvent,
+  type EvolutionMetricsReport,
+  type EvolutionProposal,
   type L0AssemblySnapshot,
   type L1Task,
+  type MemoryEntity,
   type MemoryFact,
   type Session
 } from "../api/client";
@@ -100,6 +112,12 @@ const tab = ref("overview");
 const agents = ref<Agent[]>([]);
 const sessions = ref<Session[]>([]);
 const facts = ref<MemoryFact[]>([]);
+const entities = ref<MemoryEntity[]>([]);
+const evolutionProposals = ref<EvolutionProposal[]>([]);
+const evolutionEvents = ref<EvolutionEvent[]>([]);
+const agentIdentity = ref<AgentIdentity | null>(null);
+const agentStrategy = ref<AgentStrategyProfile | null>(null);
+const evolutionMetrics = ref<EvolutionMetricsReport | null>(null);
 const snapshots = ref<L0AssemblySnapshot[]>([]);
 const tasks = ref<L1Task[]>([]);
 const selectedAgentId = ref<string | null>(null);
@@ -114,12 +132,13 @@ const loadingSessions = ref(false);
 const loadingFacts = ref(false);
 const loadingSnapshots = ref(false);
 const loadingTasks = ref(false);
+const loadingEvolution = ref(false);
 const factsEndpointReady = ref(true);
 const snapshotDrawer = ref(false);
 const factDrawer = ref(false);
 const error = ref("");
 
-const loading = computed(() => loadingAgents.value || loadingSessions.value || loadingFacts.value || loadingSnapshots.value || loadingTasks.value);
+const loading = computed(() => loadingAgents.value || loadingSessions.value || loadingFacts.value || loadingSnapshots.value || loadingTasks.value || loadingEvolution.value);
 const agentOptions = computed(() => agents.value.map((agent) => ({ label: agent.display_name || agent.agent_key, value: agent.id })));
 const sessionRows = computed(() => sessions.value);
 const factRows = computed(() => facts.value);
@@ -133,7 +152,8 @@ const overviewCards = computed(() => {
   return [
     { label: "上下文风险", value: riskySessions, hint: `平均占用 ${formatPercent(avgContext)}`, icon: "speed", color: contextRatioColor(avgContext) },
     { label: "活跃任务", value: activeTasks, hint: "L1 working memory tasks", icon: "assignment", color: "primary" },
-    { label: "长期知识", value: facts.value.length, hint: factsEndpointReady.value ? "已加载 L3 facts" : "等待 L3 API 接入", icon: "psychology", color: "deep-purple" },
+    { label: "长期知识", value: facts.value.length, hint: factsEndpointReady.value ? "已加载 L3 facts" : "L3 facts 暂不可用", icon: "psychology", color: "deep-purple" },
+    { label: "图谱实体", value: entities.value.length, hint: "L4 entities", icon: "device_hub", color: "teal" },
     { label: "Prompt 快照", value: snapshots.value.length, hint: "最近 L0 assembly snapshots", icon: "preview", color: "blue-grey" }
   ];
 });
@@ -141,31 +161,63 @@ const overviewCards = computed(() => {
 const actionItems = computed(() => [
   { title: "上下文接近上限", caption: "建议检查摘要阈值和注入片段数量。", count: sessions.value.filter((s) => ["warning", "critical", "exceeded"].includes(s.context_status)).length, icon: "report", color: "warning" },
   { title: "知识冲突待办", caption: "L3 conflict API 接入后展示需要仲裁的 facts。", count: facts.value.reduce((sum, fact) => sum + (fact.conflict_count || 0), 0), icon: "rule", color: "negative" },
-  { title: "待审核进化提议", caption: "L4 evolution API 接入后展示 Agent 自我修改建议。", count: 0, icon: "auto_awesome", color: "info" }
+  { title: "待审核进化提议", caption: "来自 Agent Evolution proposal queue。", count: evolutionProposals.value.length, icon: "auto_awesome", color: "info" }
 ]);
 
-const memoryLayers = [
+const memoryLayers = computed(() => [
   { key: "l0", title: "上下文窗口 L0", caption: "下一次模型调用实际看到的材料。", icon: "preview", color: "primary", status: "已接入", statusColor: "positive" },
   { key: "l1", title: "工作记忆 L1", caption: "当前任务目标、约束、决策和中间结果。", icon: "assignment", color: "indigo", status: "已接入", statusColor: "positive" },
-  { key: "l2", title: "事件记忆 L2", caption: "会话 timeline、episode、marks 与巩固队列。", icon: "timeline", color: "teal", status: "设计中", statusColor: "warning" },
-  { key: "l3", title: "知识记忆 L3", caption: "跨会话 facts、偏好、规则、冲突与反馈。", icon: "psychology", color: "deep-purple", status: "待 API", statusColor: "warning" },
-  { key: "l4", title: "图谱与进化 L4", caption: "实体关系、Agent identity、strategy 和 proposal。", icon: "auto_awesome", color: "orange", status: "待 API", statusColor: "warning" }
-];
+  { key: "l2", title: "事件记忆 L2", caption: "会话 timeline、episode、marks 与巩固队列。", icon: "timeline", color: "teal", status: "已接入", statusColor: "positive" },
+  { key: "l3", title: "知识记忆 L3", caption: "跨会话 facts、偏好、规则、冲突与反馈。", icon: "psychology", color: "deep-purple", status: factsEndpointReady.value ? "已接入" : "不可用", statusColor: factsEndpointReady.value ? "positive" : "warning" },
+  { key: "l4", title: "图谱与进化 L4", caption: "实体关系、Agent identity、strategy 和 proposal。", icon: "auto_awesome", color: "orange", status: entities.value.length || agentIdentity.value ? "已接入" : "已注册", statusColor: "positive" }
+]);
 
-const evolutionPanels = [
-  { title: "知识图谱", caption: "实体、关系、证据链和邻居召回将汇总在这里。", state: "等待 `/memory/l4/entities` 与 neighborhood API 接入。", icon: "device_hub", color: "teal" },
-  { title: "Agent Identity", caption: "persona、values、tone、domains 和用户期望。", state: "等待 `/agents/{id}/identity` API 接入。", icon: "badge", color: "primary" },
-  { title: "Strategy Profile", caption: "探索度、简洁度、谨慎度、工具偏好和模型偏好。", state: "等待 `/agents/{id}/strategy` API 接入。", icon: "tune", color: "deep-purple" },
-  { title: "Evolution Proposals", caption: "待审核的自我修正建议和回滚日志。", state: "等待 `/agents/{id}/evolution/proposals` API 接入。", icon: "rule", color: "orange" }
-];
+const evolutionPanels = computed(() => [
+  {
+    title: "知识图谱",
+    caption: "实体、关系、证据链和邻居召回。",
+    state: `${entities.value.length} 个实体已加载`,
+    icon: "device_hub",
+    color: "teal",
+    items: entities.value.slice(0, 5).map((entity) => `${entity.name} · ${entity.entity_type} · ${entity.scope_type}`)
+  },
+  {
+    title: "Agent Identity",
+    caption: "persona、values、tone、domains 和用户期望。",
+    state: agentIdentity.value ? `${agentIdentity.value.current_phase || "active"} · ${agentIdentity.value.tone || "tone unset"}` : "选择 Agent 后加载 identity",
+    icon: "badge",
+    color: "primary",
+    items: agentIdentity.value ? [agentIdentity.value.persona || "Persona 尚未填写", ...(agentIdentity.value.domains || []).slice(0, 4).map((domain) => `Domain: ${domain}`)] : []
+  },
+  {
+    title: "Strategy Profile",
+    caption: "探索度、简洁度、谨慎度、工具偏好和模型偏好。",
+    state: agentStrategy.value ? `exploration=${formatScore(agentStrategy.value.exploration)} · caution=${formatScore(agentStrategy.value.caution)}` : "选择 Agent 后加载 strategy",
+    icon: "tune",
+    color: "deep-purple",
+    items: agentStrategy.value ? [
+      `conciseness=${formatScore(agentStrategy.value.conciseness)}`,
+      `delegation=${formatScore(agentStrategy.value.delegation)}`,
+      `blacklist=${(agentStrategy.value.tool_blacklist || []).join(", ") || "empty"}`
+    ] : []
+  },
+  {
+    title: "Evolution Proposals",
+    caption: "待审核的自我修正建议和回滚日志。",
+    state: `${evolutionProposals.value.length} pending · ${evolutionMetrics.value?.events_total ?? evolutionEvents.value.length} events`,
+    icon: "rule",
+    color: "orange",
+    items: evolutionProposals.value.slice(0, 5).map((proposal) => `${proposal.target_field}: ${proposal.rationale || proposal.expected_impact || proposal.status}`)
+  }
+]);
 
-const settingChecklist = [
+const settingChecklist = computed(() => [
   { label: "基础 memory_* 设置", caption: "Agent 设置页已有旧版记忆启用、结果数和最低分数。", done: true },
-  { label: "L0 上下文策略", caption: "后端字段已出现，前端设置表单待拆分成记忆 Tab。", done: false },
-  { label: "L1 工作记忆预算", caption: "L1 task/field API 已接入，Agent 级设置待补。", done: false },
-  { label: "L3 语义记忆设置", caption: "等待 facts/recall/conflict API 注册。", done: false },
-  { label: "L4 图谱与进化设置", caption: "等待 graph/evolution API 注册。", done: false }
-];
+  { label: "L0 上下文策略", caption: "Prompt snapshot / preview API 已接入。", done: true },
+  { label: "L1 工作记忆预算", caption: "L1 task/field API 已接入。", done: true },
+  { label: "L3 语义记忆设置", caption: "Facts / recall / conflict 后端 API 已注册。", done: factsEndpointReady.value },
+  { label: "L4 图谱与进化设置", caption: "Entities / neighborhood / evolution API 已注册并在本页读取。", done: true }
+]);
 
 const scopeOptions = ["user", "agent", "team", "workspace", "global"].map((value) => ({ label: value, value }));
 const factStatusOptions = ["active", "archived", "disputed", "deprecated", "deleted"].map((value) => ({ label: value, value }));
@@ -192,7 +244,7 @@ onMounted(loadAll);
 
 watch(selectedAgentId, async () => {
   selectedSessionId.value = null;
-  await loadSessions();
+  await Promise.all([loadSessions(), loadEvolution()]);
 });
 
 watch(selectedSessionId, () => {
@@ -206,7 +258,8 @@ watch([factKeyword, factScope, factStatus], () => {
 async function loadAll() {
   error.value = "";
   try {
-    await Promise.all([loadAgents(), loadSessions(), loadFacts()]);
+    await loadAgents();
+    await Promise.all([loadSessions(), loadFacts(), loadEvolution()]);
   } catch (err) {
     error.value = err instanceof Error ? err.message : "记忆中心加载失败";
   }
@@ -216,6 +269,9 @@ async function loadAgents() {
   loadingAgents.value = true;
   try {
     agents.value = await listAgents({ limit: 200 });
+    if (!selectedAgentId.value && agents.value.length) {
+      selectedAgentId.value = agents.value[0].id;
+    }
   } finally {
     loadingAgents.value = false;
   }
@@ -231,6 +287,37 @@ async function loadSessions() {
     }
   } finally {
     loadingSessions.value = false;
+  }
+}
+
+async function loadEvolution() {
+  loadingEvolution.value = true;
+  try {
+    const agentID = selectedAgentId.value || agents.value[0]?.id || "";
+    const entityQuery = agentID ? { scope_type: "agent", scope_id: agentID, limit: 50 } : { limit: 50 };
+    const [entityResult, identity, strategy, proposals, events, metrics] = await Promise.all([
+      listMemoryEntities(entityQuery),
+      agentID ? getAgentIdentity(agentID).catch(() => null) : Promise.resolve(null),
+      agentID ? getAgentStrategy(agentID).catch(() => null) : Promise.resolve(null),
+      agentID ? listEvolutionProposals(agentID, { status: "pending", limit: 20 }).catch(() => []) : Promise.resolve([]),
+      agentID ? listEvolutionEvents(agentID, { limit: 20 }).catch(() => []) : Promise.resolve([]),
+      agentID ? getEvolutionMetrics(agentID).catch(() => null) : Promise.resolve(null)
+    ]);
+    entities.value = entityResult.items;
+    agentIdentity.value = identity;
+    agentStrategy.value = strategy;
+    evolutionProposals.value = proposals;
+    evolutionEvents.value = events;
+    evolutionMetrics.value = metrics;
+  } catch {
+    entities.value = [];
+    agentIdentity.value = null;
+    agentStrategy.value = null;
+    evolutionProposals.value = [];
+    evolutionEvents.value = [];
+    evolutionMetrics.value = null;
+  } finally {
+    loadingEvolution.value = false;
   }
 }
 
@@ -311,6 +398,10 @@ function contextRatioColor(value?: number) {
 
 function formatPercent(value?: number) {
   return `${Math.round((Number(value) || 0) * 100)}%`;
+}
+
+function formatScore(value?: number) {
+  return (Number(value) || 0).toFixed(2);
 }
 
 function formatDate(value?: string) {

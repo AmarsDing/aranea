@@ -1,7 +1,7 @@
 <template>
   <div>
     <q-banner v-if="!factsEndpointReady" rounded class="memory-info-banner q-mb-md">
-      L3 facts 接口尚未在当前后端注册。这里已按设计接入 `/api/v1/memory/l3/facts`，接口就绪后会自动显示真实知识库。
+      L3 facts 暂时不可用。这里会读取 `/api/v1/memory/l3/facts`，请检查后端服务或筛选条件。
     </q-banner>
     <q-card flat bordered class="memory-card">
       <q-card-section class="row q-col-gutter-sm items-center">
@@ -55,7 +55,7 @@
           <div class="full-width column items-center q-pa-xl text-grey-7">
             <q-icon name="psychology_alt" size="44px" />
             <div class="text-subtitle1 q-mt-sm">暂无长期知识</div>
-            <div class="text-caption">当 L3 后端接口完成后，用户确认的偏好、规则和经验会出现在这里。</div>
+            <div class="text-caption">用户确认的偏好、规则和经验会在 L3 facts 写入后出现在这里。</div>
           </div>
         </template>
       </q-table>

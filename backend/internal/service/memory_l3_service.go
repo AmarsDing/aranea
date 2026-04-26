@@ -31,10 +31,11 @@ import (
 // and the SQLite repository. It is the single owner of the upsert /
 // dedup / conflict-detection rules so callers can stay simple.
 type MemoryL3Service struct {
-	repo      repository.Store
-	pii       *PIIFilter
-	embedder  EmbeddingSource
-	now       func() string
+	repo         repository.Store
+	pii          *PIIFilter
+	embedder     EmbeddingSource
+	memoryL4     L4FactExtractionSource
+	now          func() string
 	scopeWeights map[domain.ScopeType]float64
 }
 
@@ -44,6 +45,12 @@ type MemoryL3Service struct {
 // service usable in tests where embeddings are stubbed.
 type EmbeddingSource interface {
 	Embed(ctx context.Context, model, text string) ([]float32, error)
+}
+
+// L4FactExtractionSource is the narrow dependency used to keep the L3 -> L4
+// extraction hook best-effort and acyclic.
+type L4FactExtractionSource interface {
+	ExtractFromFact(ctx context.Context, factID string) (ExtractionReport, error)
 }
 
 // FactListResult is the wire shape of GET §6.2 list endpoints.
@@ -111,6 +118,10 @@ func NewMemoryL3Service(repo repository.Store) *MemoryL3Service {
 // SetEmbeddingSource wires the embedding provider used by Recall and
 // BuildEmbedding. Nil disables the vector path (BM25 still works).
 func (s *MemoryL3Service) SetEmbeddingSource(src EmbeddingSource) { s.embedder = src }
+
+// SetL4ExtractionSource wires L4 dictionary/entity extraction after L3 fact
+// writes. Extraction failures are audited but never block the fact write.
+func (s *MemoryL3Service) SetL4ExtractionSource(src L4FactExtractionSource) { s.memoryL4 = src }
 
 // SetClock overrides the clock for tests.
 func (s *MemoryL3Service) SetClock(now func() string) {
@@ -235,7 +246,12 @@ func (s *MemoryL3Service) UpsertFact(ctx context.Context, in domain.FactUpsertIn
 			"reason": "fingerprint_match",
 			"by":     in.By,
 		})
-		return s.repo.GetFact(existing.ID)
+		updated, err := s.repo.GetFact(existing.ID)
+		if err != nil {
+			return domain.MemoryFact{}, err
+		}
+		s.extractFactToL4(ctx, updated.ID)
+		return updated, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return domain.MemoryFact{}, err
@@ -287,6 +303,7 @@ func (s *MemoryL3Service) UpsertFact(ctx context.Context, in domain.FactUpsertIn
 		"reason": "create",
 		"by":     in.By,
 	})
+	s.extractFactToL4(ctx, created.ID)
 	return created, nil
 }
 
@@ -380,7 +397,12 @@ func (s *MemoryL3Service) UpdateFact(ctx context.Context, id string, patch FactP
 		"by":     patch.By,
 		"reason": patch.Reason,
 	})
-	return s.repo.GetFact(fact.ID)
+	updated, err := s.repo.GetFact(fact.ID)
+	if err != nil {
+		return domain.MemoryFact{}, err
+	}
+	s.extractFactToL4(ctx, updated.ID)
+	return updated, nil
 }
 
 // DeleteFact soft-deletes a fact and removes it from the indexes.
@@ -486,6 +508,9 @@ func (s *MemoryL3Service) Recall(ctx context.Context, q domain.FactRecallQuery) 
 		includes = []domain.ScopeType{domain.ScopeAgent, domain.ScopeUser, domain.ScopeTeam, domain.ScopeWorkspace}
 	}
 	scopes, scopeIDs := s.expandScopes(includes, q)
+	if len(scopes) == 0 {
+		return nil, nil
+	}
 
 	queryText := strings.TrimSpace(q.Query)
 	wantVector := len(q.QueryEmbedding) > 0
@@ -816,17 +841,30 @@ func (s *MemoryL3Service) RenderForPrompt(ctx context.Context, hits []domain.Fac
 // the agent runtime settings (top_k / min_score / scopes / max_chars) so
 // L0 doesn't need to know any L3 internals.
 func (s *MemoryL3Service) RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
-	_ = sessionID
-	if strings.TrimSpace(query) == "" {
+	return s.RecallSegmentForL0WithContext(ctx, domain.L0MemoryScopeContext{
+		SessionID: sessionID,
+		AgentID:   agentID,
+		Query:     query,
+	})
+}
+
+// RecallSegmentForL0WithContext is the context-rich L0 seam. It includes
+// user/team/workspace scope IDs so settings such as
+// `l3_recall_scopes_json=["agent","team","workspace"]` work in normal chat.
+func (s *MemoryL3Service) RecallSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
+	if strings.TrimSpace(scope.Query) == "" {
 		return domain.L0Segment{}, false
 	}
-	settings, _ := s.repo.GetAgentRuntimeSettings(agentID)
+	settings, _ := s.repo.GetAgentRuntimeSettings(scope.AgentID)
 	if !settings.L3Enabled {
 		return domain.L0Segment{}, false
 	}
 	q := domain.FactRecallQuery{
-		AgentID:       agentID,
-		Query:         query,
+		WorkspaceID:   scope.WorkspaceID,
+		UserID:        scope.UserID,
+		TeamID:        scope.TeamID,
+		AgentID:       scope.AgentID,
+		Query:         scope.Query,
 		IncludeScopes: parseScopeList(settings.L3RecallScopesJSON),
 		TopK:          firstPositive(settings.L3RecallTopK, 5),
 		MinScore:      firstPositiveFloat(settings.L3RecallMinScore, 0.55),
@@ -883,6 +921,23 @@ func (s *MemoryL3Service) refreshFTS(f domain.MemoryFact) error {
 		parts = append(parts, strings.Join(f.Tags, " "))
 	}
 	return s.repo.UpsertFactsFTS(f.ID, f.ScopeType, f.ScopeID, string(f.Kind), strings.Join(parts, " "))
+}
+
+func (s *MemoryL3Service) extractFactToL4(ctx context.Context, factID string) {
+	if s.memoryL4 == nil || factID == "" {
+		return
+	}
+	report, err := s.memoryL4.ExtractFromFact(ctx, factID)
+	if err != nil {
+		_ = s.audit("memory.l3.l4_extract_failed", "memory_facts", factID, map[string]any{"error": err.Error()})
+		return
+	}
+	_ = s.audit("memory.l3.l4_extract", "memory_facts", factID, map[string]any{
+		"new_entities":     report.NewEntities,
+		"updated_entities": report.UpdatedEntities,
+		"errors":           report.Errors,
+		"note":             report.Note,
+	})
 }
 
 func (s *MemoryL3Service) audit(action, resource, resourceID string, detail map[string]any) error {
@@ -1209,4 +1264,3 @@ func vectorL2Norm(v []float32) float64 {
 	}
 	return math.Sqrt(sum)
 }
-

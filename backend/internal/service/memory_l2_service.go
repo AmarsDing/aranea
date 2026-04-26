@@ -31,6 +31,7 @@ import (
 type MemoryL2Service struct {
 	repo     repository.Store
 	memoryL1 L1SnapshotSource
+	memoryL4 L4EpisodeExtractionSource
 	now      func() string
 }
 
@@ -38,6 +39,13 @@ type MemoryL2Service struct {
 // archiving an L1 task into an episode. Implemented by *MemoryL1Service.
 type L1SnapshotSource interface {
 	SnapshotForEpisode(ctx context.Context, taskID string) (domain.L1Episode, error)
+}
+
+// L4EpisodeExtractionSource is the narrow dependency used to extract graph
+// entities from newly-created episodes without making L2 depend on L4's full
+// service surface.
+type L4EpisodeExtractionSource interface {
+	ExtractFromEpisode(ctx context.Context, episodeID string) (ExtractionReport, error)
 }
 
 // NewMemoryL2Service builds the service over a repository and (optionally)
@@ -50,6 +58,10 @@ func NewMemoryL2Service(repo repository.Store) *MemoryL2Service {
 // SetL1Source attaches an L1 snapshot provider used during ArchiveL1Task.
 // Nil disables L1-derived archival but keeps the milestone path live.
 func (s *MemoryL2Service) SetL1Source(src L1SnapshotSource) { s.memoryL1 = src }
+
+// SetL4ExtractionSource wires L4 extraction after episode writes. Extraction
+// failures are best-effort and never block L2 archival / milestone creation.
+func (s *MemoryL2Service) SetL4ExtractionSource(src L4EpisodeExtractionSource) { s.memoryL4 = src }
 
 // SetClock overrides the clock for tests.
 func (s *MemoryL2Service) SetClock(now func() string) {
@@ -99,10 +111,10 @@ type EpisodeListResult struct {
 // from `memory_event_marks`; recent events come from a window of `ListL2Events`
 // scoped to the same session and bounded by `started_at` / `ended_at`.
 type EpisodeDetail struct {
-	Episode domain.MemoryEpisode    `json:"episode"`
-	Events  []domain.MemoryL2Event  `json:"events,omitempty"`
+	Episode domain.MemoryEpisode     `json:"episode"`
+	Events  []domain.MemoryL2Event   `json:"events,omitempty"`
 	Marks   []domain.MemoryEventMark `json:"marks,omitempty"`
-	Summary string                  `json:"summary,omitempty"`
+	Summary string                   `json:"summary,omitempty"`
 }
 
 // EventListResult is the wire shape of GET §6.2.
@@ -239,6 +251,7 @@ func (s *MemoryL2Service) ArchiveL1Task(ctx context.Context, l1TaskID string) (d
 		// Best-effort: index failures must never block archival.
 		_ = s.BuildIndexFor(ctx, created.ID)
 	}
+	s.extractEpisodeToL4(ctx, created.ID)
 	return created, nil
 }
 
@@ -323,6 +336,7 @@ func (s *MemoryL2Service) CreateMilestoneEpisode(ctx context.Context, in CreateE
 	if settings.IndexEnabled {
 		_ = s.BuildIndexFor(ctx, created.ID)
 	}
+	s.extractEpisodeToL4(ctx, created.ID)
 	return created, nil
 }
 
@@ -768,6 +782,23 @@ func (s *MemoryL2Service) audit(action, resource, resourceID string, detail map[
 	})
 }
 
+func (s *MemoryL2Service) extractEpisodeToL4(ctx context.Context, episodeID string) {
+	if s.memoryL4 == nil || episodeID == "" {
+		return
+	}
+	report, err := s.memoryL4.ExtractFromEpisode(ctx, episodeID)
+	if err != nil {
+		_ = s.audit("l2.l4_extract_failed", "memory_episodes", episodeID, map[string]any{"error": err.Error()})
+		return
+	}
+	_ = s.audit("l2.l4_extract", "memory_episodes", episodeID, map[string]any{
+		"new_entities":     report.NewEntities,
+		"updated_entities": report.UpdatedEntities,
+		"errors":           report.Errors,
+		"note":             report.Note,
+	})
+}
+
 // --- Pure helpers -----------------------------------------------------------
 
 // l2SessionStats aggregates quick counters for an episode header.
@@ -861,7 +892,7 @@ func extractKeyDecisionsArtifacts(snap domain.L1Episode) ([]domain.L2KeyDecision
 		switch {
 		case strings.HasPrefix(path, "decisions."):
 			decisions = append(decisions, domain.L2KeyDecision{
-				Decision: strings.TrimPrefix(path, "decisions."),
+				Decision:  strings.TrimPrefix(path, "decisions."),
 				Rationale: value,
 				At:        fmt.Sprintf("%v", entry["updated_at"]),
 			})

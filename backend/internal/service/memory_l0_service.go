@@ -51,7 +51,7 @@ type L2RecallSource interface {
 // *MemoryL3Service. The seam keeps the L0 happy path branch-free when the
 // recall feature is disabled (default in agent_runtime_settings).
 type L3RecallSource interface {
-	RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool)
+	RecallSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool)
 }
 
 // L4RecallSource is the narrow contract MemoryL0Service uses to render
@@ -60,7 +60,7 @@ type L3RecallSource interface {
 // *MemoryL4Service. The seam keeps the L0 happy path branch-free when
 // the recall feature is disabled (default in agent_runtime_settings).
 type L4RecallSource interface {
-	NeighborhoodSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool)
+	NeighborhoodSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool)
 }
 
 // EvolutionPromptSource is the narrow contract MemoryL0Service uses to
@@ -211,13 +211,14 @@ func (s *MemoryL0Service) assemble(ctx context.Context, req domain.L0AssemblyReq
 	if seg, ok := s.buildL2Segment(ctx, req.SessionID, req.AgentID, req.UserMessage); ok {
 		segments = append(segments, seg)
 	}
+	scope := s.memoryScopeContext(req)
 	if settings.InjectL3 {
-		if seg, ok := s.buildL3Segment(ctx, req.SessionID, req.AgentID, req.UserMessage); ok {
+		if seg, ok := s.buildL3Segment(ctx, scope); ok {
 			segments = append(segments, seg)
 		}
 	}
 	if settings.InjectL4 {
-		if seg, ok := s.buildL4Segment(ctx, req.SessionID, req.AgentID, req.UserMessage); ok {
+		if seg, ok := s.buildL4Segment(ctx, scope); ok {
 			segments = append(segments, seg)
 		}
 	}
@@ -479,11 +480,11 @@ func (s *MemoryL0Service) buildL2Segment(ctx context.Context, sessionID, agentID
 // service itself enforces the `l3_enabled` flag, scope filters, top-k and
 // per-recall char budget so this method only has to translate "no source"
 // / "no hits" into ok=false.
-func (s *MemoryL0Service) buildL3Segment(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
+func (s *MemoryL0Service) buildL3Segment(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
 	if s.memoryL3 == nil {
 		return domain.L0Segment{}, false
 	}
-	return s.memoryL3.RecallSegmentForL0(ctx, sessionID, agentID, query)
+	return s.memoryL3.RecallSegmentForL0WithContext(ctx, scope)
 }
 
 // buildL4Segment delegates to the configured L4RecallSource. The
@@ -491,11 +492,36 @@ func (s *MemoryL0Service) buildL3Segment(ctx context.Context, sessionID, agentID
 // `l4_graph_inject_neighbors` and the per-agent neighborhood budget so
 // this method only has to translate "no source" / "no center" into
 // ok=false.
-func (s *MemoryL0Service) buildL4Segment(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
+func (s *MemoryL0Service) buildL4Segment(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
 	if s.memoryL4 == nil {
 		return domain.L0Segment{}, false
 	}
-	return s.memoryL4.NeighborhoodSegmentForL0(ctx, sessionID, agentID, query)
+	return s.memoryL4.NeighborhoodSegmentForL0WithContext(ctx, scope)
+}
+
+func (s *MemoryL0Service) memoryScopeContext(req domain.L0AssemblyRequest) domain.L0MemoryScopeContext {
+	scope := domain.L0MemoryScopeContext{
+		SessionID:   req.SessionID,
+		AgentID:     req.AgentID,
+		TeamID:      req.TeamID,
+		UserID:      req.UserID,
+		WorkspaceID: req.WorkspaceID,
+		Query:       req.UserMessage,
+	}
+	if req.SessionID == "" {
+		return scope
+	}
+	session, err := s.repo.GetSessionByID(req.SessionID)
+	if err != nil {
+		return scope
+	}
+	if scope.AgentID == "" {
+		scope.AgentID = session.AgentID
+	}
+	if scope.TeamID == "" {
+		scope.TeamID = session.TeamID
+	}
+	return scope
 }
 
 func (s *MemoryL0Service) buildSummarySegment(summaries []domain.SessionSummary) (domain.L0Segment, int, int, bool) {

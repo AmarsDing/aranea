@@ -49,44 +49,44 @@ func (s *MemoryL4Service) SetClock(now func() string) {
 // POST/PATCH path and the extraction pipeline. NameNormalized is computed
 // when empty.
 type EntityUpsertInput struct {
-	ID          string                `json:"id,omitempty"`
-	ScopeType   domain.ScopeType      `json:"scope_type"`
-	ScopeID     string                `json:"scope_id"`
-	WorkspaceID string                `json:"workspace_id,omitempty"`
-	UserID      string                `json:"user_id,omitempty"`
-	EntityType  domain.EntityType     `json:"entity_type"`
-	Name        string                `json:"name"`
-	Aliases     []string              `json:"aliases,omitempty"`
-	Description string                `json:"description,omitempty"`
-	Attributes  map[string]any        `json:"attributes,omitempty"`
-	Importance  float64               `json:"importance,omitempty"`
-	Confidence  float64               `json:"confidence,omitempty"`
-	SourceKind  string                `json:"source_kind,omitempty"`
-	Evidence    []domain.EvidenceRef  `json:"evidence,omitempty"`
-	Metadata    map[string]any        `json:"metadata,omitempty"`
-	By          string                `json:"by,omitempty"`
-	Reason      string                `json:"reason,omitempty"`
+	ID          string               `json:"id,omitempty"`
+	ScopeType   domain.ScopeType     `json:"scope_type"`
+	ScopeID     string               `json:"scope_id"`
+	WorkspaceID string               `json:"workspace_id,omitempty"`
+	UserID      string               `json:"user_id,omitempty"`
+	EntityType  domain.EntityType    `json:"entity_type"`
+	Name        string               `json:"name"`
+	Aliases     []string             `json:"aliases,omitempty"`
+	Description string               `json:"description,omitempty"`
+	Attributes  map[string]any       `json:"attributes,omitempty"`
+	Importance  float64              `json:"importance,omitempty"`
+	Confidence  float64              `json:"confidence,omitempty"`
+	SourceKind  string               `json:"source_kind,omitempty"`
+	Evidence    []domain.EvidenceRef `json:"evidence,omitempty"`
+	Metadata    map[string]any       `json:"metadata,omitempty"`
+	By          string               `json:"by,omitempty"`
+	Reason      string               `json:"reason,omitempty"`
 }
 
 // RelationUpsertInput is the parameter object accepted by both the HTTP
 // POST path and the extraction pipeline.
 type RelationUpsertInput struct {
-	ID            string                `json:"id,omitempty"`
-	ScopeType     domain.ScopeType      `json:"scope_type"`
-	ScopeID       string                `json:"scope_id"`
-	WorkspaceID   string                `json:"workspace_id,omitempty"`
-	SourceID      string                `json:"source_id"`
-	TargetID      string                `json:"target_id"`
-	RelationType  domain.RelationType   `json:"relation_type"`
-	Bidirectional bool                  `json:"bidirectional,omitempty"`
-	Weight        float64               `json:"weight,omitempty"`
-	Confidence    float64               `json:"confidence,omitempty"`
-	Importance    float64               `json:"importance,omitempty"`
-	Attributes    map[string]any        `json:"attributes,omitempty"`
-	Evidence      []domain.EvidenceRef  `json:"evidence,omitempty"`
-	SourceKind    string                `json:"source_kind,omitempty"`
-	By            string                `json:"by,omitempty"`
-	Reason        string                `json:"reason,omitempty"`
+	ID            string               `json:"id,omitempty"`
+	ScopeType     domain.ScopeType     `json:"scope_type"`
+	ScopeID       string               `json:"scope_id"`
+	WorkspaceID   string               `json:"workspace_id,omitempty"`
+	SourceID      string               `json:"source_id"`
+	TargetID      string               `json:"target_id"`
+	RelationType  domain.RelationType  `json:"relation_type"`
+	Bidirectional bool                 `json:"bidirectional,omitempty"`
+	Weight        float64              `json:"weight,omitempty"`
+	Confidence    float64              `json:"confidence,omitempty"`
+	Importance    float64              `json:"importance,omitempty"`
+	Attributes    map[string]any       `json:"attributes,omitempty"`
+	Evidence      []domain.EvidenceRef `json:"evidence,omitempty"`
+	SourceKind    string               `json:"source_kind,omitempty"`
+	By            string               `json:"by,omitempty"`
+	Reason        string               `json:"reason,omitempty"`
 }
 
 // EntityListResult is the wire shape of GET §6.2 list endpoints.
@@ -748,11 +748,20 @@ func (s *MemoryL4Service) RenderForPrompt(n domain.GraphNeighborhood, maxChars i
 // no candidate entity matches, or the neighborhood renders to an empty
 // block — so L0 simply omits the segment.
 func (s *MemoryL4Service) NeighborhoodSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
-	_ = sessionID
-	if strings.TrimSpace(query) == "" || agentID == "" {
+	return s.NeighborhoodSegmentForL0WithContext(ctx, domain.L0MemoryScopeContext{
+		SessionID: sessionID,
+		AgentID:   agentID,
+		Query:     query,
+	})
+}
+
+// NeighborhoodSegmentForL0WithContext is the context-rich L0 seam. Team,
+// user, and workspace scope IDs are used when choosing the center entity.
+func (s *MemoryL4Service) NeighborhoodSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
+	if strings.TrimSpace(scope.Query) == "" || scope.AgentID == "" {
 		return domain.L0Segment{}, false
 	}
-	settings, _ := s.repo.GetAgentRuntimeSettings(agentID)
+	settings, _ := s.repo.GetAgentRuntimeSettings(scope.AgentID)
 	if !settings.L4Enabled || !settings.L4GraphInjectNeighbors {
 		return domain.L0Segment{}, false
 	}
@@ -766,7 +775,7 @@ func (s *MemoryL4Service) NeighborhoodSegmentForL0(ctx context.Context, sessionI
 		maxNodes = 20
 	}
 
-	center, ok := s.findCenterEntity(agentID, query)
+	center, ok := s.findCenterEntity(scope, scope.Query)
 	if !ok {
 		return domain.L0Segment{}, false
 	}
@@ -799,14 +808,18 @@ func (s *MemoryL4Service) NeighborhoodSegmentForL0(ctx context.Context, sessionI
 // workspace → user → global) and returns the first active entity whose
 // name / aliases / description match the query. Phase 2's attention
 // pipeline will replace this keyword search with vector recall.
-func (s *MemoryL4Service) findCenterEntity(agentID, query string) (domain.MemoryEntity, bool) {
+func (s *MemoryL4Service) findCenterEntity(scope domain.L0MemoryScopeContext, query string) (domain.MemoryEntity, bool) {
 	candidates := []repository.EntityListQuery{
-		{ScopeType: domain.ScopeAgent, ScopeID: agentID},
-		{ScopeType: domain.ScopeWorkspace},
-		{ScopeType: domain.ScopeUser},
+		{ScopeType: domain.ScopeAgent, ScopeID: scope.AgentID},
+		{ScopeType: domain.ScopeTeam, ScopeID: scope.TeamID},
+		{ScopeType: domain.ScopeWorkspace, ScopeID: scope.WorkspaceID},
+		{ScopeType: domain.ScopeUser, ScopeID: scope.UserID},
 		{ScopeType: domain.ScopeGlobal},
 	}
 	for _, q := range candidates {
+		if q.ScopeType != domain.ScopeGlobal && q.ScopeID == "" {
+			continue
+		}
 		q.Status = domain.EntityStatusActive
 		q.Keyword = query
 		q.Limit = 1
@@ -888,4 +901,3 @@ func defaultIfEmpty(v, def string) string {
 	}
 	return v
 }
-

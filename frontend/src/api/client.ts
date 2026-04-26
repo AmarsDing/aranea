@@ -850,6 +850,109 @@ export type MemoryFactListResult = {
   offset: number;
 };
 
+export type MemoryEntity = {
+  id: string;
+  scope_type: string;
+  scope_id: string;
+  workspace_id?: string;
+  user_id?: string;
+  entity_type: string;
+  name: string;
+  name_normalized?: string;
+  aliases?: string[];
+  description?: string;
+  importance: number;
+  confidence: number;
+  use_count: number;
+  source_kind: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MemoryRelation = {
+  id: string;
+  source_id: string;
+  target_id: string;
+  relation_type: string;
+  weight: number;
+  confidence: number;
+  status: string;
+};
+
+export type GraphNeighborhood = {
+  center: MemoryEntity;
+  hops: number;
+  entities: MemoryEntity[];
+  relations: MemoryRelation[];
+};
+
+export type AgentIdentity = {
+  agent_id: string;
+  persona: string;
+  values: string[];
+  tone: string;
+  domains: string[];
+  user_expectations: string;
+  current_phase: string;
+  version: number;
+};
+
+export type AgentStrategyProfile = {
+  agent_id: string;
+  exploration: number;
+  conciseness: number;
+  caution: number;
+  delegation: number;
+  tool_preference: Record<string, number>;
+  tool_blacklist: string[];
+  provider_preference: Record<string, number>;
+  model_preference: Record<string, number>;
+  version: number;
+};
+
+export type EvolutionProposal = {
+  id: string;
+  agent_id: string;
+  proposal_kind?: string;
+  kind?: string;
+  target_field: string;
+  rationale: string;
+  expected_impact: string;
+  risk_level: string;
+  status: string;
+  created_at: string;
+};
+
+export type EvolutionEvent = {
+  id: string;
+  agent_id: string;
+  event_kind?: string;
+  kind?: string;
+  target_field: string;
+  reason: string;
+  reverted: boolean;
+  created_at: string;
+};
+
+export type EvolutionMetricsReport = {
+  events_total: number;
+  events_reverted: number;
+  proposals_total: number;
+  proposals_by_status: Record<string, number>;
+  skill_stats: AgentSkillStat[];
+};
+
+export type AgentSkillStat = {
+  agent_id: string;
+  tool_key: string;
+  invocations: number;
+  successes: number;
+  failures: number;
+  preference_score: number;
+  last_used_at: string;
+};
+
 export async function listL0Snapshots(sessionID: string, limit = 20): Promise<L0AssemblySnapshot[]> {
   const { data } = await api.get(`/sessions/${sessionID}/l0/snapshots`, { params: { limit } });
   return data.items ?? [];
@@ -874,4 +977,40 @@ export async function listMemoryFacts(query: MemoryFactListQuery = {}): Promise<
     limit: data.limit ?? query.limit ?? items.length,
     offset: data.offset ?? query.offset ?? 0
   };
+}
+
+export async function listMemoryEntities(query: Record<string, string | number | undefined> = {}): Promise<{ items: MemoryEntity[]; total: number }> {
+  const { data } = await api.get("/memory/l4/entities", { params: query });
+  const items = data.items ?? [];
+  return { items, total: data.total ?? items.length };
+}
+
+export async function getMemoryNeighborhood(centerID: string, params: { hops?: number; max_nodes?: number } = {}): Promise<GraphNeighborhood> {
+  const { data } = await api.get(`/memory/l4/entities/${centerID}/neighborhood`, { params });
+  return data;
+}
+
+export async function getAgentIdentity(agentID: string): Promise<AgentIdentity> {
+  const { data } = await api.get(`/agents/${agentID}/identity`);
+  return data;
+}
+
+export async function getAgentStrategy(agentID: string): Promise<AgentStrategyProfile> {
+  const { data } = await api.get(`/agents/${agentID}/strategy`);
+  return data;
+}
+
+export async function listEvolutionProposals(agentID: string, params: { status?: string; limit?: number } = {}): Promise<EvolutionProposal[]> {
+  const { data } = await api.get(`/agents/${agentID}/evolution/proposals`, { params });
+  return data.items ?? [];
+}
+
+export async function listEvolutionEvents(agentID: string, params: { limit?: number } = {}): Promise<EvolutionEvent[]> {
+  const { data } = await api.get(`/agents/${agentID}/evolution/events`, { params });
+  return data.items ?? [];
+}
+
+export async function getEvolutionMetrics(agentID: string, range = "30d"): Promise<EvolutionMetricsReport> {
+  const { data } = await api.get(`/agents/${agentID}/evolution/metrics`, { params: { range } });
+  return data;
 }

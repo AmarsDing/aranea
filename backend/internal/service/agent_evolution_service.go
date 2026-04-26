@@ -149,27 +149,54 @@ type EvolutionProposalListResult struct {
 	Offset int                        `json:"offset"`
 }
 
+type EvolutionMetricsReport struct {
+	EventsTotal       int                     `json:"events_total"`
+	EventsReverted    int                     `json:"events_reverted"`
+	ProposalsTotal    int                     `json:"proposals_total"`
+	ProposalsByStatus map[string]int          `json:"proposals_by_status"`
+	SkillStats        []domain.AgentSkillStat `json:"skill_stats"`
+}
+
+type EvolutionSuggestion struct {
+	ID             string `json:"id"`
+	Kind           string `json:"kind"`
+	TargetField    string `json:"target_field"`
+	Rationale      string `json:"rationale"`
+	ExpectedImpact string `json:"expected_impact"`
+	RiskLevel      string `json:"risk_level"`
+	Status         string `json:"status"`
+	CreatedAt      string `json:"created_at"`
+}
+
+type EvolutionTrainingExample struct {
+	Prompt     string  `json:"prompt"`
+	Completion string  `json:"completion"`
+	Score      float64 `json:"score"`
+	EventID    string  `json:"event_id,omitempty"`
+	ProposalID string  `json:"proposal_id,omitempty"`
+}
+
 // allowedTargetFields enumerates the §5.6 / §11 whitelist of fields a
 // proposal / apply call may touch. Anything outside this list is
 // rejected to prevent self-evolution from escaping into security-critical
 // settings (RBAC, mcp credentials, base system prompt, etc).
 var allowedTargetFields = map[string]struct{}{
-	"identity.persona":            {},
-	"identity.tone":               {},
-	"identity.values":             {},
-	"identity.domains":            {},
-	"identity.user_expectations":  {},
-	"identity.current_phase":      {},
-	"strategy.exploration":        {},
-	"strategy.conciseness":        {},
-	"strategy.caution":            {},
-	"strategy.delegation":         {},
-	"strategy.tool_preference":    {},
-	"strategy.tool_blacklist":     {},
+	"identity.persona":             {},
+	"identity.tone":                {},
+	"identity.values":              {},
+	"identity.domains":             {},
+	"identity.user_expectations":   {},
+	"identity.current_phase":       {},
+	"strategy.exploration":         {},
+	"strategy.conciseness":         {},
+	"strategy.caution":             {},
+	"strategy.delegation":          {},
+	"strategy.tool_preference":     {},
+	"strategy.tool_blacklist":      {},
 	"strategy.provider_preference": {},
-	"strategy.model_preference":   {},
-	"system_prompt_append":        {},
-	"tool_whitelist_diff":         {},
+	"strategy.model_preference":    {},
+	"system_prompt_append":         {},
+	"tool_whitelist_diff":          {},
 }
 
 // --- Identity ---------------------------------------------------------------
@@ -457,6 +484,96 @@ func (s *AgentEvolutionService) ListProposals(ctx context.Context, agentID, stat
 		q.Limit = 50
 	}
 	return EvolutionProposalListResult{Items: items, Total: total, Limit: q.Limit, Offset: q.Offset}, nil
+}
+
+func (s *AgentEvolutionService) GetProposal(ctx context.Context, id string) (domain.EvolutionProposal, error) {
+	if id == "" {
+		return domain.EvolutionProposal{}, validationError("proposal id is required")
+	}
+	return s.repo.GetEvolutionProposal(id)
+}
+
+func (s *AgentEvolutionService) Metrics(ctx context.Context, agentID, rangeKey string) (EvolutionMetricsReport, error) {
+	if agentID == "" {
+		return EvolutionMetricsReport{}, validationError("agent id is required")
+	}
+	events, _, err := s.repo.ListEvolutionEvents(repository.EvolutionEventQuery{AgentID: agentID, Limit: 500})
+	if err != nil {
+		return EvolutionMetricsReport{}, err
+	}
+	proposals, _, err := s.repo.ListEvolutionProposals(repository.EvolutionProposalQuery{AgentID: agentID, Limit: 500})
+	if err != nil {
+		return EvolutionMetricsReport{}, err
+	}
+	stats, _ := s.repo.ListAgentSkillStats(agentID, 20)
+	out := EvolutionMetricsReport{
+		EventsTotal:       len(events),
+		ProposalsTotal:    len(proposals),
+		ProposalsByStatus: map[string]int{},
+		SkillStats:        stats,
+	}
+	for _, ev := range events {
+		if ev.Reverted {
+			out.EventsReverted++
+		}
+	}
+	for _, p := range proposals {
+		out.ProposalsByStatus[p.Status]++
+	}
+	_ = ctx
+	_ = rangeKey
+	return out, nil
+}
+
+func (s *AgentEvolutionService) Suggestions(ctx context.Context, agentID, rangeKey string, limit int) ([]EvolutionSuggestion, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	props, _, err := s.repo.ListEvolutionProposals(repository.EvolutionProposalQuery{AgentID: agentID, Status: domain.EvoProposalPending, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EvolutionSuggestion, 0, len(props))
+	for _, p := range props {
+		out = append(out, EvolutionSuggestion{
+			ID:             p.ID,
+			Kind:           p.Kind,
+			TargetField:    p.TargetField,
+			Rationale:      p.Rationale,
+			ExpectedImpact: p.ExpectedImpact,
+			RiskLevel:      p.RiskLevel,
+			Status:         p.Status,
+			CreatedAt:      p.CreatedAt,
+		})
+	}
+	_ = ctx
+	_ = rangeKey
+	return out, nil
+}
+
+func (s *AgentEvolutionService) TrainingData(ctx context.Context, agentID string, limit int) ([]EvolutionTrainingExample, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	events, _, err := s.repo.ListEvolutionEvents(repository.EvolutionEventQuery{AgentID: agentID, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EvolutionTrainingExample, 0, len(events))
+	for _, ev := range events {
+		score := 1.0
+		if ev.Reverted {
+			score = 0.0
+		}
+		out = append(out, EvolutionTrainingExample{
+			Prompt:     fmt.Sprintf("target=%s reason=%s before=%s", ev.TargetField, ev.Reason, ev.BeforeJSON),
+			Completion: ev.AfterJSON,
+			Score:      score,
+			EventID:    ev.ID,
+		})
+	}
+	_ = ctx
+	return out, nil
 }
 
 // Approve transitions a pending proposal to applied: it reads the
