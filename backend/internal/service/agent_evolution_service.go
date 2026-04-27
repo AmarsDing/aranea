@@ -1,15 +1,10 @@
-// Package service – AgentEvolutionService is the L4 self-evolution
-// façade described in `aranea/docs/16 memory-L4-persistent.md`. Phase 3
-// ships identity / strategy CRUD, proposal & event lifecycle (propose →
-// approve → apply / reject / revert), the BuildSelfPromptAppend and
-// ResolveToolWhitelist / ResolveModelRouting helpers used by ChatService,
-// and a stubbed RunEvolutionScan that returns an empty report so the
-// HTTP handler can be wired now.
+// Package service – AgentEvolutionService 为 L4 自进化门面，
+// 见 `aranea/docs/16 memory-L4-persistent.md`。第三阶段提供
+// 身份/策略 CRUD、提案与事件生命周期（propose → approve → apply/reject/revert）、
+// ChatService 使用的 BuildSelfPromptAppend 与 ResolveToolWhitelist/ResolveModelRouting 辅助，
+// 以及桩版 RunEvolutionScan（返回空报告）以便先接线 HTTP。
 //
-// The service is intentionally synchronous: the auto-scan worker is
-// scheduled by the caller (cmd/server). All mutating operations write
-// an audit log entry plus an EvolutionEvent so administrators can
-// reconstruct who changed what.
+// 本服务刻意同步：自动扫描由调用方（cmd/server）调度。所有写操作写审计并记 EvolutionEvent，便于管理员还原变更者。
 package service
 
 import (
@@ -24,42 +19,35 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// AgentEvolutionService owns identity / strategy CRUD plus the proposal
-// / event lifecycle. The L2 episode source and L3 fact source are
-// optional dependencies wired in by ChatService; the Phase 1 scan stub
-// works without them.
+// AgentEvolutionService 负责身份/策略 CRUD 及提案/事件生命周期。L2 情节源与 L3 事实源为 ChatService 可选依赖；第一阶段扫描桩可不接。
 type AgentEvolutionService struct {
 	repo repository.Store
 	pii  *PIIFilter
 	now  func() string
 }
 
-// NewAgentEvolutionService builds a service over a repository. Callers
-// may inject a PII filter via SetPIIFilter; otherwise the default regex
-// filter is used.
+// NewAgentEvolutionService 在仓库上构建服务。可经 SetPIIFilter 注入 PII 过滤器；否则用默认正则过滤器。
 func NewAgentEvolutionService(repo repository.Store) *AgentEvolutionService {
 	return &AgentEvolutionService{repo: repo, pii: NewPIIFilter(), now: nowUTC}
 }
 
-// SetClock overrides the clock for tests.
+// SetClock 覆盖时钟供测试使用。
 func (s *AgentEvolutionService) SetClock(now func() string) {
 	if now != nil {
 		s.now = now
 	}
 }
 
-// SetPIIFilter replaces the persona / values PII filter.
+// SetPIIFilter 替换人格/价值观 PII 过滤器。
 func (s *AgentEvolutionService) SetPIIFilter(p *PIIFilter) {
 	if p != nil {
 		s.pii = p
 	}
 }
 
-// --- Inputs / outputs --------------------------------------------------------
+// --- 输入/输出 ----------------------------------------------------------------
 
-// IdentityPatch is the partial update payload for §6.4 PATCH identity.
-// Pointers signal "field present"; nil leaves the existing value
-// untouched.
+// IdentityPatch 为 §6.4 PATCH 身份的部分更新载荷。指针表示「字段有值」；nil 不改动原值。
 type IdentityPatch struct {
 	Persona          *string   `json:"persona,omitempty"`
 	Values           *[]string `json:"values,omitempty"`
@@ -71,7 +59,7 @@ type IdentityPatch struct {
 	Reason           string    `json:"reason,omitempty"`
 }
 
-// StrategyPatch is the partial update payload for §6.4 PATCH strategy.
+// StrategyPatch 为 §6.4 PATCH 策略的部分更新载荷。
 type StrategyPatch struct {
 	Exploration        *float64           `json:"exploration,omitempty"`
 	Conciseness        *float64           `json:"conciseness,omitempty"`
@@ -85,7 +73,7 @@ type StrategyPatch struct {
 	Reason             string             `json:"reason,omitempty"`
 }
 
-// ProposalInput is the parameter object for §6.4 POST proposals.
+// ProposalInput 为 §6.4 POST 提案的参数对象。
 type ProposalInput struct {
 	AgentID          string               `json:"agent_id"`
 	WorkspaceID      string               `json:"workspace_id,omitempty"`
@@ -102,7 +90,7 @@ type ProposalInput struct {
 	TTLDays          int                  `json:"ttl_days,omitempty"`
 }
 
-// ApplyInput is the parameter object for §5.6 Apply.
+// ApplyInput 为 §5.6 Apply 的参数对象。
 type ApplyInput struct {
 	AgentID       string               `json:"agent_id"`
 	Kind          string               `json:"event_kind"`
@@ -116,7 +104,7 @@ type ApplyInput struct {
 	By            string               `json:"by,omitempty"`
 }
 
-// ScanReport summarises a §5.5 RunEvolutionScan call.
+// ScanReport 汇总 §5.5 RunEvolutionScan 调用。
 type ScanReport struct {
 	EpisodesScanned    int    `json:"episodes_scanned"`
 	NewProposals       int    `json:"new_proposals"`
@@ -126,14 +114,14 @@ type ScanReport struct {
 	Note               string `json:"note,omitempty"`
 }
 
-// ModelCandidate mirrors the §5.4 type used by ResolveModelRouting.
+// ModelCandidate 与 ResolveModelRouting 使用的 §5.4 类型一致。
 type ModelCandidate struct {
 	ProviderKey string  `json:"provider_key"`
 	Model       string  `json:"model"`
 	BaseScore   float64 `json:"base_score"`
 }
 
-// EvolutionEventListResult is the wire shape of GET §6.4 events.
+// EvolutionEventListResult 为 GET §6.4 事件的线形状。
 type EvolutionEventListResult struct {
 	Items  []domain.EvolutionEvent `json:"items"`
 	Total  int                     `json:"total"`
@@ -141,7 +129,7 @@ type EvolutionEventListResult struct {
 	Offset int                     `json:"offset"`
 }
 
-// EvolutionProposalListResult is the wire shape of GET §6.4 proposals.
+// EvolutionProposalListResult 为 GET §6.4 提案的线形状。
 type EvolutionProposalListResult struct {
 	Items  []domain.EvolutionProposal `json:"items"`
 	Total  int                        `json:"total"`
@@ -176,10 +164,7 @@ type EvolutionTrainingExample struct {
 	ProposalID string  `json:"proposal_id,omitempty"`
 }
 
-// allowedTargetFields enumerates the §5.6 / §11 whitelist of fields a
-// proposal / apply call may touch. Anything outside this list is
-// rejected to prevent self-evolution from escaping into security-critical
-// settings (RBAC, mcp credentials, base system prompt, etc).
+// allowedTargetFields 列出 §5.6/§11 中提案/apply 可触碰字段白名单。列表外一律拒绝，防止自进化越权到安全关键设置（RBAC、mcp 凭据、基础系统提示等）。
 var allowedTargetFields = map[string]struct{}{
 	"identity.persona":             {},
 	"identity.tone":                {},
@@ -199,10 +184,9 @@ var allowedTargetFields = map[string]struct{}{
 	"tool_whitelist_diff":          {},
 }
 
-// --- Identity ---------------------------------------------------------------
+// --- 身份 --------------------------------------------------------------------
 
-// GetIdentity returns the agent's current identity, lazily creating an
-// empty cold-start row when none exists yet.
+// GetIdentity 返回智能体当前身份，若无则惰性创建冷启动空行。
 func (s *AgentEvolutionService) GetIdentity(ctx context.Context, agentID string) (domain.AgentIdentity, error) {
 	if agentID == "" {
 		return domain.AgentIdentity{}, validationError("agent id is required")
@@ -222,8 +206,7 @@ func (s *AgentEvolutionService) GetIdentity(ctx context.Context, agentID string)
 	return s.repo.UpsertAgentIdentity(id)
 }
 
-// UpdateIdentity applies a patch and writes one EvolutionEvent per
-// changed field so the timeline stays granular.
+// UpdateIdentity 应用补丁，每变更字段写一条 EvolutionEvent，时间线保持细粒度。
 func (s *AgentEvolutionService) UpdateIdentity(ctx context.Context, agentID string, patch IdentityPatch) (domain.AgentIdentity, error) {
 	if agentID == "" {
 		return domain.AgentIdentity{}, validationError("agent id is required")
@@ -297,10 +280,9 @@ func (s *AgentEvolutionService) UpdateIdentity(ctx context.Context, agentID stri
 	return stored, nil
 }
 
-// --- Strategy ---------------------------------------------------------------
+// --- 策略 --------------------------------------------------------------------
 
-// GetStrategy returns the agent's current strategy profile, lazily
-// creating an empty row at version 1 when none exists.
+// GetStrategy 返回智能体当前策略画像，若无则惰性创建 version=1 的空行。
 func (s *AgentEvolutionService) GetStrategy(ctx context.Context, agentID string) (domain.AgentStrategyProfile, error) {
 	if agentID == "" {
 		return domain.AgentStrategyProfile{}, validationError("agent id is required")
@@ -323,8 +305,7 @@ func (s *AgentEvolutionService) GetStrategy(ctx context.Context, agentID string)
 	return s.repo.UpsertAgentStrategyProfile(p)
 }
 
-// UpdateStrategy applies a patch and writes one EvolutionEvent per
-// changed field. Scalar fields are clamped to [0,1].
+// UpdateStrategy 应用补丁，每变更字段写一条 EvolutionEvent。标量字段限制在 [0,1]。
 func (s *AgentEvolutionService) UpdateStrategy(ctx context.Context, agentID string, patch StrategyPatch) (domain.AgentStrategyProfile, error) {
 	if agentID == "" {
 		return domain.AgentStrategyProfile{}, validationError("agent id is required")
@@ -391,11 +372,9 @@ func (s *AgentEvolutionService) UpdateStrategy(ctx context.Context, agentID stri
 	return stored, nil
 }
 
-// --- Proposals ---------------------------------------------------------------
+// --- 提案 --------------------------------------------------------------------
 
-// Propose stores a new EvolutionProposal. Throttling: pending proposals
-// for the same target_field that fall within the agent's
-// `evo_throttle_hours` window are marked superseded.
+// Propose 存储新 EvolutionProposal。节流：同一 target_field 在智能体 `evo_throttle_hours` 窗口内已有待处理提案时，新提案标为 superseded。
 func (s *AgentEvolutionService) Propose(ctx context.Context, in ProposalInput) (domain.EvolutionProposal, error) {
 	if in.AgentID == "" {
 		return domain.EvolutionProposal{}, validationError("agent id is required")
@@ -414,9 +393,7 @@ func (s *AgentEvolutionService) Propose(ctx context.Context, in ProposalInput) (
 	}
 	cutoff := time.Now().UTC().Add(-time.Duration(throttleHours) * time.Hour).Format(time.RFC3339)
 
-	// Throttle: §13 says "24h 内同 target_field 第二次 proposal 被标记
-	// superseded" — i.e. the *new* proposal arriving within the window
-	// is superseded so the earliest one survives.
+	// 节流：§13 称「24h 内同 target_field 第二次 proposal 标 superseded」——即窗口内后到的*新*提案被 superseded，最早一条保留。
 	status := domain.EvoProposalPending
 	recent, _, err := s.repo.ListEvolutionProposals(repository.EvolutionProposalQuery{
 		AgentID:     in.AgentID,
@@ -473,7 +450,7 @@ func (s *AgentEvolutionService) Propose(ctx context.Context, in ProposalInput) (
 	return stored, nil
 }
 
-// ListProposals returns the proposal queue for an agent.
+// ListProposals 返回智能体的提案队列。
 func (s *AgentEvolutionService) ListProposals(ctx context.Context, agentID, status string, limit, offset int) (EvolutionProposalListResult, error) {
 	q := repository.EvolutionProposalQuery{AgentID: agentID, Status: status, Limit: limit, Offset: offset}
 	items, total, err := s.repo.ListEvolutionProposals(q)
@@ -576,9 +553,7 @@ func (s *AgentEvolutionService) TrainingData(ctx context.Context, agentID string
 	return out, nil
 }
 
-// Approve transitions a pending proposal to applied: it reads the
-// proposed value, applies it via the §5.6 path, and marks the proposal
-// as applied with a link to the resulting EvolutionEvent.
+// Approve 将待处理提案转为已应用：读取建议值，经 §5.6 路径应用，并将提案标为已应用且链接到产生的 EvolutionEvent。
 func (s *AgentEvolutionService) Approve(ctx context.Context, proposalID, by string) (domain.EvolutionEvent, error) {
 	if proposalID == "" {
 		return domain.EvolutionEvent{}, validationError("proposal id is required")
@@ -622,7 +597,7 @@ func (s *AgentEvolutionService) Approve(ctx context.Context, proposalID, by stri
 	return event, nil
 }
 
-// Reject marks a proposal as rejected with an optional reason.
+// Reject 将提案标为已拒绝，可附原因。
 func (s *AgentEvolutionService) Reject(ctx context.Context, proposalID, by, reason string) error {
 	if proposalID == "" {
 		return validationError("proposal id is required")
@@ -643,11 +618,9 @@ func (s *AgentEvolutionService) Reject(ctx context.Context, proposalID, by, reas
 	return nil
 }
 
-// --- Apply / Revert ----------------------------------------------------------
+// --- 应用/回滚 ---------------------------------------------------------------
 
-// Apply writes the EvolutionEvent and propagates the change to the
-// underlying identity / strategy / runtime_settings store. The §11
-// allowedTargetFields whitelist is enforced.
+// Apply 写入 EvolutionEvent 并将变更传播到底层 identity/strategy/runtime_settings。强制执行 §11 allowedTargetFields 白名单。
 func (s *AgentEvolutionService) Apply(ctx context.Context, in ApplyInput) (domain.EvolutionEvent, error) {
 	if in.AgentID == "" {
 		return domain.EvolutionEvent{}, validationError("agent id is required")
@@ -689,9 +662,7 @@ func (s *AgentEvolutionService) Apply(ctx context.Context, in ApplyInput) (domai
 	return stored, nil
 }
 
-// Revert reverses a previously applied event by writing a new event of
-// kind=rollback whose AfterValue is the original BeforeValue, then marks
-// the original event reverted.
+// Revert 通过写入 kind=rollback 的新事件（AfterValue 为原 BeforeValue）撤销先前已应用事件，并将原事件标为已回滚。
 func (s *AgentEvolutionService) Revert(ctx context.Context, eventID, by, reason string) (domain.EvolutionEvent, error) {
 	if eventID == "" {
 		return domain.EvolutionEvent{}, validationError("event id is required")
@@ -734,7 +705,7 @@ func (s *AgentEvolutionService) Revert(ctx context.Context, eventID, by, reason 
 	return event, nil
 }
 
-// ListEvents returns the EvolutionEvent timeline for an agent.
+// ListEvents 返回智能体的 EvolutionEvent 时间线。
 func (s *AgentEvolutionService) ListEvents(ctx context.Context, agentID, kind string, limit, offset int) (EvolutionEventListResult, error) {
 	q := repository.EvolutionEventQuery{AgentID: agentID, Kind: kind, Limit: limit, Offset: offset}
 	items, total, err := s.repo.ListEvolutionEvents(q)
@@ -747,7 +718,7 @@ func (s *AgentEvolutionService) ListEvents(ctx context.Context, agentID, kind st
 	return EvolutionEventListResult{Items: items, Total: total, Limit: q.Limit, Offset: q.Offset}, nil
 }
 
-// GetEvent returns a single event by ID.
+// GetEvent 按 ID 返回单条事件。
 func (s *AgentEvolutionService) GetEvent(ctx context.Context, id string) (domain.EvolutionEvent, error) {
 	if id == "" {
 		return domain.EvolutionEvent{}, validationError("event id is required")
@@ -755,31 +726,25 @@ func (s *AgentEvolutionService) GetEvent(ctx context.Context, id string) (domain
 	return s.repo.GetEvolutionEvent(id)
 }
 
-// --- Skill stats -------------------------------------------------------------
+// --- 技能统计 ----------------------------------------------------------------
 
-// ListSkillStats returns per-tool skill statistics for an agent, sorted
-// by preference score descending.
+// ListSkillStats 返回智能体各工具技能统计，按偏好分降序。
 func (s *AgentEvolutionService) ListSkillStats(ctx context.Context, agentID string, limit int) ([]domain.AgentSkillStat, error) {
 	return s.repo.ListAgentSkillStats(agentID, limit)
 }
 
-// UpsertSkillStat persists one row of telemetry. Used by the chat /
-// tool-call pipeline (Phase 4) to drive proposal generation.
+// UpsertSkillStat 持久化一行遥测。供聊天/工具调用管线（第四阶段）驱动提案生成。
 func (s *AgentEvolutionService) UpsertSkillStat(ctx context.Context, stat domain.AgentSkillStat) (domain.AgentSkillStat, error) {
 	return s.repo.UpsertAgentSkillStat(stat)
 }
 
-// --- Worker ------------------------------------------------------------------
+// --- 工作线程 -----------------------------------------------------------------
 //
-// `RunEvolutionScan` lives in agent_evolution_scanner.go alongside its
-// AggregateSkillStats helper so the deterministic heuristic surface is
-// easy to swap for an LLM reflection prompt in Phase 5.
+// `RunEvolutionScan` 与 AggregateSkillStats 辅助函数位于 agent_evolution_scanner.go，便于第五阶段将确定性启发式换为 LLM 反思提示。
 
-// --- Runtime helpers consumed by ChatService / L0 ---------------------------
+// --- ChatService / L0 使用的运行时辅助 --------------------------------------
 
-// BuildSelfPromptAppend returns the markdown self-evolution segment
-// appended to the agent's system prompt by L0 assembly. Returns an empty
-// string when the feature is disabled or no identity exists.
+// BuildSelfPromptAppend 返回 L0 组装追加到智能体系统提示的自进化 markdown 片段。功能关闭或无身份时返回空串。
 func (s *AgentEvolutionService) BuildSelfPromptAppend(ctx context.Context, agentID string) (string, error) {
 	if agentID == "" {
 		return "", nil
@@ -832,9 +797,7 @@ func (s *AgentEvolutionService) BuildSelfPromptAppend(ctx context.Context, agent
 	return body, nil
 }
 
-// ResolveToolWhitelist filters the base whitelist by removing any tool
-// in the agent's strategy.tool_blacklist and reorders the survivors by
-// preference score (descending).
+// ResolveToolWhitelist 从基白名单剔除 strategy.tool_blacklist 中的工具，并按偏好分降序重排剩余项。
 func (s *AgentEvolutionService) ResolveToolWhitelist(ctx context.Context, agentID string, base []string) ([]string, error) {
 	if agentID == "" || len(base) == 0 {
 		return base, nil
@@ -860,11 +823,7 @@ func (s *AgentEvolutionService) ResolveToolWhitelist(ctx context.Context, agentI
 	return out, nil
 }
 
-// ToolPolicyForAgent returns the agent's strategy.tool_blacklist plus a
-// copy of strategy.tool_preference. Used by ToolService.EffectiveForAgent
-// to surface evolution-driven denials and reorder allowed tools by the
-// agent's preference scores. Returns empty values + nil error when no
-// strategy row exists yet (cold start).
+// ToolPolicyForAgent 返回 strategy.tool_blacklist 及 strategy.tool_preference 的副本。供 ToolService.EffectiveForAgent 展示进化驱动的拒绝并按偏好重排允许工具。冷启动无策略行时返回空与 nil 错误。
 func (s *AgentEvolutionService) ToolPolicyForAgent(ctx context.Context, agentID string) ([]string, map[string]float64, error) {
 	if agentID == "" {
 		return nil, nil, nil
@@ -880,9 +839,7 @@ func (s *AgentEvolutionService) ToolPolicyForAgent(ctx context.Context, agentID 
 	return append([]string(nil), profile.ToolBlacklist...), prefs, nil
 }
 
-// ResolveModelRouting reorders model candidates by `BaseScore *
-// (0.5 + preference)` so the highest-scoring model is first. Empty
-// preferences default to 0.5.
+// ResolveModelRouting 按 `BaseScore * (0.5 + preference)` 重排模型候选，最高分在前。空偏好默认 0.5。
 func (s *AgentEvolutionService) ResolveModelRouting(ctx context.Context, agentID string, candidates []ModelCandidate) ([]ModelCandidate, error) {
 	if agentID == "" || len(candidates) == 0 {
 		return candidates, nil
@@ -907,7 +864,7 @@ func (s *AgentEvolutionService) ResolveModelRouting(ctx context.Context, agentID
 	return scored, nil
 }
 
-// --- Internal apply machinery -----------------------------------------------
+// --- 内部应用机制 ------------------------------------------------------------
 
 type apply struct {
 	kind   string
@@ -924,9 +881,7 @@ func changeFields(c []apply) []string {
 	return out
 }
 
-// recordEvent writes a single EvolutionEvent for one identity / strategy
-// field mutation. Used by UpdateIdentity / UpdateStrategy where multiple
-// fields can change in a single call.
+// recordEvent 为单次身份/策略字段变更写一条 EvolutionEvent。用于 UpdateIdentity/UpdateStrategy 单次多字段变更。
 func (s *AgentEvolutionService) recordEvent(agentID string, ch apply, by, reason, trigger, triggerSource string) error {
 	beforeJSON, _ := json.Marshal(ch.before)
 	afterJSON, _ := json.Marshal(ch.after)
@@ -948,9 +903,7 @@ func (s *AgentEvolutionService) recordEvent(agentID string, ch apply, by, reason
 	return err
 }
 
-// applyTargetChange propagates a single field change to the underlying
-// identity / strategy / runtime_settings store. Unknown targets are
-// already filtered by allowedTargetFields.
+// applyTargetChange 将单字段变更传播到底层 identity/strategy/runtime_settings。未知目标已由 allowedTargetFields 过滤。
 func (s *AgentEvolutionService) applyTargetChange(ctx context.Context, agentID, target string, after any, by, reason string) error {
 	switch target {
 	case "identity.persona", "identity.tone", "identity.values", "identity.domains", "identity.user_expectations", "identity.current_phase":
@@ -975,8 +928,7 @@ func (s *AgentEvolutionService) applyTargetChange(ctx context.Context, agentID, 
 			str := toString(after)
 			patch.Phase = &str
 		}
-		// Direct write without recursing through UpdateIdentity (which
-		// would generate yet another EvolutionEvent for the same change).
+		// 直接写入，不递归 UpdateIdentity（否则会为同一变更再写一条 EvolutionEvent）。
 		return s.applyIdentityPatch(ctx, agentID, patch)
 	case "strategy.exploration", "strategy.conciseness", "strategy.caution", "strategy.delegation":
 		val := toFloat(after)
@@ -994,9 +946,7 @@ func (s *AgentEvolutionService) applyTargetChange(ctx context.Context, agentID, 
 		m := toFloatMap(after)
 		return s.applyStrategyMap(ctx, agentID, "model_preference", m)
 	case "system_prompt_append", "tool_whitelist_diff":
-		// These targets are surfaced via BuildSelfPromptAppend /
-		// ResolveToolWhitelist at L0 assembly time; no settings row is
-		// directly mutated.
+		// 这些目标在 L0 组装时经 BuildSelfPromptAppend/ResolveToolWhitelist 体现；不直接改 settings 行。
 		return nil
 	}
 	return nil
@@ -1086,7 +1036,7 @@ func (s *AgentEvolutionService) applyStrategyBlacklist(ctx context.Context, agen
 	return err
 }
 
-// --- Audit helper -----------------------------------------------------------
+// --- 审计辅助 ----------------------------------------------------------------
 
 func (s *AgentEvolutionService) audit(action, resource, resourceID string, detail map[string]any) error {
 	body, _ := json.Marshal(detail)
@@ -1102,7 +1052,7 @@ func (s *AgentEvolutionService) audit(action, resource, resourceID string, detai
 	})
 }
 
-// --- Pure helpers -----------------------------------------------------------
+// --- 纯函数辅助 --------------------------------------------------------------
 
 func normalizeStringList(in []string) []string {
 	if len(in) == 0 {

@@ -1,15 +1,10 @@
-// agent_evolution_scanner_test.go covers the §13 acceptance items that
-// belong to the Phase 4 EvolutionWorker:
+// agent_evolution_scanner_test.go 覆盖属于第四阶段 EvolutionWorker 的 §13 验收项：
 //
-//   - AggregateSkillStats turns raw tool_invocations into
-//     agent_skill_stats rows with sane preference scores.
-//   - RunEvolutionScan respects evo_enabled, gates on the activity-volume
-//     trigger, and otherwise emits ≥ 1 proposal when telemetry shows a
-//     clear signal (failure_rate > 0.3 or success_rate > 0.85).
-//   - When evo_auto_apply=true low-risk proposals flow straight through
-//     Approve+Apply.
-//   - Re-running the scanner inside the throttle window degrades to
-//     `superseded` proposals instead of duplicates.
+//   - AggregateSkillStats 将原始 tool_invocations 转为带合理偏好分的 agent_skill_stats 行。
+//   - RunEvolutionScan 遵守 evo_enabled，在活跃量触发条件下放行，否则当遥测显示
+//     明确信号（failure_rate > 0.3 或 success_rate > 0.85）时至少产出一则提案。
+//   - evo_auto_apply=true 时低风险提案直接经 Approve+Apply。
+//   - 在节流窗口内重跑扫描则新提案为 `superseded` 而非重复。
 package service
 
 import (
@@ -23,8 +18,7 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// newScannerHarness wires an in-memory SQLite + AgentEvolutionService for
-// the scanner tests and exposes a helper to seed tool_invocations.
+// newScannerHarness 为扫描器测试接内存 SQLite + AgentEvolutionService，并提供写入 tool_invocations 的辅助函数。
 func newScannerHarness(t *testing.T) (*AgentEvolutionService, repository.Store, func(domain.ToolInvocation)) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "scanner.db")
@@ -248,10 +242,8 @@ func enableEvo(t *testing.T, repo repository.Store, agentID string, autoApply bo
 	}
 }
 
-// TestScannerPersistsLastScanAtCheckpoint — after a successful scan the
-// strategy profile carries `stats.last_scan_at` so the next scan can
-// pick up where the previous one stopped. Covers the §5.5 "since=
-// last_scan_at" hand-off.
+// TestScannerPersistsLastScanAtCheckpoint — 成功扫描后策略行带 `stats.last_scan_at`，
+// 下次扫描自该点继续。覆盖 §5.5「since=last_scan_at」交接。
 func TestScannerPersistsLastScanAtCheckpoint(t *testing.T) {
 	svc, repo, insert := newScannerHarness(t)
 	enableEvo(t, repo, "agent-checkpoint", false)
@@ -286,19 +278,14 @@ func TestScannerPersistsLastScanAtCheckpoint(t *testing.T) {
 	}
 }
 
-// TestScannerLastScanAtNarrowsTriggerWindow — second scan that runs
-// immediately after a checkpoint sees zero new episodes / feedback and
-// should fall through the trigger gate even with old failing tools
-// (because skill stats now show no failures in the *trigger* window).
-// Confirms that `triggerSince` is decoupled from `aggregationSince`:
-// the scanner still aggregates skill stats over the full 30-day window
-// (so failing tools keep tripping `hasFailingTool`), but episode and
-// feedback counts come strictly from the post-checkpoint slice.
+// TestScannerLastScanAtNarrowsTriggerWindow — 检查点之后立即第二次扫描无新 episode/反馈，
+// 应落入触发门限之外，即使仍有历史失败工具（因*触发*窗口内技能统计无新失败）。
+// 确认 `triggerSince` 与 `aggregationSince` 解耦：扫描器仍按满 30 天聚合技能统计
+//（故 `hasFailingTool` 仍可因旧数据为真），但 episode 与反馈计数仅来自检查点之后。
 func TestScannerLastScanAtNarrowsTriggerWindow(t *testing.T) {
 	svc, repo, _ := newScannerHarness(t)
 	enableEvo(t, repo, "agent-narrow", false)
-	// Seed a 30-day-old checkpoint so the trigger window is fresh but
-	// the aggregation window still spans the seeded data.
+	// 种入较新的 `last_scan_at`：仅统计检查点后的 episode/反馈为空，技能统计仍按 30 天聚合。
 	strat, _ := svc.GetStrategy(context.Background(), "agent-narrow")
 	if strat.Stats == nil {
 		strat.Stats = map[string]any{}
@@ -317,10 +304,8 @@ func TestScannerLastScanAtNarrowsTriggerWindow(t *testing.T) {
 	}
 }
 
-// TestScannerNegativeFeedbackTriggersScan — once `EvoMinNegativeFeedback`
-// reject/refine rows accumulate the scanner enters the proposal loop
-// even without failing tools or sufficient episodes. Covers §5.5 step
-// 3 negative-feedback branch.
+// TestScannerNegativeFeedbackTriggersScan — 累积 `EvoMinNegativeFeedback` 条 reject/refine 后
+// 即进入提案循环，即便无失败工具或足够 episode。覆盖 §5.5 第 3 步负反馈分支。
 func TestScannerNegativeFeedbackTriggersScan(t *testing.T) {
 	svc, repo, _ := newScannerHarness(t)
 	enableEvo(t, repo, "agent-rejected", false)
@@ -346,14 +331,13 @@ func TestScannerNegativeFeedbackTriggersScan(t *testing.T) {
 	}
 }
 
-// TestScannerRollbackAlarmDisablesAutoApply — when more than 20% of an
-// agent's recent EvolutionEvents are reverted the scanner flips
-// `evo_auto_apply` off and emits an audit log. Covers the §13 brake.
+// TestScannerRollbackAlarmDisablesAutoApply — 智能体近期 EvolutionEvents 中撤销超过 20% 时
+// 扫描器将 `evo_auto_apply` 关并记审计。覆盖 §13 刹车。
 func TestScannerRollbackAlarmDisablesAutoApply(t *testing.T) {
 	svc, repo, insert := newScannerHarness(t)
 	enableEvo(t, repo, "agent-quarantine", true)
 
-	// Seed 5 applied events; revert 2 (40%) — well over the 20% gate.
+	// 种 5 条已应用事件；2 条已撤销 (40%) — 远高于 20% 门限。
 	for i := 0; i < 5; i++ {
 		ev := domain.EvolutionEvent{
 			ID:          fmt.Sprintf("evt-%d", i),
@@ -369,8 +353,7 @@ func TestScannerRollbackAlarmDisablesAutoApply(t *testing.T) {
 			t.Fatalf("insert event: %v", err)
 		}
 	}
-	// Seed enough failing-tool telemetry so the scan still goes through
-	// the proposal loop and we can verify nothing got auto-applied.
+	// 种足够失败工具遥测使扫描仍进提案环，以验证无自动应用。
 	for i := 0; i < 7; i++ {
 		insert(domain.ToolInvocation{
 			AgentID:   "agent-quarantine",
@@ -393,8 +376,7 @@ func TestScannerRollbackAlarmDisablesAutoApply(t *testing.T) {
 	}
 }
 
-// TestScannerRollbackAlarmRequiresMinEvents — a small sample size with
-// 100% revert rate must NOT trip the alarm; we need ≥ 5 events.
+// TestScannerRollbackAlarmRequiresMinEvents — 小样本 100% 撤销率不得触发刹车；需 ≥ 5 条事件。
 func TestScannerRollbackAlarmRequiresMinEvents(t *testing.T) {
 	svc, repo, _ := newScannerHarness(t)
 	enableEvo(t, repo, "agent-small-sample", true)

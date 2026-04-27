@@ -9,10 +9,9 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// InsertToolInvocation persists a single tool-call telemetry row used by
-// `agent_evolution_scanner.AggregateSkillStats`. Defaults align with the
-// schema (status="success", source="adk") so callers can pass a sparse
-// struct from the chat pipeline.
+// InsertToolInvocation 持久化单条工具调用遥测行，供
+// `agent_evolution_scanner.AggregateSkillStats` 使用。默认值与 schema 一致
+//（status="success", source="adk"），调用方可从对话管道传入稀疏结构体。
 func (r *SQLiteRepository) InsertToolInvocation(t domain.ToolInvocation) (domain.ToolInvocation, error) {
 	if strings.TrimSpace(t.ToolKey) == "" {
 		return domain.ToolInvocation{}, errors.New("tool_key is required")

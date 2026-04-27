@@ -11,9 +11,8 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// newTestL1Service spins up a fresh SQLite repository in t.TempDir, runs the
-// migrations, and returns a wired MemoryL1Service plus the underlying repo
-// so individual tests can manipulate fixtures directly.
+// newTestL1Service 在 t.TempDir 下新建 SQLite、执行迁移，并返回已接线的 MemoryL1Service
+// 与底层 repo，便于测试直接造数。
 func newTestL1Service(t *testing.T) (*MemoryL1Service, repository.Store) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "l1.db")
@@ -28,9 +27,8 @@ func newTestL1Service(t *testing.T) (*MemoryL1Service, repository.Store) {
 	return NewMemoryL1Service(repo), repo
 }
 
-// seedAgentAndSession is a tiny fixture builder. Each test gets a unique
-// (agent, session) pair so parallel runs don't clash on the unique
-// (session_id, task_key, agent_id) constraint.
+// seedAgentAndSession 为小型造数。每测使用唯一 (agent, session) 对，并行时
+// 不违反 (session_id, task_key, agent_id) 唯一约束。
 func seedAgentAndSession(t *testing.T, repo repository.Store, agentID, sessionID string) {
 	t.Helper()
 	if _, err := repo.CreateAgent(domain.Agent{

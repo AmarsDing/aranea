@@ -1,4 +1,4 @@
-// Package channel implements `aranea channel ls/catalog`.
+// Package channel 实现 `aranea channel ls/catalog`。
 package channel
 
 import (
@@ -9,7 +9,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "channel",

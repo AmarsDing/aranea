@@ -1,8 +1,7 @@
-// Package full assembles the launcher chain that powers the runtime
-// half of the Aranea CLI. It mirrors google.golang.org/adk/cmd/launcher/full
-// but only registers the SubLaunchers that make sense for our binary.
-// The CLI ships with the console launcher today; web/A2A/etc are the
-// natural extension points and can be added without changing main.go.
+// Package full 组装驱动 Aranea CLI 运行时半边的 launcher 链。结构仿照
+// google.golang.org/adk/cmd/launcher/full，但只注册对当前二进制有意义
+// 的 SubLauncher。目前 CLI 随附 console launcher；web/A2A 等是自然扩展点，
+// 添加时无需改 main.go。
 package full
 
 import (
@@ -17,11 +16,9 @@ import (
 	"arenea/backend/cmd/internal/launcher/web"
 )
 
-// BuildConfig produces the Aranea launcher.Config consumed by the
-// SubLaunchers. It performs the same configuration resolution as the
-// Cobra path (so flags / environment variables / ~/.aranea/config.toml
-// keep behaving identically) and then injects the resulting HTTP client
-// into the launcher chain.
+// BuildConfig 生成供 SubLauncher 使用的 Aranea launcher.Config。解析逻辑
+// 与 Cobra 路径一致（标志/环境变量/~/.aranea/config.toml 行为一致），
+// 随后将解析得到的 HTTP 客户端注入 launcher 链。
 func BuildConfig(_ context.Context) (*araneal.Config, error) {
 	g := apiclient.NewGlobalContext()
 	if err := g.Resolve(); err != nil {
@@ -34,11 +31,9 @@ func BuildConfig(_ context.Context) (*araneal.Config, error) {
 	}, nil
 }
 
-// NewLauncher returns the universal launcher with all Aranea
-// SubLaunchers registered. The console launcher is registered first so
-// that universal.NewLauncher uses it as the default when no keyword is
-// provided on the command line; web is the embedded backend playground
-// described in 前端/25 cli.md §1.4.
+// NewLauncher 返回注册了全部 Aranea SubLauncher 的 universal launcher。
+// console 最先注册，以便无关键字时 universal.NewLauncher 将其作为默认；
+// web 为 前端/25 cli.md §1.4 所述的进程内后端演练环境。
 func NewLauncher(cfg *araneal.Config) adklauncher.Launcher {
 	return adkuniversal.NewLauncher(
 		console.NewLauncher(cfg),

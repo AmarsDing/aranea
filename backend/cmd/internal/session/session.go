@@ -1,5 +1,5 @@
-// Package session implements `aranea session ls/get/send/archive/delete`
-// — the scriptable surface for one-shot agent calls.
+// Package session 实现 `aranea session ls/get/send/archive/delete` ——
+// 可脚本化的一次性智能体调用入口。
 package session
 
 import (
@@ -18,7 +18,7 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "session",
@@ -157,9 +157,8 @@ func newDeleteCmd(g *apiclient.GlobalContext) *cobra.Command {
 	}
 }
 
-// EnsureSession returns an existing session id if non-empty or creates a
-// new one for the given agent. It is exported so the console launcher
-// can reuse the same code path.
+// EnsureSession 在 sessionID 非空时返回已有会话，否则为给定智能体新建一条。
+// 导出供 console launcher 复用同一路径。
 func EnsureSession(ctx context.Context, g *apiclient.GlobalContext, sessionID, agentID, title string) (domain.Session, error) {
 	if sessionID != "" {
 		var s domain.Session

@@ -1,8 +1,6 @@
-// Package repository – SQLite-backed implementation of the L3 semantic
-// memory described in `aranea/docs/15 memory-L3-semantic.md`. The file
-// follows the same conventions as sqlite_memory_l2.go: write paths fill
-// in defaults, JSON columns are normalised via helpers, and the FTS index
-// is kept consistent through a delete-then-insert pattern.
+// Package repository —— L3 语义记忆的 SQLite 实现，见 `aranea/docs/15 memory-L3-semantic.md`。
+// 约定与 sqlite_memory_l2.go 一致：写路径填默认值、JSON 经辅助函数规范化、
+// FTS 通过先删后插保持一致。
 package repository
 
 import (
@@ -15,10 +13,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// CreateFact inserts a new memory_facts row. Callers are responsible for
-// computing the fingerprint and embedding columns; the repository fills
-// timestamps and JSON defaults so the row is consistent regardless of
-// which path produced it.
+// CreateFact 插入新的 memory_facts 行。调用方负责指纹与嵌入列；仓库补时间戳与 JSON 默认值。
 func (r *SQLiteRepository) CreateFact(f domain.MemoryFact) (domain.MemoryFact, error) {
 	if f.ID == "" {
 		return domain.MemoryFact{}, errors.New("fact id is required")
@@ -99,8 +94,7 @@ func (r *SQLiteRepository) CreateFact(f domain.MemoryFact) (domain.MemoryFact, e
 	return r.GetFact(f.ID)
 }
 
-// UpdateFact rewrites the mutable columns. Embedding columns are excluded
-// — they have a dedicated UpsertFactEmbedding entry-point.
+// UpdateFact 更新可变列。嵌入列另走 UpsertFactEmbedding。
 func (r *SQLiteRepository) UpdateFact(f domain.MemoryFact) error {
 	if f.ID == "" {
 		return errors.New("fact id is required")
@@ -140,17 +134,13 @@ func (r *SQLiteRepository) UpdateFact(f domain.MemoryFact) error {
 	return err
 }
 
-// GetFact returns a single fact by ID. Soft-deleted rows are included so
-// the audit / version paths can still hydrate them; service-level filters
-// strip them when serving Recall / List endpoints.
+// GetFact 按 ID 返回单条 fact。含软删行供审计/版本路径；Recall/List 由服务层过滤。
 func (r *SQLiteRepository) GetFact(id string) (domain.MemoryFact, error) {
 	row := r.db.QueryRow(memoryFactSelectSQL()+` WHERE id = ?`, id)
 	return scanMemoryFact(row)
 }
 
-// GetFactByFingerprint is the dedup probe used by UpsertFact. It returns
-// sql.ErrNoRows when nothing matches so callers can branch on
-// errors.Is(err, sql.ErrNoRows).
+// GetFactByFingerprint 为 UpsertFact 的去重探针。无匹配时返回 sql.ErrNoRows，调用方可用 errors.Is 分支。
 func (r *SQLiteRepository) GetFactByFingerprint(scopeType domain.ScopeType, scopeID, fp string) (domain.MemoryFact, error) {
 	row := r.db.QueryRow(
 		memoryFactSelectSQL()+` WHERE scope_type = ? AND scope_id = ? AND fingerprint = ?`,
@@ -159,8 +149,7 @@ func (r *SQLiteRepository) GetFactByFingerprint(scopeType domain.ScopeType, scop
 	return scanMemoryFact(row)
 }
 
-// ListFacts returns paginated, filtered facts for §6.2 GET endpoints.
-// Soft-deleted rows are excluded.
+// ListFacts 为 §6.2 GET 端点返回分页、过滤后的 fact。排除软删。
 func (r *SQLiteRepository) ListFacts(q FactListQuery) ([]domain.MemoryFact, int, error) {
 	if q.Limit <= 0 {
 		q.Limit = 20
@@ -245,10 +234,7 @@ func (r *SQLiteRepository) ListFacts(q FactListQuery) ([]domain.MemoryFact, int,
 	return out, total, rows.Err()
 }
 
-// UpdateFactConfidence applies a feedback-driven update in a single
-// statement so concurrent feedback writes can't race on the value. The
-// caller passes the *target* confidence (clamped 0..1) plus the counter
-// increments — the repo only persists.
+// UpdateFactConfidence 单条语句完成基于反馈的更新，避免并发写竞态。调用方传目标置信度（限幅 0..1）与计数增量，仓库只持久化。
 func (r *SQLiteRepository) UpdateFactConfidence(id string, newConfidence float64, hitInc, posInc, negInc int) error {
 	if id == "" {
 		return errors.New("fact id is required")
@@ -272,9 +258,7 @@ func (r *SQLiteRepository) UpdateFactConfidence(id string, newConfidence float64
 	return err
 }
 
-// UpdateFactStatus mutates the lifecycle column. Pass archivedAt to
-// timestamp the archive transition; empty values keep the existing value
-// untouched.
+// UpdateFactStatus 修改生命周期列。传 archivedAt 以记录归档时间；空则保留原值。
 func (r *SQLiteRepository) UpdateFactStatus(id, status, supersededBy, archivedAt string) error {
 	if id == "" {
 		return errors.New("fact id is required")
@@ -292,10 +276,7 @@ func (r *SQLiteRepository) UpdateFactStatus(id, status, supersededBy, archivedAt
 	return err
 }
 
-// BumpFactUseStat is called from the recall path after a fact has been
-// rendered into the prompt. The caller passes hit=true when the fact was
-// actually injected; hit=false is used for "retrieved but not surfaced"
-// recordkeeping.
+// BumpFactUseStat 在事实已拼入提示后从召回路径调用。实际注入为 hit=true；仅检索未展示为 hit=false。
 func (r *SQLiteRepository) BumpFactUseStat(id string, hit bool, atISO string) error {
 	if id == "" {
 		return errors.New("fact id is required")
@@ -314,9 +295,7 @@ func (r *SQLiteRepository) BumpFactUseStat(id string, hit bool, atISO string) er
 	return err
 }
 
-// InsertFactVersion records a snapshot in `memory_fact_versions` for
-// rollback / audit. The (fact_id, version) UNIQUE constraint guards
-// against double-writes.
+// InsertFactVersion 在 `memory_fact_versions` 中记录快照供回滚/审计。(fact_id, version) 唯一约束防重复写入。
 func (r *SQLiteRepository) InsertFactVersion(fv domain.FactVersion) error {
 	if fv.ID == "" {
 		return errors.New("version id is required")
@@ -345,9 +324,7 @@ func (r *SQLiteRepository) InsertFactVersion(fv domain.FactVersion) error {
 	return err
 }
 
-// ListFactVersions returns the version history sorted descending so the
-// latest revision appears first. Limit caps the result to keep the API
-// response small.
+// ListFactVersions 返回降序版本历史，最新在前。Limit 控制体积。
 func (r *SQLiteRepository) ListFactVersions(factID string, limit int) ([]domain.FactVersion, error) {
 	if factID == "" {
 		return nil, errors.New("fact id is required")
@@ -378,8 +355,7 @@ func (r *SQLiteRepository) ListFactVersions(factID string, limit int) ([]domain.
 	return out, rows.Err()
 }
 
-// GetFactVersion looks up a specific (fact_id, version) tuple — used by
-// the rollback path so the service can replay the snapshot.
+// GetFactVersion 查询指定 (fact_id, version)，供回滚路径重放快照。
 func (r *SQLiteRepository) GetFactVersion(factID string, version int) (domain.FactVersion, error) {
 	if factID == "" {
 		return domain.FactVersion{}, errors.New("fact id is required")
@@ -392,9 +368,7 @@ func (r *SQLiteRepository) GetFactVersion(factID string, version int) (domain.Fa
 	return scanFactVersion(row)
 }
 
-// InsertFactFeedback appends a row in `memory_fact_feedback`. The service
-// layer is responsible for translating the feedback into a confidence /
-// importance update via UpdateFactConfidence.
+// InsertFactFeedback 向 `memory_fact_feedback` 追加一行。服务层再经 UpdateFactConfidence 转为置信度/重要性更新。
 func (r *SQLiteRepository) InsertFactFeedback(fb domain.FactFeedback) (domain.FactFeedback, error) {
 	if fb.ID == "" {
 		return domain.FactFeedback{}, errors.New("feedback id is required")
@@ -427,7 +401,7 @@ func (r *SQLiteRepository) InsertFactFeedback(fb domain.FactFeedback) (domain.Fa
 	return fb, nil
 }
 
-// ListFactFeedback returns the most-recent feedback entries for a fact.
+// ListFactFeedback 返回某 fact 最近的反馈条目。
 func (r *SQLiteRepository) ListFactFeedback(factID string, limit int) ([]domain.FactFeedback, error) {
 	if factID == "" {
 		return nil, errors.New("fact id is required")
@@ -462,9 +436,7 @@ func (r *SQLiteRepository) ListFactFeedback(factID string, limit int) ([]domain.
 	return out, rows.Err()
 }
 
-// CountRecentFactFeedback counts the most recent N feedback rows of a
-// given type — used by §5.4 step 5 ("3 consecutive rejects auto-create a
-// conflict"). limit bounds the lookback window.
+// CountRecentFactFeedback 统计某类型下最近 N 条反馈（§5.4 第 5 步「连续三次拒绝自动生成冲突」）。limit 限制回溯窗口。
 func (r *SQLiteRepository) CountRecentFactFeedback(factID, feedbackType string, limit int) (int, error) {
 	if factID == "" {
 		return 0, errors.New("fact id is required")
@@ -495,11 +467,9 @@ func (r *SQLiteRepository) CountRecentFactFeedback(factID, feedbackType string, 
 	return count, rows.Err()
 }
 
-// CountAgentFactFeedbackSince returns how many `memory_fact_feedback`
-// rows attributed to `agentID` were created at-or-after `since` and
-// whose `feedback_type` is in `feedbackTypes`. Used by the
-// EvolutionScanner to evaluate the §5.5 negative-feedback trigger
-// without dragging the full feedback history into memory.
+// CountAgentFactFeedbackSince 统计归属于 `agentID`、创建时间不早于 `since`、且
+// `feedback_type` 属于 `feedbackTypes` 的 `memory_fact_feedback` 行数。供 EvolutionScanner
+// 评估 §5.5 负反馈触发，而无需加载全量历史。
 func (r *SQLiteRepository) CountAgentFactFeedbackSince(agentID string, feedbackTypes []string, since string) (int, error) {
 	if agentID == "" {
 		return 0, errors.New("agent id is required")
@@ -525,9 +495,7 @@ func (r *SQLiteRepository) CountAgentFactFeedbackSince(agentID string, feedbackT
 	return n, nil
 }
 
-// UpsertFactConflict inserts or updates the conflict row keyed on the
-// (fact_a_id, fact_b_id) tuple. The service layer normalises the IDs so
-// the same pair can't appear twice.
+// UpsertFactConflict 按 (fact_a_id, fact_b_id) 插入或更新冲突行。服务层会规范化 ID 避免同对重复。
 func (r *SQLiteRepository) UpsertFactConflict(c domain.FactConflict) (domain.FactConflict, error) {
 	if c.FactAID == "" || c.FactBID == "" {
 		return domain.FactConflict{}, errors.New("conflict fact ids are required")
@@ -566,7 +534,7 @@ func (r *SQLiteRepository) UpsertFactConflict(c domain.FactConflict) (domain.Fac
 	return r.GetFactConflict(c.ID)
 }
 
-// GetFactConflict returns a conflict by id.
+// GetFactConflict 按 id 返回冲突记录。
 func (r *SQLiteRepository) GetFactConflict(id string) (domain.FactConflict, error) {
 	row := r.db.QueryRow(
 		`SELECT id, fact_a_id, fact_b_id, scope_type, scope_id, conflict_kind, similarity, status,
@@ -577,8 +545,7 @@ func (r *SQLiteRepository) GetFactConflict(id string) (domain.FactConflict, erro
 	return scanFactConflict(row)
 }
 
-// ListOpenFactConflicts returns conflicts whose status is "open" within
-// the given scope. Empty scope params disable the corresponding filter.
+// ListOpenFactConflicts 返回给定范围内 status 为 "open" 的冲突。scope 参数为空则关闭对应过滤。
 func (r *SQLiteRepository) ListOpenFactConflicts(scope domain.ScopeType, scopeID string, limit int) ([]domain.FactConflict, error) {
 	if limit <= 0 {
 		limit = 50
@@ -618,7 +585,7 @@ func (r *SQLiteRepository) ListOpenFactConflicts(scope domain.ScopeType, scopeID
 	return out, rows.Err()
 }
 
-// UpdateFactConflictResolution marks a conflict as resolved (or ignored).
+// UpdateFactConflictResolution 将冲突标为已解决（或已忽略等）。
 func (r *SQLiteRepository) UpdateFactConflictResolution(id, status, resolution, by, resolvedAt string) error {
 	if id == "" {
 		return errors.New("conflict id is required")
@@ -636,9 +603,7 @@ func (r *SQLiteRepository) UpdateFactConflictResolution(id, status, resolution, 
 	return err
 }
 
-// UpsertFactEmbedding writes both the `memory_facts` embedding columns
-// and the `memory_fact_index` mirror so vector search has everything it
-// needs in one table.
+// UpsertFactEmbedding 同时写入 `memory_facts` 的嵌入列与 `memory_fact_index` 镜像，便于向量检索单表取全。
 func (r *SQLiteRepository) UpsertFactEmbedding(id, model string, dim int, blob []byte, norm float64) error {
 	if id == "" {
 		return errors.New("fact id is required")
@@ -678,8 +643,7 @@ func (r *SQLiteRepository) UpsertFactEmbedding(id, model string, dim int, blob [
 	return tx.Commit()
 }
 
-// UpsertFactsFTS keeps the BM25 index in sync. FTS5 has no upsert so we
-// delete-then-insert. Empty text removes the row entirely.
+// UpsertFactsFTS 保持 BM25 索引同步。FTS5 无 upsert，故先删后插；空文本则整行移除。
 func (r *SQLiteRepository) UpsertFactsFTS(factID string, scopeType domain.ScopeType, scopeID, kind, text string) error {
 	if factID == "" {
 		return errors.New("fact id is required")
@@ -703,9 +667,7 @@ func (r *SQLiteRepository) UpsertFactsFTS(factID string, scopeType domain.ScopeT
 	return tx.Commit()
 }
 
-// DeleteFactIndex removes the BM25 + vector index entries for a fact.
-// The fact row itself is preserved (soft-delete is handled by
-// UpdateFactStatus).
+// DeleteFactIndex 删除某 fact 的 BM25 与向量索引项。事实行保留（软删由 UpdateFactStatus 处理）。
 func (r *SQLiteRepository) DeleteFactIndex(factID string) error {
 	if factID == "" {
 		return errors.New("fact id is required")
@@ -724,9 +686,7 @@ func (r *SQLiteRepository) DeleteFactIndex(factID string) error {
 	return tx.Commit()
 }
 
-// SearchFactsBM25 runs an FTS5 MATCH against the facts index and returns
-// matching facts joined with their meta row. Negative bm25 values come
-// from FTS5 (lower is better) so we flip the sign for the service layer.
+// SearchFactsBM25 对事实索引做 FTS5 MATCH 并连接元数据。FTS5 的 bm25 为负（越小越好），取反后交给服务层。
 func (r *SQLiteRepository) SearchFactsBM25(scopes []domain.ScopeType, scopeIDs []string, query string, limit int) ([]domain.FactRecallHit, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
@@ -788,11 +748,8 @@ func (r *SQLiteRepository) SearchFactsBM25(scopes []domain.ScopeType, scopeIDs [
 	return out, nil
 }
 
-// SearchFactsVector computes cosine similarity in Go because SQLite has
-// no native vector type. The scope filter is pushed down so we never load
-// embeddings outside the agent's permitted scopes. Phase 1 stub: when no
-// embeddings exist (typical first-run state) the function returns an
-// empty slice without erroring.
+// SearchFactsVector 在 Go 中计算余弦相似度（SQLite 无原生向量类型）。下推作用域过滤，不加载越权嵌入。
+// 阶段一存根：尚无嵌入时（常见首跑）返回空切片且不报错。
 func (r *SQLiteRepository) SearchFactsVector(scopes []domain.ScopeType, scopeIDs []string, q []float32, limit int) ([]domain.FactRecallHit, error) {
 	if len(q) == 0 {
 		return nil, nil
@@ -865,8 +822,7 @@ func (r *SQLiteRepository) SearchFactsVector(scopes []domain.ScopeType, scopeIDs
 	return out, nil
 }
 
-// ListFactsDueForDecay returns active facts whose next_decay_at is in the
-// past so the decay worker can iterate them in batches.
+// ListFactsDueForDecay 返回已到期应衰减的活跃 fact，供衰减工作进程批量处理。
 func (r *SQLiteRepository) ListFactsDueForDecay(before string, limit int) ([]domain.MemoryFact, error) {
 	if before == "" {
 		before = nowISO()
@@ -896,9 +852,7 @@ func (r *SQLiteRepository) ListFactsDueForDecay(before string, limit int) ([]dom
 	return out, rows.Err()
 }
 
-// ApplyFactDecay multiplies confidence by `factor` and bumps next_decay_at.
-// The clamp at zero is defensive; the service layer should never request
-// a negative factor.
+// ApplyFactDecay 将 confidence 乘以 `factor` 并推进 next_decay_at。下限钳位为防御性；服务层不应传负 factor。
 func (r *SQLiteRepository) ApplyFactDecay(factID string, factor float64, nextAt string) error {
 	if factID == "" {
 		return errors.New("fact id is required")
@@ -916,9 +870,7 @@ func (r *SQLiteRepository) ApplyFactDecay(factID string, factor float64, nextAt 
 	return err
 }
 
-// ArchiveFactsBelowConfidence marks active facts whose confidence has
-// fallen below the threshold as "archived" in one batch. Returns the
-// number of rows affected.
+// ArchiveFactsBelowConfidence 将置信度低于阈值的活跃 fact 一批标为「已归档」。返回影响行数。
 func (r *SQLiteRepository) ArchiveFactsBelowConfidence(threshold float64, limit int) (int, error) {
 	if threshold <= 0 {
 		threshold = 0.2
@@ -944,8 +896,7 @@ func (r *SQLiteRepository) ArchiveFactsBelowConfidence(threshold float64, limit 
 	return int(n), nil
 }
 
-// CountFactsByStatus aggregates row counts by status for the admin stats
-// dashboard. Empty scope params disable the corresponding filter.
+// CountFactsByStatus 按 status 聚合计数，供管理统计面板。scope 为空则不过滤该维度。
 func (r *SQLiteRepository) CountFactsByStatus(scope domain.ScopeType, scopeID string) (map[string]int, error) {
 	where := []string{"deleted_at = ''"}
 	args := []any{}
@@ -977,7 +928,7 @@ func (r *SQLiteRepository) CountFactsByStatus(scope domain.ScopeType, scopeID st
 	return out, rows.Err()
 }
 
-// --- Helpers ----------------------------------------------------------------
+// --- 辅助 ---------------------------------------------------------------------
 
 func memoryFactSelectSQL() string {
 	return `SELECT id, scope_type, scope_id, workspace_id, user_id, team_id, agent_id,
@@ -1042,16 +993,13 @@ func scanFactConflict(row scanner) (domain.FactConflict, error) {
 	return v, nil
 }
 
-// buildScopeFilter compiles the IN-list clause for scope-aware queries
-// against either the FTS view or the meta index. We allow callers to pass
-// scopeIDs that pair positionally with scopes (length match) or, for a
-// short generic list, provide just the scope types.
+// buildScopeFilter 为 FTS 视图或元索引上的作用域查询生成 IN/配对条件。调用方可传与 scopes 等长的
+// scopeIDs 一一对应，或仅传 scope 类型列表作宽泛过滤。
 func buildScopeFilter(scopeCol, scopeIDCol string, scopes []domain.ScopeType, scopeIDs []string) (string, []any) {
 	if len(scopes) == 0 {
 		return "", nil
 	}
-	// When scopeIDs is the same length as scopes, treat each entry as a
-	// (scope, scope_id) pair so we never leak across users / teams.
+	// 当 scopeIDs 与 scopes 等长时，每项视为 (scope, scope_id) 对，避免跨用户/团队泄漏。
 	if len(scopeIDs) == len(scopes) {
 		var clauses []string
 		var args []any
@@ -1061,8 +1009,7 @@ func buildScopeFilter(scopeCol, scopeIDCol string, scopes []domain.ScopeType, sc
 		}
 		return "(" + strings.Join(clauses, " OR ") + ")", args
 	}
-	// Otherwise filter by scope type only. Used for "global" scope or as
-	// a fallback when caller doesn't know the scope id.
+	// 否则仅按 scope 类型过滤。用于 global 或调用方不知道 scope_id 时。
 	placeholders := make([]string, 0, len(scopes))
 	args := make([]any, 0, len(scopes))
 	for _, sc := range scopes {

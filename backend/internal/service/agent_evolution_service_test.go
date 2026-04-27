@@ -1,11 +1,9 @@
-// agent_evolution_service_test.go covers the §13 acceptance criteria for
-// the L4 Agent self-evolution service: identity / strategy CRUD with
-// PII rejection, propose → approve → apply (evolution events recorded),
-// revert (round-trip restore), throttle (second proposal in window
-// becomes superseded), tool-blacklist enforcement via
-// ResolveToolWhitelist, model-routing reorder via ResolveModelRouting,
-// and BuildSelfPromptAppend gating on l4_enabled / l4_identity_inject /
-// l4_strategy_inject.
+// agent_evolution_service_test.go 覆盖 §13 对 L4 智能体自进化服务的验收：身份/策略 CRUD、
+// PII 拒绝、propose → approve → apply（记录进化事件）、
+// revert（往返恢复）、节流（窗口内第二则提案为 superseded）、经
+// ResolveToolWhitelist 的黑名单、经 ResolveModelRouting 的模型路由重排、
+// 以及 BuildSelfPromptAppend 对 l4_enabled / l4_identity_inject /
+// l4_strategy_inject 的门控。
 package service
 
 import (
@@ -19,10 +17,8 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// newTestEvolutionService spins up an in-memory L4 stack (repo + service)
-// for the agent-evolution tests. The repo is shared so tests can poke
-// at low-level state when an invariant isn't exposed via the service
-// surface (e.g. assert that a row exists in agent_evolution_events).
+// newTestEvolutionService 为自进化测试搭建内存 L4 栈（repo + service）。共享 repo 以便在
+// 不变量未从服务层暴露时断言底层（如 agent_evolution_events 有行）。
 func newTestEvolutionService(t *testing.T) (*AgentEvolutionService, repository.Store) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "evo.db")
@@ -39,7 +35,7 @@ func newTestEvolutionService(t *testing.T) (*AgentEvolutionService, repository.S
 
 func strPtr(s string) *string { return &s }
 
-// §13 – first GetIdentity / GetStrategy creates blank rows at version 1.
+// §13 – 首次 GetIdentity / GetStrategy 创建版本 1 的空行。
 func TestEvoGetIdentityCreatesBlankRow(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	id, err := svc.GetIdentity(context.Background(), "agent-cold")
@@ -58,7 +54,7 @@ func TestEvoGetIdentityCreatesBlankRow(t *testing.T) {
 	}
 }
 
-// §13 – PII (e.g. email) in persona is rejected with a validation error.
+// §13 – persona 中含 PII（如邮箱）应被校验拒绝。
 func TestEvoUpdateIdentityRejectsPersonaPII(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	persona := "Reach me at jane@example.com if confused."
@@ -71,8 +67,7 @@ func TestEvoUpdateIdentityRejectsPersonaPII(t *testing.T) {
 	}
 }
 
-// §13 – UpdateIdentity records one EvolutionEvent per changed field and
-// bumps the row version.
+// §13 – UpdateIdentity 每变更字段记一条 EvolutionEvent 并升行版本。
 func TestEvoUpdateIdentityRecordsEvents(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	persona := "I am a senior backend engineer focused on Go and distributed systems."
@@ -96,8 +91,7 @@ func TestEvoUpdateIdentityRecordsEvents(t *testing.T) {
 	}
 }
 
-// §13 – Approving a proposal applies the change and writes a linked
-// EvolutionEvent; the proposal is marked applied.
+// §13 – 批准提案即应用变更并写关联 EvolutionEvent；提案标为已应用。
 func TestEvoProposeApproveAppliesChange(t *testing.T) {
 	svc, repo := newTestEvolutionService(t)
 	prop, err := svc.Propose(context.Background(), ProposalInput{
@@ -138,8 +132,7 @@ func TestEvoProposeApproveAppliesChange(t *testing.T) {
 	}
 }
 
-// §13 – Revert restores the original value and marks the original event
-// reverted.
+// §13 – Revert 恢复原值并将原事件标为已撤销。
 func TestEvoRevertRestoresPreviousValue(t *testing.T) {
 	svc, repo := newTestEvolutionService(t)
 	event, err := svc.Apply(context.Background(), ApplyInput{
@@ -179,8 +172,7 @@ func TestEvoRevertRestoresPreviousValue(t *testing.T) {
 	}
 }
 
-// §13 – the second proposal for the same target_field within the
-// throttle window is marked superseded; the first one stays pending.
+// §13 – 同一 target_field 在节流窗口内第二则提案标 superseded；第一则仍为 pending。
 func TestEvoProposeThrottlesDuplicateWithinWindow(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	first, err := svc.Propose(context.Background(), ProposalInput{
@@ -211,7 +203,7 @@ func TestEvoProposeThrottlesDuplicateWithinWindow(t *testing.T) {
 	}
 }
 
-// §13 – Apply rejects target_fields outside the §11 whitelist.
+// §13 – Apply 拒绝 §11 白名单外的 target_field。
 func TestEvoApplyRejectsNonWhitelistedTarget(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	_, err := svc.Apply(context.Background(), ApplyInput{
@@ -228,8 +220,7 @@ func TestEvoApplyRejectsNonWhitelistedTarget(t *testing.T) {
 	}
 }
 
-// §13 – tools in `strategy.tool_blacklist` are removed by
-// ResolveToolWhitelist; survivors are reordered by tool_preference desc.
+// §13 – `strategy.tool_blacklist` 中的工具由 ResolveToolWhitelist 滤除；剩余按 tool_preference 降序。
 func TestEvoResolveToolWhitelistFiltersAndReorders(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	blacklist := []string{"shell"}
@@ -255,7 +246,7 @@ func TestEvoResolveToolWhitelistFiltersAndReorders(t *testing.T) {
 	}
 }
 
-// §13 – ResolveModelRouting reorders by base_score * (0.5 + preference).
+// §13 – ResolveModelRouting 按 base_score * (0.5 + preference) 重排。
 func TestEvoResolveModelRoutingReordersByPreference(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	modelPrefs := map[string]float64{"openai/gpt-4": 0.9, "anthropic/claude-3": 0.2}
@@ -277,8 +268,7 @@ func TestEvoResolveModelRoutingReordersByPreference(t *testing.T) {
 	}
 }
 
-// §13 – BuildSelfPromptAppend honours `l4_enabled`. When the master
-// switch is off the call returns an empty string regardless of identity.
+// §13 – BuildSelfPromptAppend 遵守 `l4_enabled`。总开关关时无论身份内容均返回空串。
 func TestEvoBuildSelfPromptAppendGatedByL4Enabled(t *testing.T) {
 	svc, repo := newTestEvolutionService(t)
 	persona := "Concise systems engineer."
@@ -330,7 +320,7 @@ func TestEvoBuildSelfPromptAppendGatedByL4Enabled(t *testing.T) {
 	}
 }
 
-// §13 – Persona is truncated to evo_persona_max_chars when long.
+// §13 – persona 过长时截断至 evo_persona_max_chars。
 func TestEvoBuildSelfPromptAppendTruncatesPersona(t *testing.T) {
 	svc, repo := newTestEvolutionService(t)
 	long := strings.Repeat("a", 500)
@@ -356,9 +346,8 @@ func TestEvoBuildSelfPromptAppendTruncatesPersona(t *testing.T) {
 	}
 }
 
-// §13 – ToolPolicyForAgent surfaces the strategy.tool_blacklist plus
-// strategy.tool_preference scores so ToolService.EffectiveForAgent can
-// fold them into the per-agent view.
+// §13 – ToolPolicyForAgent 暴露 strategy.tool_blacklist 与
+// strategy.tool_preference，供 ToolService.EffectiveForAgent 合并到每智能体视图。
 func TestEvoToolPolicyForAgentReturnsBlacklistAndPreferences(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	bl := []string{"shell_exec"}
@@ -380,8 +369,7 @@ func TestEvoToolPolicyForAgentReturnsBlacklistAndPreferences(t *testing.T) {
 	}
 }
 
-// §13 – ToolPolicyForAgent on a cold-start agent must not error: it
-// returns empty values so ToolService can degrade gracefully.
+// §13 – 冷启动智能体上 ToolPolicyForAgent 不得报错：返回空值以便 ToolService 优雅降级。
 func TestEvoToolPolicyForAgentColdStart(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	bl, prefs, err := svc.ToolPolicyForAgent(context.Background(), "agent-fresh")
@@ -393,9 +381,8 @@ func TestEvoToolPolicyForAgentColdStart(t *testing.T) {
 	}
 }
 
-// Sanity check – ApplyInput's BeforeValue / AfterValue can be passed
-// as JSON-decoded `any` (matching how Approve unmarshals proposals) and
-// still propagate to the typed identity / strategy stores.
+// 健全性：ApplyInput 的 BeforeValue / AfterValue 可为 JSON 解码的 `any`（与 Approve 反序列化提案一致），
+// 仍能写入类型化的身份/策略存储。
 func TestEvoApplyAcceptsJSONDecodedValues(t *testing.T) {
 	svc, _ := newTestEvolutionService(t)
 	var after any

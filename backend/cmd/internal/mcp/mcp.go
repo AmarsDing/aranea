@@ -1,5 +1,5 @@
-// Package mcp implements `aranea mcp ls/get`. MCP servers live under
-// /api/v1/mcp-servers in the backend's platform-resources router.
+// Package mcp 实现 `aranea mcp ls/get`。MCP 服务位于后端的
+// /api/v1/mcp-servers（平台资源路由下）。
 package mcp
 
 import (
@@ -12,7 +12,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",

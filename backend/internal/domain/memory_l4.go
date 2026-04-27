@@ -1,12 +1,9 @@
-// Package domain – memory L4 persistent / evolutionary memory types
-// described in `aranea/docs/16 memory-L4-persistent.md`. L4 stores a long-
-// lived knowledge graph (entities + relations) plus the agent's evolving
-// identity / strategy profile and is the topmost layer of the 5-layer
-// memory architecture.
+// Package domain – L4 持久 / 进化记忆领域类型，见 `aranea/docs/16 memory-L4-persistent.md`。
+// L4 存储长生命期知识图谱（实体 + 关系）及智能体演进的身份 / 策略画像，
+// 为五层记忆架构的最顶层。
 package domain
 
-// EntityType classifies a knowledge-graph node. Strings persist in
-// `memory_entities.entity_type` so changing values requires a migration.
+// EntityType 对知识图谱节点分类。字符串持久化在 `memory_entities.entity_type`，变更需迁移。
 type EntityType string
 
 const (
@@ -22,9 +19,8 @@ const (
 	EntityCustom     EntityType = "custom"
 )
 
-// IsValid reports whether the entity type is one of the known enum values.
-// Unknown types are still allowed via EntityCustom; callers may relax this
-// check when accepting plugin-supplied taxonomies.
+// IsValid 表示实体类型是否为已知枚举值。
+// 未知类型仍可通过 EntityCustom；接受插件提供的分类体系时调用方可放宽此检查。
 func (t EntityType) IsValid() bool {
 	switch t {
 	case EntityPerson, EntityProject, EntityRepository, EntityTech, EntityFramework,
@@ -34,8 +30,7 @@ func (t EntityType) IsValid() bool {
 	return false
 }
 
-// RelationType classifies a knowledge-graph edge. Strings persist in
-// `memory_relations.relation_type`.
+// RelationType 对知识图谱边分类。字符串持久化在 `memory_relations.relation_type`。
 type RelationType string
 
 const (
@@ -51,8 +46,7 @@ const (
 	RelBlocks     RelationType = "blocks"
 )
 
-// IsValid reports whether the relation type is one of the known enum
-// values. Custom types are allowed but should be vetted upstream.
+// IsValid 表示关系类型是否为已知枚举值。允许自定义类型，但应在更上游审核。
 func (r RelationType) IsValid() bool {
 	switch r {
 	case RelWorksOn, RelUses, RelDependsOn, RelAuthoredBy, RelPartOf,
@@ -62,7 +56,7 @@ func (r RelationType) IsValid() bool {
 	return false
 }
 
-// Entity / Relation status values persisted in `status` columns.
+// 持久化在 `status` 列的实体 / 关系状态取值。
 const (
 	EntityStatusActive   = "active"
 	EntityStatusMerged   = "merged"
@@ -74,7 +68,7 @@ const (
 	RelationStatusDeleted  = "deleted"
 )
 
-// Source kinds describe how an entity / relation was created.
+// 来源种类，描述实体 / 关系的创建方式。
 const (
 	GraphSourceExtracted   = "extracted"
 	GraphSourceUser        = "user"
@@ -83,16 +77,14 @@ const (
 	GraphSourceConsolidate = "consolidator"
 )
 
-// EvidenceRef is a structured reference to a fact / episode / message that
-// supports an entity, relation, or evolution change. Persisted as a JSON
-// element inside the various `evidence_json` columns.
+// EvidenceRef 为指向事实 / 片段 / 消息等的结构化引用，支撑实体、关系或进化变更。
+// 作为 JSON 元素持久化在各 `evidence_json` 列中。
 type EvidenceRef struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 }
 
-// MemoryEntity is the persisted row in `memory_entities`. JSON tags match
-// the wire format used by the §6.2 HTTP API.
+// MemoryEntity 为 `memory_entities` 表的持久化行。JSON 标签与 §6.2 HTTP API 线格式一致。
 type MemoryEntity struct {
 	ID             string         `json:"id"`
 	ScopeType      ScopeType      `json:"scope_type"`
@@ -127,7 +119,7 @@ type MemoryEntity struct {
 	DeletedAt  string         `json:"deleted_at,omitempty"`
 }
 
-// MemoryRelation is the persisted row in `memory_relations`.
+// MemoryRelation 为 `memory_relations` 表的持久化行。
 type MemoryRelation struct {
 	ID          string    `json:"id"`
 	ScopeType   ScopeType `json:"scope_type"`
@@ -156,9 +148,7 @@ type MemoryRelation struct {
 	DeletedAt  string         `json:"deleted_at,omitempty"`
 }
 
-// MemoryEntityVersion captures one historical snapshot of a
-// `memory_entities` row. `change_reason` is one of create / update /
-// merge / split / rename / restore.
+// MemoryEntityVersion 捕获 `memory_entities` 行的一次历史快照。`change_reason` 为 create / update / merge / split / rename / restore 之一。
 type MemoryEntityVersion struct {
 	ID           string         `json:"id"`
 	EntityID     string         `json:"entity_id"`
@@ -171,7 +161,7 @@ type MemoryEntityVersion struct {
 	CreatedAt    string         `json:"created_at,omitempty"`
 }
 
-// MemoryEntityFactLink is the entity ↔ L3 fact reverse index row.
+// MemoryEntityFactLink 为实体 ↔ L3 事实的反向索引行。
 type MemoryEntityFactLink struct {
 	EntityID  string  `json:"entity_id"`
 	FactID    string  `json:"fact_id"`
@@ -179,8 +169,7 @@ type MemoryEntityFactLink struct {
 	CreatedAt string  `json:"created_at,omitempty"`
 }
 
-// GraphNeighborhood is the result of `MemoryL4GraphService.Neighborhood`.
-// `Hops` is the actual hop count returned (capped by the request).
+// GraphNeighborhood 为 `MemoryL4GraphService.Neighborhood` 的返回结果。`Hops` 为实际返回的跳数（受请求上限约束）。
 type GraphNeighborhood struct {
 	Center    MemoryEntity     `json:"center"`
 	Hops      int              `json:"hops"`

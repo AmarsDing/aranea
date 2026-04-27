@@ -1,5 +1,5 @@
-// Package completion exposes Cobra's built-in shell completion script
-// generator under the `aranea completion <shell>` command tree.
+// Package completion 将 Cobra 内置的 shell 补全脚本生成器暴露为
+// `aranea completion <shell>` 命令树。
 package completion
 
 import (
@@ -8,9 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCommand returns the parent completion command. The four standard
-// targets supported by Cobra are wired up explicitly so users can
-// discover them via tab-completion of the command itself.
+// NewCommand 返回父级 completion 命令。显式接好 Cobra 支持的四种目标，
+// 用户可通过子命令自身 tab 补全发现。
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "completion",

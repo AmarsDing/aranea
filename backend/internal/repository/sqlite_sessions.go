@@ -129,10 +129,8 @@ func (r *SQLiteRepository) UpdateSessionContextUsedRatio(sessionID string, ratio
 	return err
 }
 
-// UpdateSessionL0Context records both the prompt-level token usage and the
-// effective model context window. It mirrors UpdateSessionContextUsedRatio but
-// keeps the L0 metrics in sync so the front-end "context" tab can render the
-// real numbers behind the ratio.
+// UpdateSessionL0Context 同时记录提示级 token 用量与有效模型上下文窗口。语义上类似 UpdateSessionContextUsedRatio，
+// 但同步 L0 指标，便于前端「上下文」页展示比例背后的真实数值。
 func (r *SQLiteRepository) UpdateSessionL0Context(sessionID string, promptTokens int, contextWindow int, ratio float64) error {
 	if ratio < 0 {
 		ratio = 0

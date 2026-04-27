@@ -1,9 +1,7 @@
 package domain
 
-// L0Settings captures the agent-level configuration that drives the L0
-// (sensory / context-window) memory layer described in `12 memory-L0-sensory.md`.
-// All knobs are persisted on agent_runtime_settings so they live alongside the
-// existing memory_* and tools_* knobs.
+// L0Settings 记录驱动 L0（感知 / 上下文窗口）记忆层的智能体级配置，见 `12 memory-L0-sensory.md`。
+// 各开关持久化在 agent_runtime_settings，与既有 memory_*、tools_* 配置并列。
 type L0Settings struct {
 	RecentWindowTurns  int     `json:"recent_window_turns"`
 	RecentWindowTokens int     `json:"recent_window_tokens"`
@@ -18,8 +16,7 @@ type L0Settings struct {
 	SnapshotMode       string  `json:"snapshot_mode"`
 }
 
-// L0Segment is one block in the assembled prompt. The content is what is fed
-// into the model; preview is what is persisted for debugging / audit.
+// L0Segment 是组装后提示中的一块。Content 为送入模型的内容；Preview 为持久化供调试 / 审计的摘要。
 type L0Segment struct {
 	Section string `json:"section"`
 	Role    string `json:"role"`
@@ -29,9 +26,8 @@ type L0Segment struct {
 	Preview string `json:"preview"`
 }
 
-// L0AssemblyRequest is the input from ChatService / TeamRuntime when building
-// a model prompt. ContextWindow / ReservedForOutput are taken from the chosen
-// provider model so the budget is computed per call.
+// L0AssemblyRequest 为 ChatService / TeamRuntime 构建模型提示时的输入。
+// ContextWindow / ReservedForOutput 取自所选提供商模型，故预算按每次调用计算。
 type L0AssemblyRequest struct {
 	SessionID         string      `json:"session_id"`
 	RunID             string      `json:"run_id,omitempty"`
@@ -50,10 +46,8 @@ type L0AssemblyRequest struct {
 	ExtraSystemBlocks []L0Segment `json:"extra_system_blocks,omitempty"`
 }
 
-// L0MemoryScopeContext carries the caller's visible memory scopes from L0
-// into L3 / L4 recall. Older call sites only supplied session_id + agent_id,
-// which meant user/team/workspace recall scopes in runtime settings could not
-// participate in the main chat assembly path.
+// L0MemoryScopeContext 将调用方在 L0 可见的记忆作用域传入 L3 / L4 回忆。
+// 旧调用点仅提供 session_id 与 agent_id，导致运行时设置中的用户 / 团队 / 工作区回忆作用域无法参与主聊天组装路径。
 type L0MemoryScopeContext struct {
 	SessionID   string `json:"session_id,omitempty"`
 	AgentID     string `json:"agent_id,omitempty"`
@@ -63,16 +57,14 @@ type L0MemoryScopeContext struct {
 	Query       string `json:"query,omitempty"`
 }
 
-// L0ChatMessage is the role / content tuple given back to ChatService so it
-// can be passed straight to the runtime adapter without leaking layout details.
+// L0ChatMessage 为交还给 ChatService 的角色 / 内容二元组，可直接传入运行时适配器而不泄露布局细节。
 type L0ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// L0AssemblyResult is what MemoryL0Service.Assemble returns. PromptMessages is
-// the final array fed to the model; the rest is metadata used by snapshots,
-// trace spans and the prompt debugger UI.
+// L0AssemblyResult 为 MemoryL0Service.Assemble 的返回值。PromptMessages 为最终送入模型的数组；
+// 其余元数据供快照、追踪跨度与提示调试 UI 使用。
 type L0AssemblyResult struct {
 	Segments              []L0Segment     `json:"segments"`
 	PromptMessages        []L0ChatMessage `json:"prompt_messages"`
@@ -89,9 +81,8 @@ type L0AssemblyResult struct {
 	SnapshotID            string          `json:"snapshot_id,omitempty"`
 }
 
-// L0AssemblySnapshot mirrors a row in memory_l0_assembly_snapshots. It is the
-// auditable record of one L0 assembly so operators / agent-evolution analytics
-// can replay how a prompt was constructed.
+// L0AssemblySnapshot 对应 memory_l0_assembly_snapshots 表的一行。
+// 为单次 L0 组装的可审计记录，供运维 / 智能体进化分析回放提示构造过程。
 type L0AssemblySnapshot struct {
 	ID                    string  `json:"id"`
 	SessionID             string  `json:"session_id"`
@@ -126,8 +117,7 @@ type L0AssemblySnapshot struct {
 	CreatedAt             string  `json:"created_at"`
 }
 
-// SessionSummary is a condensed transcript of `from_turn..to_turn` written by
-// SummaryService and consumed by L0 to keep older history within budget.
+// SessionSummary 为 SummaryService 写入的 `from_turn..to_turn` 区间浓缩纪要，由 L0 消费以在预算内保留较早历史。
 type SessionSummary struct {
 	ID              string `json:"id"`
 	SessionID       string `json:"session_id"`

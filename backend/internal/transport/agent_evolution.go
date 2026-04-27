@@ -1,8 +1,7 @@
-// transport/agent_evolution.go exposes the L4 self-evolution HTTP
-// surface described in `aranea/docs/16 memory-L4-persistent.md` §6.4.
-// All routes live under `/api/v1/agents/{agent_id}/evolution/...` and
-// `/api/v1/admin/agents/{agent_id}/evolution/...` so the agent context
-// is unambiguous.
+// transport/agent_evolution.go 暴露 L4 自进化 HTTP 接口，见
+// `aranea/docs/16 memory-L4-persistent.md` §6.4。
+// 路由位于 `/api/v1/agents/{agent_id}/evolution/...` 与
+// `/api/v1/admin/agents/{agent_id}/evolution/...`，以明确智能体上下文。
 package transport
 
 import (
@@ -15,15 +14,13 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// registerAgentEvolutionRoutes installs every evolution endpoint at the
-// top level. The dispatch function does the agent-id parsing.
+// registerAgentEvolutionRoutes 在顶层注册全部进化端点，由分发函数解析 agent id。
 func (h *HTTPHandler) registerAgentEvolutionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/agent-evolution/", h.handleAgentEvolution)
 }
 
-// evolutionService mirrors l3Service / l4Service: nil triggers a 503 in
-// callers so a misconfigured build (no AgentEvolutionService injected)
-// surfaces clearly.
+// evolutionService 与 l3Service / l4Service 类似：返回 nil 时调用方返回 503，
+// 以便错误构建（未注入 AgentEvolutionService）能明确暴露。
 func (h *HTTPHandler) evolutionService() *service.AgentEvolutionService {
 	if h.chatSvc == nil {
 		return nil
@@ -31,8 +28,8 @@ func (h *HTTPHandler) evolutionService() *service.AgentEvolutionService {
 	return h.chatSvc.AgentEvolution()
 }
 
-// handleAgentEvolution dispatches /api/v1/agent-evolution/{agent_id}/...
-// paths. The supported sub-resources are:
+// handleAgentEvolution 分发 /api/v1/agent-evolution/{agent_id}/... 路径。
+// 支持的子资源：
 //   - identity         (GET, PATCH)
 //   - strategy         (GET, PATCH)
 //   - proposals        (GET, POST)
@@ -78,9 +75,9 @@ func (h *HTTPHandler) handleAgentEvolution(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// handleAgentEvolutionAgentPath dispatches the spec-compatible
-// /api/v1/agents/{id}/identity, /strategy, and /evolution/... aliases while
-// keeping /api/v1/agent-evolution/{id}/... backwards-compatible.
+// handleAgentEvolutionAgentPath 分发与规范一致的
+// /api/v1/agents/{id}/identity、/strategy 与 /evolution/... 别名，
+// 同时保持 /api/v1/agent-evolution/{id}/... 向后兼容。
 func (h *HTTPHandler) handleAgentEvolutionAgentPath(w http.ResponseWriter, r *http.Request, pathSuffix string) bool {
 	svc := h.evolutionService()
 	if svc == nil {
@@ -126,7 +123,7 @@ func (h *HTTPHandler) handleAgentEvolutionAgentPath(w http.ResponseWriter, r *ht
 	return true
 }
 
-// --- Identity ---------------------------------------------------------------
+// --- 身份 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleAgentIdentity(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string) {
 	switch r.Method {
@@ -154,7 +151,7 @@ func (h *HTTPHandler) handleAgentIdentity(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// --- Strategy ---------------------------------------------------------------
+// --- 策略 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleAgentStrategy(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string) {
 	switch r.Method {
@@ -182,7 +179,7 @@ func (h *HTTPHandler) handleAgentStrategy(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// --- Proposals --------------------------------------------------------------
+// --- 提案 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleAgentProposals(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string, tail []string) {
 	if len(tail) == 0 {
@@ -279,7 +276,7 @@ func (h *HTTPHandler) handleProposalReject(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- Events -----------------------------------------------------------------
+// --- 事件 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleAgentEvents(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string, tail []string) {
 	if len(tail) == 0 {
@@ -343,7 +340,7 @@ func (h *HTTPHandler) handleEventRevert(w http.ResponseWriter, r *http.Request, 
 	writeJSON(w, http.StatusOK, event)
 }
 
-// --- Skill stats ------------------------------------------------------------
+// --- 技能统计 ---------------------------------------------------------------
 
 func (h *HTTPHandler) handleAgentSkillStats(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string) {
 	switch r.Method {
@@ -375,7 +372,7 @@ func (h *HTTPHandler) handleAgentSkillStats(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// --- Worker -----------------------------------------------------------------
+// --- 工作者 -----------------------------------------------------------------
 
 func (h *HTTPHandler) handleAgentEvolutionScan(w http.ResponseWriter, r *http.Request, svc *service.AgentEvolutionService, agentID string) {
 	if r.Method != http.MethodPost {

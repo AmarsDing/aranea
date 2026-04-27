@@ -1,9 +1,7 @@
-// Package console implements the Aranea ADK SubLauncher that drives the
-// interactive REPL. It mirrors the structure of
-// google.golang.org/adk/cmd/launcher/console but talks to the Aranea
-// backend over HTTP instead of running an in-process ADK runner. That
-// way every action triggered by the system administrator agent goes
-// through the audited /api/v1/* layer just like the web UI.
+// Package console 实现 Aranea 的 ADK SubLauncher，驱动交互式 REPL。结构
+// 仿照 google.golang.org/adk/cmd/launcher/console，但通过 HTTP 与 Aranea
+// 后端通信，而非在进程内运行 ADK runner。这样系统管理员智能体触发的
+// 操作均经审计的 /api/v1/* 层，与 Web UI 一致。
 package console
 
 import (
@@ -30,9 +28,8 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// NewLauncher constructs the console SubLauncher. The Aranea Config is
-// captured here and consumed from Run() so we never need to attach
-// pointers to non-ADK types onto adklauncher.Config.
+// NewLauncher 构建 console SubLauncher。在此捕获 Aranea Config，Run 时
+// 再消费，从而无需将非 ADK 类型的指针挂到 adklauncher.Config 上。
 func NewLauncher(cfg *araneal.Config) adklauncher.SubLauncher {
 	flags := flag.NewFlagSet("console", flag.ContinueOnError)
 	c := &consoleConfig{}
@@ -44,7 +41,7 @@ func NewLauncher(cfg *araneal.Config) adklauncher.SubLauncher {
 	return &consoleLauncher{flags: flags, config: c, arn: cfg}
 }
 
-// consoleConfig holds the parsed CLI flags for the console launcher.
+// consoleConfig 保存 console launcher 的解析后 CLI 标志。
 type consoleConfig struct {
 	AgentKey  string
 	SessionID string
@@ -53,23 +50,23 @@ type consoleConfig struct {
 	NoStream  bool
 }
 
-// consoleLauncher implements adklauncher.SubLauncher.
+// consoleLauncher 实现 adklauncher.SubLauncher。
 type consoleLauncher struct {
 	flags  *flag.FlagSet
 	config *consoleConfig
 	arn    *araneal.Config
 }
 
-// Keyword implements adklauncher.SubLauncher.
+// Keyword 实现 adklauncher.SubLauncher。
 func (l *consoleLauncher) Keyword() string { return "console" }
 
-// SimpleDescription implements adklauncher.SubLauncher.
+// SimpleDescription 实现 adklauncher.SubLauncher。
 func (l *consoleLauncher) SimpleDescription() string {
 	return "interactive REPL chatting with the system administrator agent"
 }
 
-// CommandLineSyntax implements adklauncher.SubLauncher. We render the
-// flag set ourselves to avoid depending on adk's internal cli/util pkg.
+// CommandLineSyntax 实现 adklauncher.SubLauncher。自行渲染 flag 集，避免
+// 依赖 adk 内部 cli/util 包。
 func (l *consoleLauncher) CommandLineSyntax() string {
 	var buf bytes.Buffer
 	buf.WriteString("Flags:\n")
@@ -78,7 +75,7 @@ func (l *consoleLauncher) CommandLineSyntax() string {
 	return buf.String()
 }
 
-// Parse implements adklauncher.SubLauncher.
+// Parse 实现 adklauncher.SubLauncher。
 func (l *consoleLauncher) Parse(args []string) ([]string, error) {
 	if err := l.flags.Parse(args); err != nil {
 		return nil, fmt.Errorf("console: %w", err)
@@ -86,10 +83,9 @@ func (l *consoleLauncher) Parse(args []string) ([]string, error) {
 	return l.flags.Args(), nil
 }
 
-// Run implements adklauncher.SubLauncher. It is the heart of the
-// interactive console: resolve the target agent, ensure a session
-// exists, then loop on user input forwarding each line to the chat
-// stream API and rendering the SSE events back to the terminal.
+// Run 实现 adklauncher.SubLauncher。交互式 console 的核心：解析目标
+// 智能体、确保存在会话，然后循环读取用户输入，将每行转发到聊天
+// 流式 API，并把 SSE 事件渲染回终端。
 func (l *consoleLauncher) Run(ctx context.Context, _ *adklauncher.Config) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
@@ -101,9 +97,8 @@ func (l *consoleLauncher) Run(ctx context.Context, _ *adklauncher.Config) error 
 
 	agentRef, err := agent.Resolve(ctx, g, l.config.AgentKey)
 	if err != nil {
-		// Best effort fallback: pick the first listed agent so a brand new
-		// install (where __system_admin__ has not been seeded yet) still
-		// gives the user a working REPL.
+		// 尽力回退：选取列表中第一个智能体，使全新安装（尚未种子化
+		// __system_admin__）时用户仍有一个可用的 REPL。
 		fallback, fbErr := pickFallbackAgent(ctx, g)
 		if fbErr != nil {
 			return fmt.Errorf("agent %q not found and no fallback available: %w", l.config.AgentKey, err)
@@ -170,9 +165,8 @@ func printBanner(a domain.Agent, s domain.Session, mode string) {
 	fmt.Printf("Type /help for commands, /quit to exit.\n\n")
 }
 
-// handleSlash implements the lightweight slash-command surface defined
-// in 前端/25 cli.md §1.7 (subset). It returns (handled, exit) — exit is
-// true only for /quit and /exit so the caller can break out of Run().
+// handleSlash 实现 前端/25 cli.md §1.7 所定义的轻量斜杠命令（子集）。
+// 返回 (handled, exit) —— 仅对 /quit、/exit 时 exit 为 true，供 Run 退出循环。
 func (l *consoleLauncher) handleSlash(ctx context.Context, g *apiclient.GlobalContext, sess *domain.Session, line string) (bool, bool) {
 	if !strings.HasPrefix(line, "/") {
 		return false, false
@@ -225,9 +219,8 @@ func (l *consoleLauncher) handleSlash(ctx context.Context, g *apiclient.GlobalCo
 	return true, false
 }
 
-// send streams a single user message and prints the agent reply to
-// stdout. When NoStream is set we fall back to the synchronous endpoint
-// so the console works against backends that have streaming disabled.
+// send 流式发送单条用户消息并将智能体回复打印到 stdout。若设置
+// NoStream 则回退到同步端点，以便在关闭流式传输的后端上仍可使用 console。
 func (l *consoleLauncher) send(ctx context.Context, g *apiclient.GlobalContext, sessionID, agentKey, content string) error {
 	in := service.SendMessageInput{
 		SessionID: sessionID,
@@ -246,9 +239,8 @@ func (l *consoleLauncher) send(ctx context.Context, g *apiclient.GlobalContext, 
 	return l.stream(ctx, g, in)
 }
 
-// stream POSTs to /api/v1/chat/messages/stream and renders the SSE
-// stream incrementally. The implementation is intentionally minimal —
-// we parse `event:` and `data:` lines and dispatch on event type.
+// stream 向 /api/v1/chat/messages/stream 发起 POST 并增量渲染 SSE 流。
+// 实现刻意保持最小：解析 `event:` 与 `data:` 行并按事件类型分发。
 func (l *consoleLauncher) stream(ctx context.Context, g *apiclient.GlobalContext, in service.SendMessageInput) error {
 	body, err := json.Marshal(in)
 	if err != nil {

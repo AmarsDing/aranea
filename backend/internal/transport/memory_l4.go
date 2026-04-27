@@ -1,9 +1,6 @@
-// transport/memory_l4.go exposes the L4 persistent / knowledge-graph
-// HTTP surface described in `aranea/docs/16 memory-L4-persistent.md`
-// §6.2 (entities), §6.3 (relations), and §6.5 (admin / extraction).
-// Resources are workspace- / user- / agent-scoped (not session-scoped)
-// so the routes are registered in handler.go directly under
-// `/api/v1/memory/l4/...`.
+// transport/memory_l4.go 暴露 L4 持久 / 知识图谱 HTTP 接口，见 `aranea/docs/16 memory-L4-persistent.md`
+// §6.2（实体）、§6.3（关系）、§6.5（管理 / 抽取）。
+// 资源按工作区 / 用户 / 智能体等作用域（非会话作用域），路由在 handler.go 中直接注册于 `/api/v1/memory/l4/...`。
 package transport
 
 import (
@@ -16,9 +13,8 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// registerMemoryL4Routes installs the user-facing entity / relation /
-// neighborhood endpoints and the admin-only extraction / stats
-// endpoints. Admin endpoints live under /api/v1/admin/memory/l4/.
+// registerMemoryL4Routes 挂载面向用户的实体 / 关系 / 邻域端点，
+// 以及仅管理端可用的抽取等端点。管理路由位于 /api/v1/admin/memory/l4/。
 func (h *HTTPHandler) registerMemoryL4Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/memory/l4/entities:search", h.handleL4EntitiesSearch)
 	mux.HandleFunc("/api/v1/memory/l4/entities", h.handleL4EntitiesCollection)
@@ -35,8 +31,7 @@ func (h *HTTPHandler) registerMemoryL4Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/admin/memory/l4/extract/fact", h.handleL4ExtractFact)
 }
 
-// l4Service mirrors l3Service: nil triggers a 503 in callers so a
-// misconfigured build (no MemoryL4Service injected) surfaces clearly.
+// l4Service 与 l3Service 类似：返回 nil 时调用方返回 503，错误构建（未注入 MemoryL4Service）可明确暴露。
 func (h *HTTPHandler) l4Service() *service.MemoryL4Service {
 	if h.chatSvc == nil {
 		return nil
@@ -44,7 +39,7 @@ func (h *HTTPHandler) l4Service() *service.MemoryL4Service {
 	return h.chatSvc.MemoryL4()
 }
 
-// --- Entities --------------------------------------------------------------
+// --- 实体 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL4EntitiesCollection(w http.ResponseWriter, r *http.Request) {
 	svc := h.l4Service()
@@ -88,8 +83,8 @@ func (h *HTTPHandler) handleL4EntitiesCollection(w http.ResponseWriter, r *http.
 	}
 }
 
-// handleL4EntitiesItem dispatches /api/v1/memory/l4/entities/{id}[/...]
-// paths. Sub-resources:
+// handleL4EntitiesItem 分发 /api/v1/memory/l4/entities/{id}[/...] 路径。
+// 子资源：
 //   - /versions  (GET)
 //   - /facts     (GET)
 //   - /rename    (POST)
@@ -259,7 +254,7 @@ func (h *HTTPHandler) handleL4EntityArchive(w http.ResponseWriter, r *http.Reque
 		By     string `json:"by"`
 		Reason string `json:"reason"`
 	}
-	_ = decodeBody(w, r, &in) // optional body
+	_ = decodeBody(w, r, &in) // 请求体可选
 	if err := svc.ArchiveEntity(r.Context(), id, in.By, in.Reason); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -268,7 +263,7 @@ func (h *HTTPHandler) handleL4EntityArchive(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// --- Relations --------------------------------------------------------------
+// --- 关系 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL4RelationsCollection(w http.ResponseWriter, r *http.Request) {
 	svc := h.l4Service()
@@ -372,7 +367,7 @@ func (h *HTTPHandler) handleL4NodeRelations(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, listResponse[domain.MemoryRelation]{Items: rels})
 }
 
-// --- Neighborhood / search --------------------------------------------------
+// --- 邻域 / 搜索 --------------------------------------------------------------
 
 func (h *HTTPHandler) handleL4Neighborhood(w http.ResponseWriter, r *http.Request) {
 	svc := h.l4Service()
@@ -471,7 +466,7 @@ func (h *HTTPHandler) handleL4EntitiesSearch(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, listResponse[domain.MemoryEntity]{Items: hits})
 }
 
-// --- Admin / extraction -----------------------------------------------------
+// --- 管理 / 抽取 --------------------------------------------------------------
 
 func (h *HTTPHandler) handleL4ExtractEpisode(w http.ResponseWriter, r *http.Request) {
 	svc := h.l4Service()

@@ -25,18 +25,17 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// newInstallCmd implements `aranea skill install <url>`. It supports git
-// repositories (github.com / gitlab / generic .git URLs) and remote zip
-// files. The flow follows 前端/25 cli.md §6:
+// newInstallCmd 实现 `aranea skill install <url>`。支持 git 仓库
+//（github.com / gitlab / 泛型 .git URL）与远程 zip。流程遵循 前端/25 cli.md §6：
 //
-//  1. parse the URL into a source descriptor (scheme + ref + subpath)
-//  2. clone or download into a temp directory
-//  3. locate the SKILL.md root (single skill or pickable subdir)
-//  4. run a small set of local pre-validations (front-matter required)
-//  5. zip the chosen directory and POST it to /api/v1/skills/import
-//  6. poll the returned job until it leaves the `validating` phase
-//  7. resolve any conflicts interactively (skip / keep / refine)
-//  8. POST /apply to commit the surviving candidates
+//  1. 将 URL 解析为源描述（scheme + ref + subpath）
+//  2. clone 或下载到临时目录
+//  3. 定位 SKILL.md 根（单技能或可挑选子目录）
+//  4. 做少量本地预检（要求 front-matter）
+//  5. 将选定目录打 zip 并 POST 到 /api/v1/skills/import
+//  6. 轮询返回的任务直到离开 `validating` 阶段
+//  7. 交互式解决冲突（skip / keep / refine）
+//  8. POST /apply 提交保留的候选
 func newInstallCmd(g *apiclient.GlobalContext) *cobra.Command {
 	var (
 		ref          string
@@ -152,7 +151,7 @@ func newImportCmd(g *apiclient.GlobalContext) *cobra.Command {
 	return cmd
 }
 
-// source describes a normalised skill source.
+// source 描述归一化后的技能来源。
 type source struct {
 	Kind    string // git | zip | local
 	URL     string
@@ -160,16 +159,16 @@ type source struct {
 	Subpath string
 }
 
-// parseSource canonicalises common URL shapes:
+// parseSource 将常见 URL 形态规范为内部表示：
 //
 //   - github.com/<owner>/<repo>            → git, https://github.com/<owner>/<repo>.git
 //   - github.com/<owner>/<repo>/tree/<ref>/<sub> → git + ref + subpath
-//   - https://...                          → git or zip based on suffix
-//   - file:// or local paths               → local
+//   - https://...                          → 按后缀判为 git 或 zip
+//   - file:// 或本地路径                   → local
 func parseSource(rawURL, refOverride, subpathOverride string) (source, error) {
 	if !strings.Contains(rawURL, "://") && !strings.HasPrefix(rawURL, "github.com") &&
 		!strings.HasPrefix(rawURL, "gitlab.com") {
-		// treat as a local path
+		// 视为本地路径
 		abs, err := filepath.Abs(rawURL)
 		if err != nil {
 			return source{}, err
@@ -191,7 +190,7 @@ func parseSource(rawURL, refOverride, subpathOverride string) (source, error) {
 	if (u.Host == "github.com" || u.Host == "gitlab.com") && len(parts) >= 2 {
 		owner, repo := parts[0], strings.TrimSuffix(parts[1], ".git")
 		src.URL = fmt.Sprintf("https://%s/%s/%s.git", u.Host, owner, repo)
-		// Detect /tree/<ref>/<sub...> from a browse URL.
+		// 从浏览 URL 中识别 /tree/<ref>/<sub...>。
 		if len(parts) >= 4 && parts[2] == "tree" {
 			if src.Ref == "" {
 				src.Ref = parts[3]
@@ -206,8 +205,7 @@ func parseSource(rawURL, refOverride, subpathOverride string) (source, error) {
 	return src, nil
 }
 
-// fetchSource clones or downloads the source into dir and returns the
-// directory that should be searched for SKILL.md files.
+// fetchSource 将源 clone 或下载到 dir，并返回应搜索 SKILL.md 的目录。
 func fetchSource(ctx context.Context, src source, dir string) (string, error) {
 	switch src.Kind {
 	case "local":
@@ -231,11 +229,10 @@ func fetchSource(ctx context.Context, src source, dir string) (string, error) {
 	return "", fmt.Errorf("unsupported source kind: %s", src.Kind)
 }
 
-// downloadAndExtractZip streams a remote zip into dir/source.zip and
-// expands it into dir/extracted. We use a 50MB cap to keep the worst
-// case sane; archives larger than that should be brought in over git.
-// The function tolerates GitHub-style archives that wrap content in a
-// `<repo>-<ref>/` prefix because locateSkillRoot walks the whole tree.
+// downloadAndExtractZip 将远程 zip 流式拉取到 dir/source.zip 并解压到
+// dir/extracted。设 50MB 上限以控制最坏情况；更大归档应走 git。
+// 容忍 GitHub 风格、将内容包在 `<repo>-<ref>/` 前缀下的压缩包，因 locateSkillRoot
+// 会遍历整棵树。
 func downloadAndExtractZip(ctx context.Context, rawURL, dir string) (string, error) {
 	const maxZipBytes = 50 * 1024 * 1024
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -280,9 +277,8 @@ func downloadAndExtractZip(ctx context.Context, rawURL, dir string) (string, err
 	return extractDir, nil
 }
 
-// unzipInto expands archivePath into destDir while guarding against
-// path traversal (Zip Slip) and refusing oversized members. Each entry
-// must resolve inside destDir; symlink and device entries are skipped.
+// unzipInto 将 archivePath 解压到 destDir，并防护路径穿越（Zip Slip），
+// 拒绝过大的成员。每项必须解析在 destDir 内；符号链接与设备项跳过。
 func unzipInto(archivePath, destDir string) error {
 	const maxFileBytes = 20 * 1024 * 1024
 	zr, err := zip.OpenReader(archivePath)
@@ -333,10 +329,9 @@ func unzipInto(archivePath, destDir string) error {
 	return nil
 }
 
-// locateSkillRoot returns the directory that should be zipped. If
-// subpath is set we trust the caller. Otherwise we walk the tree
-// looking for SKILL.md files: 0 → error, 1 → use it, >1 → error so the
-// user is forced to pick with --subpath.
+// locateSkillRoot 返回应被打 zip 的目录。若已设置 subpath 则信任调用方。
+// 否则遍历树查找 SKILL.md：0 个 → 错误，1 个 → 采用，>1 个 → 错误以迫使用
+// --subpath 选择。
 func locateSkillRoot(root, subpath string) (string, error) {
 	if subpath != "" {
 		full := filepath.Join(root, filepath.FromSlash(subpath))
@@ -374,9 +369,8 @@ func locateSkillRoot(root, subpath string) (string, error) {
 	}
 }
 
-// preValidate runs cheap local checks before we waste a network round
-// trip. We require SKILL.md, a non-empty front-matter description, and
-// the file to be smaller than ~512KB.
+// preValidate 在网络往返前做廉价本地检查。要求存在 SKILL.md、非空
+// front-matter 的 description，且文件小于约 512KB。
 func preValidate(root string) error {
 	body, err := os.ReadFile(filepath.Join(root, "SKILL.md"))
 	if err != nil {
@@ -400,8 +394,7 @@ func preValidate(root string) error {
 	return nil
 }
 
-// zipDir packs root (relative paths only) into an in-memory zip archive
-// suitable for streaming to the import endpoint.
+// zipDir 将 root（仅相对路径）打包为可流式传到 import 端点的内存 zip。
 func zipDir(root string) (io.Reader, error) {
 	buf := &bytes.Buffer{}
 	zw := zip.NewWriter(buf)
@@ -440,8 +433,8 @@ func zipDir(root string) (io.Reader, error) {
 	return buf, nil
 }
 
-// uploadAndWait POSTs the zip and polls the resulting job until the
-// backend declares it ready_to_apply or returns an error status.
+// uploadAndWait 对 zip 执行 POST 并轮询任务直到后端声明 ready_to_apply
+// 或返回错误状态。
 func uploadAndWait(ctx context.Context, g *apiclient.GlobalContext, body io.Reader, fileName string) (domain.SkillImportJob, error) {
 	var startResp struct {
 		JobID string `json:"job_id"`
@@ -476,14 +469,12 @@ func waitForJob(ctx context.Context, g *apiclient.GlobalContext, jobID string) (
 	}
 }
 
-// resolveConflicts builds the apply decision list. Modes:
+// resolveConflicts 构建 apply 决策列表。模式：
 //
-//   - skip   → drop every candidate that is part of a conflict group
-//   - keep   → either keep the existing skill (no candidate created) or
-//     keep the incoming candidate (the default sub-flag value)
-//   - refine → call /refine on each conflict group then accept the merged
-//     payload as a new candidate
-//   - ask    → drop into an interactive REPL one group at a time
+//   - skip   → 丢弃属于任一并冲突组的所有候选
+//   - keep   → 保留已有技能（不创建候选）或保留入站候选（默认子标志值）
+//   - refine → 对每个冲突组调用 /refine，接受合并结果作为新候选
+//   - ask    → 按组进入交互式 REPL
 func resolveConflicts(cmd *cobra.Command, g *apiclient.GlobalContext, job domain.SkillImportJob, mode, keep string) ([]domain.SkillImportDecision, error) {
 	decisions := make([]domain.SkillImportDecision, 0, len(job.Candidates))
 	conflicted := map[string]string{}
@@ -569,8 +560,8 @@ func applyImport(ctx context.Context, g *apiclient.GlobalContext, jobID string, 
 	return result, nil
 }
 
-// confirm is shared by every mutating skill command. When --yes / -y is
-// set we never prompt; otherwise we read a y/N answer from stdin.
+// confirm 由所有会修改数据的 skill 命令共享。若设置 --yes / -y 则从不
+// 提示；否则自 stdin 读取 y/N。
 func confirm(cmd *cobra.Command, g *apiclient.GlobalContext, prompt string) bool {
 	if g.Yes {
 		return true
@@ -585,7 +576,7 @@ func confirm(cmd *cobra.Command, g *apiclient.GlobalContext, prompt string) bool
 	return false
 }
 
-// safeJoin joins a base URL with the path while ensuring no traversal.
+// safeJoin 将基址 URL 与 path 拼接，并确保无路径穿越。
 func safeJoin(base, p string) string {
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path.Clean(p), "/")
 }

@@ -8,13 +8,9 @@ import (
 	"google.golang.org/genai"
 )
 
-// RuntimeContext is the structured runtime payload that gets rendered
-// into the system prompt so the model has explicit knowledge of the
-// session it's running in, the team it belongs to (if any) and the
-// tool surface available for the current turn. Injecting this layer
-// is the systemic fix for cases where the model used file system
-// tools to answer questions whose answers were already implicit in
-// our backend (e.g. team member counts).
+// RuntimeContext 为写入系统提示词的结构化运行时载荷，使模型明确知晓当前会话、
+// 所属团队（若有）及本回合可用工具面。注入该层可系统性修复模型滥用文件系统工具
+// 回答本已在后端隐含的问题（例如团队成员数量）的情况。
 type RuntimeContext struct {
 	Session  SessionContext
 	Team     *TeamContext
@@ -46,9 +42,7 @@ type ToolHint struct {
 	Description string
 }
 
-// CloneWithRole returns a shallow copy of the context with a different
-// SelfRole. Used by team_runtime where the same context is shared
-// across members but each member's SelfRole differs.
+// CloneWithRole 返回替换 SelfRole 后的浅拷贝。team_runtime 在成员间共享同一上下文但各自 SelfRole 不同时使用。
 func (c *RuntimeContext) CloneWithRole(role string) *RuntimeContext {
 	if c == nil {
 		return &RuntimeContext{SelfRole: role}
@@ -58,9 +52,8 @@ func (c *RuntimeContext) CloneWithRole(role string) *RuntimeContext {
 	return &clone
 }
 
-// renderRuntimeContextBlock returns the deterministic, fixed-format
-// block that is appended to the system prompt. Empty contexts return
-// an empty string so callers can safely omit the section.
+// renderRuntimeContextBlock 返回追加到系统提示词的确定性固定格式块。
+// 空上下文返回空字符串，调用方可安全省略该节。
 func renderRuntimeContextBlock(rc *RuntimeContext) string {
 	if rc == nil {
 		return ""
@@ -149,11 +142,8 @@ func renderToolUsagePolicy(rc *RuntimeContext) string {
 	return b.String()
 }
 
-// escapeInstructionPlaceholders neutralizes any "{name}" pattern that
-// the ADK instruction processor would otherwise interpret as a session
-// state placeholder. Without this guard, a tool description that
-// contains "{ path }" leaks into the system prompt and triggers
-// "state key does not exist" failures at runtime.
+// escapeInstructionPlaceholders 消除 "{name}" 模式，否则 ADK 指令处理器会将其当作会话状态占位符。
+// 若无此防护，工具描述中的 "{ path }" 进入系统模板后会触发运行时的「state key does not exist」错误。
 func escapeInstructionPlaceholders(text string) string {
 	if !strings.ContainsAny(text, "{}") {
 		return text
@@ -162,10 +152,8 @@ func escapeInstructionPlaceholders(text string) string {
 	return replacer.Replace(text)
 }
 
-// ToolHintsFromDeclarations converts the function declarations sent
-// to the model into structured hints suitable for runtime context
-// rendering. Used by call sites that have already filtered tools by
-// the agent's runtime settings (see adkRuntimeTools).
+// ToolHintsFromDeclarations 将发给模型的函数声明转为适合运行时上下文渲染的结构化提示。
+// 用于已按 Agent 运行时设置过滤工具的调用点（见 adkRuntimeTools）。
 func ToolHintsFromDeclarations(declarations []*genai.FunctionDeclaration) []ToolHint {
 	if len(declarations) == 0 {
 		return nil

@@ -7,8 +7,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// seedChatOptions inserts the default dialog modes and provider entries that
-// are required for the chat UI to render before any user customization.
+// seedChatOptions 插入默认对话模式与模型提供方项，供聊天界面在零配置时即可渲染。
 func (r *SQLiteRepository) seedChatOptions() error {
 	rows := []domain.ChatOption{
 		{Type: "dialog_mode", Key: "default", Label: "标准对话", Enabled: true, SortOrder: 10},
@@ -30,9 +29,7 @@ func (r *SQLiteRepository) seedChatOptions() error {
 	return nil
 }
 
-// seedPlatformDefaults installs the bootstrap LLM provider models and the
-// system agent category tree. Existing rows are kept intact thanks to the
-// constraint-failure short-circuit.
+// seedPlatformDefaults 安装引导用 LLM 模型与系统智能体分类树。约束失败短路，已有行保持不变。
 func (r *SQLiteRepository) seedPlatformDefaults() error {
 	defaults := []domain.PlatformResource{
 		{ID: "model_openrouter_gpt41mini", Resource: "llm-provider-models", Key: "openrouter:gpt-4.1-mini", Name: "GPT 4.1 Mini", Provider: "openrouter", Model: "gpt-4.1-mini", Description: "默认 OpenRouter 兼容模型", Enabled: true, SortOrder: 10},
@@ -47,11 +44,8 @@ func (r *SQLiteRepository) seedPlatformDefaults() error {
 	return nil
 }
 
-// seedBuiltinTools upserts the curated set of system-provided tools so that
-// fresh deployments have a usable tool catalog without manual onboarding.
-// The cli_admin_* toolkit (aranea/docs/25 cli.md §6) is appended here so
-// every boot leaves the tools table in a known shape, no matter whether
-// new deliverables landed since last upgrade.
+// seedBuiltinTools 对系统内置工具集做 upsert，新部署无需手工接入即可有可用工具目录。
+// 此处同时追加 cli_admin_* 工具集（aranea/docs/25 cli.md §6），每次启动后 tools 表形态确定，与是否新发布无关。
 func (r *SQLiteRepository) seedBuiltinTools() error {
 	now := nowISO()
 	allSeeds := make([]domain.Tool, 0, len(builtinToolSeeds)+len(cliAdminToolSeeds))
@@ -93,8 +87,7 @@ func (r *SQLiteRepository) seedBuiltinTools() error {
 	return nil
 }
 
-// applyBuiltinToolDefaults fills required fields on a builtin tool seed so the
-// upsert statement can rely on every column having a sane value.
+// applyBuiltinToolDefaults 补全内置工具种子的必填字段，使 upsert 每列均有合理值。
 func applyBuiltinToolDefaults(row *domain.Tool) {
 	if row.ID == "" {
 		row.ID = "tool_" + strings.ReplaceAll(row.Key, "-", "_")
@@ -125,11 +118,8 @@ func applyBuiltinToolDefaults(row *domain.Tool) {
 	}
 }
 
-// seedSystemAdminAgent inserts the built-in `__system_admin__` agent
-// that backs the Aranea CLI's interactive REPL (see 前端/25 cli.md §1.2
-// & §3). The row is upserted on every boot so newly added columns or
-// system-prompt revisions roll out automatically without disturbing
-// operator-defined agents.
+// seedSystemAdminAgent 插入内置 `__system_admin__` 智能体，支撑 Aranea CLI 交互式 REPL（见 25 cli.md §1.2 与 §3）。
+// 每次启动 upsert，新列或系统提示词修订自动生效，不干扰用户自定义智能体。
 func (r *SQLiteRepository) seedSystemAdminAgent() error {
 	const id = "agent_system_admin"
 	const key = "__system_admin__"
@@ -173,13 +163,8 @@ func (r *SQLiteRepository) seedSystemAdminAgent() error {
 	return r.seedSystemAdminAgentSettings(id)
 }
 
-// seedSystemAdminAgentSettings configures the runtime policy that lets
-// the system administrator agent invoke every cli_admin_* tool plus a
-// minimal set of safe helpers (web_fetch, read_file, datetime). The
-// list is materialised both as `group:cli_admin` and as the explicit
-// keys so deployments without group expansion still get the right
-// behaviour. Allow / deny lists are persisted as JSON arrays so the
-// existing UpsertAgentRuntimeSettings normaliser keeps them stable.
+// seedSystemAdminAgentSettings 配置运行时策略，使系统管家可调用全部 cli_admin_* 及少量安全辅助（web_fetch、read_file、datetime）。
+// 同时写入 `group:cli_admin` 与显式 key，无组展开时行为仍正确。允许/拒绝列表以 JSON 数组持久化，由 UpsertAgentRuntimeSettings 归一化保持稳定。
 func (r *SQLiteRepository) seedSystemAdminAgentSettings(agentID string) error {
 	allow := []string{"group:cli_admin", "web_fetch", "read_file", "datetime"}
 	deny := []string{"shell_exec", "write_file", "edit_file", "create_image", "tts"}
@@ -221,9 +206,7 @@ func (r *SQLiteRepository) seedSystemAdminAgentSettings(agentID string) error {
 	return err
 }
 
-// jsonString returns s as a JSON string literal (with surrounding quotes
-// and embedded escaping) so it can be inlined into a JSON document the
-// repository constructs by hand.
+// jsonString 将 s 编码为带引号与转义的 JSON 字符串字面量，供仓库手工拼接 JSON 时内联。
 func jsonString(s string) string {
 	out := make([]byte, 0, len(s)+2)
 	out = append(out, '"')
@@ -276,10 +259,8 @@ var builtinToolSeeds = []domain.Tool{
 	{ID: "tool_tts", Key: "tts", DisplayName: "文本转语音", Description: "将文本转换成语音文件。", Category: "media", RiskLevel: "medium", Enabled: false, ParametersSchemaJSON: `{"type":"object","properties":{"text":{"type":"string"},"voice":{"type":"string"}},"required":["text"]}`},
 	{ID: "tool_shell_exec", Key: "shell_exec", DisplayName: "Shell 命令", Description: "执行本地 shell 命令。", Category: "runtime", RiskLevel: "critical", Enabled: false, RequiresConfirmation: true, ParametersSchemaJSON: `{"type":"object","properties":{"command":{"type":"string"},"working_dir":{"type":"string"}},"required":["command"]}`},
 
-	// L1 working-memory tools (aranea/docs/13 memory-L1-working.md §5.4). The
-	// LLM uses these to inspect / mutate the active task's structured fields.
-	// All operations are scoped to the current session + agent automatically;
-	// callers cannot address arbitrary tasks from outside their own context.
+	// L1 工作记忆工具（aranea/docs/13 memory-L1-working.md §5.4）。LLM 用其查看/修改当前任务的结构化字段。
+	// 操作自动限定于当前 session + agent；调用方不能跨上下文操作任意任务。
 	{ID: "tool_working_memory_read", Key: "working_memory.read", DisplayName: "工作记忆读取", Description: "读取当前任务的结构化工作记忆字段。不传 field_path 时返回整张快照。", Category: "memory", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"field_path":{"type":"string","description":"字段路径（可选）"}}}`},
 	{ID: "tool_working_memory_list", Key: "working_memory.list", DisplayName: "工作记忆列表", Description: "列出当前任务下所有可见字段（path、preview、token_estimate、revision）。", Category: "memory", Enabled: true, Readonly: true, ParametersSchemaJSON: `{"type":"object","properties":{"include_internal":{"type":"boolean","description":"是否包含 visibility=internal 字段"}}}`},
 	{ID: "tool_working_memory_write", Key: "working_memory.write", DisplayName: "工作记忆写入", Description: "向当前任务写入或更新一个结构化字段。超过单字段 / 任务上限时返回 OVERFLOW，调用方应先精简或归档。", Category: "memory", Enabled: true, ParametersSchemaJSON: `{"type":"object","properties":{"field_path":{"type":"string"},"value":{"description":"任意 JSON 值"},"field_kind":{"type":"string","enum":["string","number","boolean","json","reference","markdown"]},"visibility":{"type":"string","enum":["prompt","internal","shared"]},"pin_to_prompt":{"type":"boolean"},"reason":{"type":"string"},"if_revision":{"type":"integer","description":"乐观锁，期望的当前 revision"}},"required":["field_path","value"]}`},

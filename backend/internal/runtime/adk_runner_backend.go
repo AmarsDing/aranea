@@ -18,11 +18,8 @@ import (
 	"google.golang.org/genai"
 )
 
-// Tool call governance constants. These are deliberately conservative
-// because they only kick in when the model is misbehaving — well-formed
-// turns rarely exceed a couple of tool calls. The numbers act as a
-// safety net so a model that gets stuck in a tool loop cannot DoS the
-// session or burn provider credit.
+// 工具调用治理常量。取值偏保守，仅在模型异常时生效——正常回合很少超过数次工具调用。
+// 作为安全网，防止模型陷入工具循环从而拖垮会话或耗尽提供商额度。
 const (
 	toolCallBudgetPerTurn  = 8
 	toolFailureBudgetPerArg = 2
@@ -76,11 +73,8 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 		return GenerateResult{}, err
 	}
 
-	// ADK only invokes the underlying model with stream=true when the
-	// run-config explicitly requests StreamingModeSSE. Without this,
-	// providerModelLLM.GenerateContent falls back to generateDirect and
-	// the frontend never receives SSE deltas for either single agents
-	// or team members.
+	// 仅当 run-config 显式请求 StreamingModeSSE 时，ADK 才会以 stream=true 调用底层模型。
+	// 否则 providerModelLLM.GenerateContent 会走 generateDirect，前端无法收到单 Agent 或团队成员的 SSE 增量。
 	runConfig := agent.RunConfig{}
 	if onDelta != nil {
 		runConfig.StreamingMode = agent.StreamingModeSSE
@@ -98,10 +92,8 @@ func (b *runnerRuntimeBackend) run(ctx context.Context, req GenerateRequest, onD
 		if text == "" {
 			continue
 		}
-		// providerModelLLM.GenerateContent yields exactly one terminal
-		// LLMResponse per turn — incremental tokens are surfaced
-		// through modelDelta inside streamDirect. The final, non-partial
-		// event carries the full text we persist.
+		// providerModelLLM.GenerateContent 每回合仅产生一个终结 LLMResponse——
+		// 增量 token 在 streamDirect 内通过 modelDelta 透出。最终非 partial 事件携带待持久化的全文。
 		if !event.LLMResponse.Partial {
 			finalText = text
 		}
@@ -144,10 +136,8 @@ func (b *runnerRuntimeBackend) buildAgent(req GenerateRequest, onDelta DeltaFunc
 	})
 }
 
-// enrichRuntimeContextWithTools rewrites the context's Tools slice to
-// reflect the actual tool surface assembled for this turn. Without
-// this step the rendered policy block would advertise tools the
-// agent's profile silently filters out, confusing the model.
+// enrichRuntimeContextWithTools 将上下文的 Tools 切片重写为本回合实际装配的工具面。
+// 若无此步，渲染的策略块会列出被 Agent profile 静默过滤的工具，误导模型。
 func enrichRuntimeContextWithTools(rc *RuntimeContext, tools []tool.Tool) *RuntimeContext {
 	if len(tools) == 0 {
 		if rc == nil {
@@ -176,7 +166,7 @@ func runnerToolCallbacks(req GenerateRequest) (llmagent.BeforeToolCallback, llma
 	var mu sync.Mutex
 	started := map[string]time.Time{}
 	totalCalls := 0
-	failures := map[string]int{} // key = tool|argsFingerprint -> failure count
+	failures := map[string]int{} // 键 = tool|argsFingerprint -> 失败次数
 
 	emitEvent := func(id string, phase, status, name string, args, result map[string]any, toolErr error, durationMS int) {
 		if req.OnToolEvent == nil {
@@ -256,12 +246,8 @@ func runnerToolCallbacks(req GenerateRequest) (llmagent.BeforeToolCallback, llma
 	return before, after
 }
 
-// toolArgsFingerprint returns a stable identifier for a tool argument
-// map so we can recognize "same call again" without depending on map
-// iteration order. We deliberately do NOT include large content fields
-// in full (they are truncated by sanitizeToolArgs upstream) — repeated
-// edits with different bodies but same path still count as repetition,
-// which is what we want for the failure budget.
+// toolArgsFingerprint 为工具参数 map 生成稳定标识，以便在不依赖 map 遍历顺序时识别「相同调用」。
+// 故意不全量纳入大字段（上游 sanitizeToolArgs 已截断）——同路径不同正文仍计为重复，符合失败预算语义。
 func toolArgsFingerprint(args map[string]any) string {
 	if len(args) == 0 {
 		return ""

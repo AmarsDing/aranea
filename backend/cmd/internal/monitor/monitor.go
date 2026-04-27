@@ -1,4 +1,4 @@
-// Package monitor implements `aranea monitor audit/tool-runs`.
+// Package monitor 实现 `aranea monitor audit/tool-runs`。
 package monitor
 
 import (
@@ -12,7 +12,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "monitor",

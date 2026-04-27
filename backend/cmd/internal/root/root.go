@@ -1,5 +1,4 @@
-// Package root assembles the Cobra command tree for the administrative
-// half of the Aranea CLI (see 前端/25 cli.md §1.3).
+// Package root 组装 Aranea CLI 管理侧半边的 Cobra 命令树（见 前端/25 cli.md §1.3）。
 package root
 
 import (
@@ -23,14 +22,12 @@ import (
 	"arenea/backend/cmd/internal/version"
 )
 
-// Execute is the public entrypoint used by main.go. It builds the root
-// command and dispatches to whatever sub-command the user requested.
+// Execute 是 main.go 使用的公开入口：构建根命令并派发到用户请求的子命令。
 func Execute() error {
 	return New().Execute()
 }
 
-// New constructs the root *cobra.Command with every sub-command attached
-// and the global flags wired into the shared CLI context.
+// New 构造带齐全部子命令的根 *cobra.Command，并将全局标志接入共享 CLI 上下文。
 func New() *cobra.Command {
 	gctx := apiclient.NewGlobalContext()
 
@@ -56,8 +53,7 @@ language.`,
 		},
 	}
 
-	// Global flags shared by every sub-command. These mirror the table in
-	// 前端/25 cli.md §2.
+	// 各子命令共享的全局标志，与 前端/25 cli.md §2 中表格一致。
 	pf := root.PersistentFlags()
 	pf.StringVar(&gctx.BaseURL, "base-url", "", "Aranea backend base URL (overrides ARANEA_BASE_URL and config)")
 	pf.StringVar(&gctx.Token, "token", "", "Bearer token for authenticated remote backends")

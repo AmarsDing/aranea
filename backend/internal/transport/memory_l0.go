@@ -7,10 +7,9 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// handleL0Snapshots serves GET /api/v1/sessions/{id}/l0/snapshots. The list
-// powers the "Context" tab in the chat UI and the agent-evolution dashboard.
-// It intentionally returns the snapshot rows verbatim — UI / analytics decode
-// `segments_json` / `metadata_json` themselves.
+// handleL0Snapshots 处理 GET /api/v1/sessions/{id}/l0/snapshots。列表供聊天 UI
+// 「上下文」页与智能体进化仪表盘使用。有意原样返回快照行，由 UI / 分析侧自行解析
+// `segments_json` / `metadata_json`。
 func (h *HTTPHandler) handleL0Snapshots(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if sessionID == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("session id is required"))
@@ -37,9 +36,8 @@ func (h *HTTPHandler) handleL0Snapshots(w http.ResponseWriter, r *http.Request, 
 	})
 }
 
-// l0PreviewRequest is the minimal payload that lets the prompt-debugger
-// reproduce an L0 assembly without persisting a snapshot. Reserved fields
-// mirror the runtime so debugger output matches what the model would see.
+// l0PreviewRequest 为提示调试器提供最小载荷，可在不落库快照的情况下复现 L0 组装。
+// 保留字段与运行时一致，使调试输出与模型所见一致。
 type l0PreviewRequest struct {
 	SessionID         string `json:"session_id"`
 	AgentID           string `json:"agent_id"`
@@ -51,10 +49,8 @@ type l0PreviewRequest struct {
 	UserMessage       string `json:"user_message"`
 }
 
-// handleL0Preview serves POST /api/v1/l0/preview. Bodies are decoded into the
-// minimal request above; the response carries redacted segments (preview
-// only) so the UI can render the assembled prompt without leaking history
-// content beyond what `messages` already exposes.
+// handleL0Preview 处理 POST /api/v1/l0/preview。请求体解码为上述最小结构；响应携带脱敏片段
+//（仅预览），使 UI 可渲染组装后的提示，且不会泄露 `messages` 已暴露之外的历史内容。
 func (h *HTTPHandler) handleL0Preview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w)
@@ -91,9 +87,8 @@ func (h *HTTPHandler) handleL0Preview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// handleL0SnapshotByID serves GET /api/v1/l0/snapshots/{id}. It is the
-// "deep-link" variant of the snapshot list so the chat UI can jump straight
-// to one assembly's full segment table.
+// handleL0SnapshotByID 处理 GET /api/v1/l0/snapshots/{id}。作为快照列表的「深链」变体，
+// 供聊天 UI 直接跳转到某次组装的完整片段表。
 func (h *HTTPHandler) handleL0SnapshotByID(w http.ResponseWriter, r *http.Request) {
 	id := idFromPath(r.URL.Path, "/api/v1/l0/snapshots/")
 	if id == "" {

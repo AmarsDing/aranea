@@ -11,9 +11,8 @@ import (
 	"arenea/backend/internal/runtime"
 )
 
-// §13 – ChatService exposes the agent-evolution model-routing accessor
-// so future fallback / retry logic can pick the agent's preferred model
-// from a candidate set.
+// §13 – ChatService 暴露自进化模型路由访问器，
+// 供后续回退/重试从候选集中选取智能体偏好的模型。
 func TestChatServiceRouteAgentModelCandidatesUsesPreference(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "chat-route.db")
 	repo, err := repository.NewSQLiteRepository(dbPath)
@@ -46,8 +45,8 @@ func TestChatServiceRouteAgentModelCandidatesUsesPreference(t *testing.T) {
 	}
 }
 
-// §13 – RouteAgentModelCandidates returns the input unchanged when the
-// agent has no preferences yet so default fallback ordering survives.
+// §13 – 智能体尚无偏好时 RouteAgentModelCandidates 原样返回输入，
+// 以保留默认回退顺序。
 func TestChatServiceRouteAgentModelCandidatesPassthrough(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "chat-route-pass.db")
 	repo, err := repository.NewSQLiteRepository(dbPath)
@@ -67,8 +66,7 @@ func TestChatServiceRouteAgentModelCandidatesPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	// Without preferences both candidates collapse to base*0.5; ordering
-	// is stable so the original first entry should remain first.
+	// 无偏好时两候选均变为 base*0.5；顺序稳定，原第一项仍应在前。
 	if len(out) != 2 || out[0].Model != "gpt-4o-mini" {
 		t.Fatalf("expected stable order, got %#v", out)
 	}

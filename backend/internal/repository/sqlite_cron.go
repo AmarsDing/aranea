@@ -9,9 +9,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// ListCronTaskRuns returns the recent execution history for cron tasks. The
-// task name is enriched via a LEFT JOIN so deleted tasks still surface their
-// last known label instead of an empty string.
+// ListCronTaskRuns 返回定时任务最近执行历史。LEFT JOIN 补全任务名，已删任务仍显示最后已知名称而非空串。
 func (r *SQLiteRepository) ListCronTaskRuns(query domain.CronTaskRunQuery) ([]domain.CronTaskRun, error) {
 	conditions := []string{"1=1"}
 	args := []any{}

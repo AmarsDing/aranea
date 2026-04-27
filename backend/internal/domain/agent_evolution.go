@@ -1,11 +1,8 @@
-// Package domain – agent self-evolution domain types described in
-// `aranea/docs/16 memory-L4-persistent.md` §3.2 and §4.2. These structures
-// represent the agent's stable identity, its strategy / preference
-// profile, the immutable log of evolution events, the queue of pending
-// proposals, and per-tool skill statistics.
+// Package domain – 智能体自进化领域类型，见 `aranea/docs/16 memory-L4-persistent.md` §3.2、§4.2。
+// 这些结构表示智能体稳定身份、策略 / 偏好画像、不可变进化事件日志、待处理提案队列及按工具的技能统计。
 package domain
 
-// Agent identity phases persisted in `agent_identity.current_phase`.
+// 持久化在 `agent_identity.current_phase` 的智能体身份阶段。
 const (
 	AgentPhaseColdStart   = "cold-start"
 	AgentPhaseWarming     = "warming"
@@ -13,7 +10,7 @@ const (
 	AgentPhaseSpecialized = "specialized"
 )
 
-// Tone values persisted in `agent_identity.tone`.
+// 持久化在 `agent_identity.tone` 的语气取值。
 const (
 	AgentToneFormal   = "formal"
 	AgentToneCasual   = "casual"
@@ -22,7 +19,7 @@ const (
 	AgentToneAcademic = "academic"
 )
 
-// Trigger kinds and event kinds persisted in `agent_evolution_events`.
+// 持久化在 `agent_evolution_events` 的触发种类与事件种类。
 const (
 	EvoTriggerAuto     = "auto"
 	EvoTriggerProposal = "proposal"
@@ -48,8 +45,7 @@ const (
 	EvoKindRestore             = "restore"
 )
 
-// Proposal lifecycle statuses persisted in
-// `agent_evolution_proposals.status`.
+// 持久化在 `agent_evolution_proposals.status` 的提案生命周期状态。
 const (
 	EvoProposalPending    = "pending"
 	EvoProposalApproved   = "approved"
@@ -59,15 +55,14 @@ const (
 	EvoProposalExpired    = "expired"
 )
 
-// Risk levels persisted in `agent_evolution_proposals.risk_level`.
+// 持久化在 `agent_evolution_proposals.risk_level` 的风险级别。
 const (
 	EvoRiskLow    = "low"
 	EvoRiskMedium = "medium"
 	EvoRiskHigh   = "high"
 )
 
-// Proposal source values persisted in
-// `agent_evolution_proposals.source`.
+// 持久化在 `agent_evolution_proposals.source` 的提案来源取值。
 const (
 	EvoSourceConsolidator  = "consolidator"
 	EvoSourceCritic        = "critic"
@@ -75,8 +70,7 @@ const (
 	EvoSourceUser          = "user"
 )
 
-// AgentIdentity is the persisted row in `agent_identity` describing an
-// agent's stable persona, values, tone, and lifecycle phase.
+// AgentIdentity 为 `agent_identity` 表的持久化行，描述智能体稳定人设、价值观、语气与生命周期阶段。
 type AgentIdentity struct {
 	AgentID          string         `json:"agent_id"`
 	Persona          string         `json:"persona"`
@@ -91,9 +85,8 @@ type AgentIdentity struct {
 	UpdatedAt        string         `json:"updated_at,omitempty"`
 }
 
-// AgentStrategyProfile is the persisted row in `agent_strategy_profile`
-// describing the agent's decision style and tool / model / provider
-// preferences. All scalar fields live in [0,1].
+// AgentStrategyProfile 为 `agent_strategy_profile` 表的持久化行，描述智能体决策风格及工具 / 模型 / 提供商偏好。
+// 所有标量字段取值于 [0,1]。
 type AgentStrategyProfile struct {
 	AgentID            string             `json:"agent_id"`
 	Exploration        float64            `json:"exploration"`
@@ -111,8 +104,7 @@ type AgentStrategyProfile struct {
 	UpdatedAt          string             `json:"updated_at,omitempty"`
 }
 
-// EvolutionEvent is the immutable history row in
-// `agent_evolution_events`. `BeforeJSON` is preserved for revert.
+// EvolutionEvent 为 `agent_evolution_events` 中不可变历史行。保留 `BeforeJSON` 供回滚。
 type EvolutionEvent struct {
 	ID                string         `json:"id"`
 	AgentID           string         `json:"agent_id"`
@@ -135,9 +127,8 @@ type EvolutionEvent struct {
 	RevertedAt        string         `json:"reverted_at,omitempty"`
 }
 
-// EvolutionProposal is the candidate change row in
-// `agent_evolution_proposals`. Approved proposals link to the resulting
-// EvolutionEvent via `AppliedEventID`.
+// EvolutionProposal 为 `agent_evolution_proposals` 中的候选变更行。
+// 已批准提案通过 `AppliedEventID` 关联产生的 EvolutionEvent。
 type EvolutionProposal struct {
 	ID                string         `json:"id"`
 	AgentID           string         `json:"agent_id"`
@@ -163,9 +154,8 @@ type EvolutionProposal struct {
 	UpdatedAt         string         `json:"updated_at,omitempty"`
 }
 
-// AgentSkillStat is the per-tool skill telemetry row in
-// `agent_skill_stats`. Used by the EvolutionWorker to derive tool
-// preference / blacklist proposals.
+// AgentSkillStat 为 `agent_skill_stats` 中按工具的技能遥测行。
+// EvolutionWorker 用它推导工具偏好 / 黑名单提案。
 type AgentSkillStat struct {
 	AgentID         string         `json:"agent_id"`
 	Scope           string         `json:"scope"`

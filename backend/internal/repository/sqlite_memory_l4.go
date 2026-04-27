@@ -9,9 +9,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// memoryEntitySelectColumns is the canonical column list for SELECTs on
-// memory_entities. Sharing it keeps Get / List / Neighborhood scans in
-// lockstep with the migration schema.
+// memoryEntitySelectColumns 为 memory_entities 查询的标准列清单。共享可保证 Get/List/Neighborhood 与迁移 schema 一致。
 const memoryEntitySelectColumns = `
 	id, scope_type, scope_id, workspace_id, user_id,
 	entity_type, name, name_normalized, aliases_json, description, attributes_json,
@@ -162,10 +160,8 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// UpsertEntity persists or updates a memory_entities row keyed on
-// (scope_type, scope_id, entity_type, name_normalized). When an entity
-// with that natural key already exists the existing id is preserved and
-// mutable fields are updated.
+// UpsertEntity 按 (scope_type, scope_id, entity_type, name_normalized) 插入或更新 memory_entities。
+// 已存在同自然键时保留原 id 并更新可变字段。
 func (r *SQLiteRepository) UpsertEntity(e domain.MemoryEntity) (domain.MemoryEntity, error) {
 	if e.ScopeType == "" {
 		return domain.MemoryEntity{}, errors.New("entity scope_type is required")
@@ -474,8 +470,7 @@ func (r *SQLiteRepository) BumpEntityUseCount(id string, atISO string) error {
 	return err
 }
 
-// UpsertRelation persists or updates a memory_relations row keyed on
-// (scope_type, scope_id, source_id, target_id, relation_type).
+// UpsertRelation 按 (scope_type, scope_id, source_id, target_id, relation_type) 插入或更新 memory_relations。
 func (r *SQLiteRepository) UpsertRelation(rel domain.MemoryRelation) (domain.MemoryRelation, error) {
 	if rel.ScopeType == "" {
 		return domain.MemoryRelation{}, errors.New("relation scope_type is required")
@@ -598,11 +593,8 @@ func (r *SQLiteRepository) BumpRelationUseCount(id string, atISO string) error {
 	return err
 }
 
-// GetNeighborhood traverses up to `hops` hops outward from `centerID`,
-// returning at most `maxNodes` distinct entities (excluding the center)
-// plus the relations that connect them. Performed in pure Go using
-// repeated SELECTs to keep portability across SQLite installations that
-// lack `WITH RECURSIVE` quirks.
+// GetNeighborhood 从 `centerID` 向外最多扩展 `hops` 层，返回至多 `maxNodes` 个不同实体（不含中心）及连接关系。
+// 用纯 Go 多次 SELECT 实现，避免依赖各 SQLite 版本上 `WITH RECURSIVE` 的差异。
 func (r *SQLiteRepository) GetNeighborhood(centerID string, hops, maxNodes int) (domain.GraphNeighborhood, error) {
 	center, err := r.GetEntity(centerID)
 	if err != nil {

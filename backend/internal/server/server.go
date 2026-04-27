@@ -1,9 +1,6 @@
-// Package server centralises the Aranea backend bootstrap so that both
-// the standalone `aranea-server` binary (cmd/server) and the in-process
-// web SubLauncher used by `aranea web` can share an identical wiring
-// path. Anything that touches global resources (database, telemetry,
-// background goroutines) lives here so the CLI never has to duplicate
-// it.
+// Package server 集中 Aranea 后端的启动逻辑，使独立二进制 `aranea-server`（cmd/server）
+// 与 `aranea web` 使用的进程内 Web SubLauncher 共用同一条装配路径。
+// 凡涉及全局资源（数据库、遥测、后台 goroutine）的逻辑都放在此处，避免 CLI 重复实现。
 package server
 
 import (
@@ -26,51 +23,42 @@ import (
 	"arenea/backend/internal/util"
 )
 
-// Options controls a Run invocation. Zero values fall back to the same
-// environment variables (DB_PATH, HTTP_ADDR) that the legacy main()
-// honoured so existing deployments keep working unchanged.
+// Options 控制一次 Run 调用。零值会回退到与旧版 main() 相同的环境变量
+//（DB_PATH、HTTP_ADDR），以便现有部署行为不变。
 type Options struct {
-	// DBPath is the SQLite database file to open. When empty we honour
-	// DB_PATH and finally fall back to data/arenea.db.
+	// DBPath 为要打开的 SQLite 数据库文件。为空时依次使用 DB_PATH，最终默认 data/arenea.db。
 	DBPath string
-	// Addr is the listen address (host:port). Empty → HTTP_ADDR → :8080.
+	// Addr 为监听地址（host:port）。为空则 HTTP_ADDR，再默认 :8080。
 	Addr string
-	// TelemetryService is the service name reported through telemetry.
-	// Empty → "arenea-backend".
+	// TelemetryService 为遥测上报的服务名。为空则 "arenea-backend"。
 	TelemetryService string
-	// SkipTelemetry disables the global telemetry init. Useful for the
-	// in-process web SubLauncher which inherits the parent CLI's setup.
+	// SkipTelemetry 跳过全局遥测初始化。适用于继承父 CLI 遥测的进程内 Web SubLauncher。
 	SkipTelemetry bool
-	// Ready is closed once the HTTP server is bound and accepting
-	// connections. Callers can use it to print a banner or open a
-	// browser tab without racing the listener.
+	// Ready 在 HTTP 服务已绑定并开始接受连接后关闭。调用方可用其打印横幅或打开浏览器标签，
+	// 而无需与监听器竞态。
 	Ready chan<- ListenInfo
-	// Logger overrides the default *log.Logger. Pass a discard logger to
-	// silence the embedded server when running inside the CLI.
+	// Logger 覆盖默认的 *log.Logger。在 CLI 内嵌服务时可传入 discard 日志以静音。
 	Logger *log.Logger
 }
 
-// ListenInfo is published on Options.Ready as soon as the listener is
-// bound, exposing the *actual* address the server runs on (handy when
-// callers asked for ":0" to pick a random port).
+// ListenInfo 在监听器一旦绑定后通过 Options.Ready 发布，暴露服务实际监听的地址
+//（在调用方使用 ":0" 随机端口时尤其有用）。
 type ListenInfo struct {
 	Addr string
 }
 
-// Run boots the backend and blocks until ctx is cancelled or the HTTP
-// listener fails. It is the single source of truth for service wiring,
-// shared between the standalone server and the embedded web launcher.
+// Run 启动后端并阻塞，直到 ctx 取消或 HTTP 监听失败。它是服务装配的唯一事实来源，
+// 独立服务器与内嵌 Web 启动器共用。
 //
-// The function performs (in order):
-//  1. telemetry setup (unless SkipTelemetry)
-//  2. SQLite open + migrate
-//  3. service / runtime / plugin construction
-//  4. middleware chain assembly
-//  5. listener bind + http.Serve
-//  6. graceful shutdown driven by ctx
+// 执行顺序（依次）：
+//  1. 遥测初始化（除非 SkipTelemetry）
+//  2. 打开 SQLite 并迁移
+//  3. 构造 service / runtime / plugin
+//  4. 组装中间件链
+//  5. 绑定监听器并 http.Serve
+//  6. 由 ctx 驱动的优雅关闭
 //
-// All background goroutines (cron runner, skill directory sync) honour
-// ctx so a single cancellation drives a clean teardown of everything.
+// 所有后台 goroutine（定时任务、技能目录同步）均遵守 ctx，以便一次取消即可干净回收。
 func Run(ctx context.Context, opts Options) error {
 	logger := opts.Logger
 	if logger == nil {
@@ -205,10 +193,8 @@ func Run(ctx context.Context, opts Options) error {
 	return runErr
 }
 
-// runMemoryL3DecayLoop drives MemoryL3Service.RunDecayBatch on a fixed
-// cadence so confidence values fade and stale facts are auto-archived
-// without an external scheduler. The loop honours ctx; one missed tick
-// is preferable to leaking a goroutine on shutdown.
+// runMemoryL3DecayLoop 按固定周期调用 MemoryL3Service.RunDecayBatch，使置信度衰减、陈旧事实自动归档，
+// 无需外部调度器。循环遵守 ctx；关闭时宁可漏一次 tick 也不泄漏 goroutine。
 func runMemoryL3DecayLoop(ctx context.Context, svc *service.MemoryL3Service, logger *log.Logger) {
 	const interval = time.Hour
 	ticker := time.NewTicker(interval)
@@ -230,11 +216,9 @@ func runMemoryL3DecayLoop(ctx context.Context, svc *service.MemoryL3Service, log
 	}
 }
 
-// runEvolutionScannerLoop drives `AgentEvolutionService.RunEvolutionScan`
-// on a fixed cadence for every agent that opted in via `evo_enabled`.
-// The scanner itself is idempotent — re-runs within the throttle window
-// generate `superseded` proposals, not duplicates — so a missed tick is
-// always preferable to leaking goroutines on shutdown.
+// runEvolutionScannerLoop 按固定周期对所有通过 `evo_enabled` 开启的 Agent 调用
+// `AgentEvolutionService.RunEvolutionScan`。扫描器本身是幂等的——在节流窗口内重复运行会生成
+// `superseded` 提案而非重复项——因此关闭时宁可漏 tick 也不泄漏 goroutine。
 func runEvolutionScannerLoop(ctx context.Context, repo repository.Store, svc *service.AgentEvolutionService, logger *log.Logger) {
 	const interval = 30 * time.Minute
 	ticker := time.NewTicker(interval)

@@ -1,12 +1,10 @@
-// agent_evolution_scanner.go implements the §5.5 EvolutionWorker pipeline
-// in heuristic mode (no LLM calls). It aggregates per-tool telemetry from
-// `tool_invocations` into `agent_skill_stats`, then turns clear win/loss
-// signals into ProposalInputs that flow through the existing
-// Propose/Approve/Apply pipeline.
+// agent_evolution_scanner.go 实现 §5.5 EvolutionWorker 管线
+// 的启发式模式（无 LLM 调用）。按工具从 `tool_invocations` 聚合到 `agent_skill_stats`，
+// 再将明确胜负信号转为 ProposalInput，经现有
+// Propose/Approve/Apply 管线。
 //
-// Phase 5 may swap the deterministic heuristics for an LLM JSON
-// reflection prompt; this file isolates that boundary so the worker loop
-// in `cmd/server` does not need to change.
+// 第五阶段可将确定性启发式换为 LLM JSON
+// 反思提示；本文件隔离该边界，`cmd/server` 工作循环无需改动。
 package service
 
 import (
@@ -19,58 +17,44 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// scanWindow is the default look-back used when an agent has no
-// recorded `last_scan_at` yet. Picked to be long enough to gather
-// statistically meaningful telemetry but short enough that fading
-// failures eventually drop out.
+// scanWindow 为尚无 `last_scan_at` 时的默认回溯窗口。足够长以收集
+// 有统计意义的遥测，又足够短使逐渐失效的失败最终被滤出。
 const scanWindow = 30 * 24 * time.Hour
 
-// scanMinInvocations is the per-tool floor that gates *any* heuristic
-// proposal — below this we have too few samples to act on.
+// scanMinInvocations 为每工具样本下限，低于则*不*产生任何启发式提案。
 const scanMinInvocations = 5
 
-// scanFailureThreshold and scanSuccessThreshold are the heuristic
-// rates that trigger blacklist / preference-boost proposals. Both are
-// intentionally conservative so the worker prefers silence to noise.
+// scanFailureThreshold 与 scanSuccessThreshold 为触发黑名单/提偏好提案的启发式比率。刻意保守，工作线程宁静默不噪。
 const (
 	scanFailureThreshold = 0.30
 	scanSuccessThreshold = 0.85
 )
 
-// rollback alarm tuning per §13:
+// 按 §13 的回滚告警调参：
 //
 //   "回滚率 > 20% 后，evo_auto_apply 自动转为 0 并发出告警"
 //
-// We additionally require a minimum sample size so a single flaky
-// proposal cannot trip the brake.
+// 另需最小样本量，避免单次不稳定提案误触刹车。
 const (
 	rollbackAlarmThreshold   = 0.20
 	rollbackAlarmMinEvents   = 5
 	rollbackAlarmWindowHours = 24 * 30
 )
 
-// statsLastScanAtKey is the AgentStrategyProfile.Stats key the scanner
-// uses to remember when it last completed for an agent. It is *not* a
-// formal evolution event — updating it is bookkeeping only.
+// statsLastScanAtKey 为 AgentStrategyProfile.Stats 中记录某智能体上次扫描完成时间的键。*非*正式进化事件——仅簿记。
 const statsLastScanAtKey = "last_scan_at"
 
-// statsLastScanReportKey snapshots the most recent ScanReport for the
-// agent, primarily for UI inspection / debugging.
+// statsLastScanReportKey 快照智能体最近 ScanReport，主要供 UI 查看/调试。
 const statsLastScanReportKey = "last_scan_report"
 
-// negativeFeedbackTypes lists the FactFeedback values the scanner
-// counts as "the user pushed back". Confirms / used / not_used are
-// excluded — only signals that imply the agent was wrong.
+// negativeFeedbackTypes 列出扫描器视为「用户反对」的 FactFeedback。确认/已用/未用排除——仅含暗示智能体有误的信号。
 var negativeFeedbackTypes = []string{
 	domain.FactFeedbackReject,
 	domain.FactFeedbackRefine,
 }
 
-// AggregateSkillStats pulls tool_invocations for `agentID` since `since`,
-// groups by tool_key, and upserts one `agent_skill_stats` row per tool.
-// Returns the upserted slice so callers (the scanner) can immediately
-// consume them without a re-read. Empty `since` defaults to `now -
-// scanWindow`.
+// AggregateSkillStats 拉取自 `since` 起 `agentID` 的 tool_invocations，
+// 按 tool_key 分组，每工具 upsert 一行 `agent_skill_stats`。返回已 upsert 切片供调用方（扫描器）立即使用而无需再读。空 `since` 默认为 `now-scanWindow`。
 func (s *AgentEvolutionService) AggregateSkillStats(ctx context.Context, agentID, since string) ([]domain.AgentSkillStat, error) {
 	if agentID == "" {
 		return nil, validationError("agent id is required")
@@ -117,9 +101,7 @@ func (s *AgentEvolutionService) AggregateSkillStats(ctx context.Context, agentID
 			a.userOverride++
 		}
 		a.latencyTotal += float64(r.DurationMS)
-		// Approximate token cost using output preview length / 4 — good
-		// enough for sorting; precise accounting belongs in the chat
-		// usage pipeline, not the scanner.
+		// 用输出预览长度/4 近似 token 成本——排序足够；精确核算在聊天用量管线，非扫描器。
 		a.tokenTotal += float64(len(r.OutputPreview)) / 4
 		if r.StartedAt > a.lastUsedAt {
 			a.lastUsedAt = r.StartedAt
@@ -155,15 +137,13 @@ func (s *AgentEvolutionService) AggregateSkillStats(ctx context.Context, agentID
 	return out, nil
 }
 
-// RunEvolutionScan implements §5.5. It refreshes per-tool skill stats
-// from telemetry, evaluates the §13 rollback-rate safety brake, gates
-// on `evo_enabled` plus the activity-volume / negative-feedback
-// triggers, and emits one ProposalInput per clear signal. When
-// `evo_auto_apply=true` AND the proposal is `low` risk it is also
-// auto-approved + applied.
+// RunEvolutionScan 实现 §5.5。按遥测刷新各工具技能统计，评估 §13
+// 回滚率安全刹车，在 `evo_enabled` 及活跃量/负向反馈
+// 触发条件满足时放行，每则明确信号产出一个 ProposalInput。当
+// `evo_auto_apply=true` 且提案为 `low` 风险时也会自动
+// 批准并应用。
 //
-// Throttling is delegated to `Propose`, so re-running the scan within
-// the throttle window is safe (the new proposals end up `superseded`).
+// 节流由 `Propose` 处理，在节流窗口内重跑扫描是安全的（新提案会变为 `superseded`）。
 func (s *AgentEvolutionService) RunEvolutionScan(ctx context.Context, agentID string) (ScanReport, error) {
 	if agentID == "" {
 		return ScanReport{}, validationError("agent id is required")
@@ -179,12 +159,11 @@ func (s *AgentEvolutionService) RunEvolutionScan(ctx context.Context, agentID st
 		return ScanReport{}, err
 	}
 
-	// §13 rollback-rate brake — runs *before* generating new proposals
-	// so a misbehaving auto-apply pass cannot pile fresh damage onto a
-	// quarantined agent.
+	// §13 回滚率刹车 — 在产生新提案*之前*执行，
+	// 防止异常自动应用流程对已隔离智能体再叠加新损害。
 	if disabled, rate, total := s.evaluateRollbackAlarm(ctx, agentID, settings); disabled {
-		// Reload settings so subsequent steps see evo_auto_apply=false
-		// even though we won't auto-apply on this pass anyway.
+		// 重载设置使后续步骤看到 evo_auto_apply=false，
+		// 即使本轮本就不会自动应用。
 		settings.EvoAutoApply = false
 		_ = s.audit("agent.evolution.scanner.rollback_alarm",
 			"agent_runtime_settings", agentID, map[string]any{
@@ -195,19 +174,16 @@ func (s *AgentEvolutionService) RunEvolutionScan(ctx context.Context, agentID st
 			})
 	}
 
-	// §5.5 step 2 — episodes and feedback use the incremental
-	// `last_scan_at` window so they only count what happened *since the
-	// previous scan*. The `agent_skill_stats` aggregation, in contrast,
-	// is always a rolling 30-day window so trends remain stable across
-	// successive scans (per spec: "skill_stats = AgentSkillStat 最近聚合").
+	// §5.5 第 2 步 — episode 与反馈使用增量的
+	// `last_scan_at` 窗口，仅统计*自上次扫描以来*。相对地，`agent_skill_stats`
+	// 聚合始终为滚动 30 天窗口，使连续扫描间趋势稳定（见规范：「skill_stats = AgentSkillStat 最近聚合」）。
 	triggerSince := s.scanWindowSince(current, scanStart)
 	aggregationSince := scanStart.Add(-scanWindow).Format(time.RFC3339)
 
 	episodes, err := s.repo.CountAgentEpisodesSince(agentID, triggerSince)
 	if err != nil {
-		// Episode counting is informative-only; a failure here must not
-		// block the rest of the scan because tool telemetry alone is
-		// enough to drive proposals.
+		// Episode 计数仅作参考；此处失败不得阻塞
+		// 其余扫描，因仅凭工具遥测即可驱动提案。
 		episodes = 0
 	}
 	negFeedback, _ := s.repo.CountAgentFactFeedbackSince(agentID, negativeFeedbackTypes, triggerSince)
@@ -309,11 +285,10 @@ func (s *AgentEvolutionService) RunEvolutionScan(ctx context.Context, agentID st
 	return report, nil
 }
 
-// scanWindowSince picks the lower bound of the scan window. Prefers the
-// `last_scan_at` checkpoint stored in `strategy.stats`; falls back to
-// `now - scanWindow`. A checkpoint older than `scanWindow` is also
-// clamped so a long-idle agent does not suddenly aggregate a year of
-// noisy data on its first scan after being re-enabled.
+// scanWindowSince 取扫描窗口下界。优先 `strategy.stats` 中
+// 存储的 `last_scan_at` 检查点；否则回退到 `now - scanWindow`。早于
+// `scanWindow` 的检查点也会钳位，避免长期闲置智能体
+// 重新启用后首次扫描突然聚合整年噪声数据。
 func (s *AgentEvolutionService) scanWindowSince(strat domain.AgentStrategyProfile, now time.Time) string {
 	fallback := now.Add(-scanWindow)
 	if strat.Stats == nil {
@@ -333,12 +308,10 @@ func (s *AgentEvolutionService) scanWindowSince(strat domain.AgentStrategyProfil
 	return parsed.UTC().Format(time.RFC3339)
 }
 
-// persistScanCheckpoint stores `last_scan_at` and a tiny snapshot of the
-// most recent ScanReport into `strategy.stats`. It re-reads the live
-// strategy first so any auto-applied proposals from this same scan
-// survive the bookkeeping write (otherwise we'd overwrite the brand-new
-// blacklist with the stale snapshot we cached at the top of the scan).
-// A failure here is logged-only — the scan itself already succeeded.
+// persistScanCheckpoint 将 `last_scan_at` 与最近 ScanReport 的小快照
+// 写入 `strategy.stats`。先重读当前策略，使同次扫描中已自动应用的提案
+// 在簿记写入后仍保留（否则会用手动缓存的旧快照盖掉
+// 刚写上的新黑名单）。此处失败仅记日志 — 扫描本身已成功。
 func (s *AgentEvolutionService) persistScanCheckpoint(ctx context.Context, agentID string, scanStart time.Time, report ScanReport) {
 	live, err := s.repo.GetAgentStrategyProfile(agentID)
 	if err != nil {
@@ -360,11 +333,10 @@ func (s *AgentEvolutionService) persistScanCheckpoint(ctx context.Context, agent
 	_, _ = s.repo.UpsertAgentStrategyProfile(live)
 }
 
-// evaluateRollbackAlarm checks the §13 brake. Returns `disabled=true`
-// when the rate is over `rollbackAlarmThreshold` and the agent is
-// currently configured for auto-apply. The function flips the runtime
-// settings flag in-place so subsequent calls do not re-trigger the
-// audit log on the same threshold breach.
+// evaluateRollbackAlarm 检查 §13 刹车。当率超过
+// `rollbackAlarmThreshold` 且智能体当前为自动应用配置时返回 `disabled=true`。
+// 本函数就地将运行时设置标志翻转，使后续调用不会因同一阈限
+// 突破再次触发审计日志。
 func (s *AgentEvolutionService) evaluateRollbackAlarm(ctx context.Context, agentID string, settings domain.AgentRuntimeSettings) (bool, float64, int) {
 	if !settings.EvoAutoApply {
 		return false, 0, 0
@@ -383,8 +355,8 @@ func (s *AgentEvolutionService) evaluateRollbackAlarm(ctx context.Context, agent
 			continue
 		}
 		if ev.Kind == domain.EvoKindRollback {
-			// A rollback event is the *consequence* of a prior reverted
-			// event; counting both would double-charge the rate.
+			// 回滚是先前被撤销之事件的结果；若与撤销都计
+			// 会使率被重复加算。
 			continue
 		}
 		total++
@@ -406,9 +378,8 @@ func (s *AgentEvolutionService) evaluateRollbackAlarm(ctx context.Context, agent
 	return true, rate, total
 }
 
-// handleScanProposalLifecycle inspects the proposal status and bumps the
-// matching ScanReport counter. When `evo_auto_apply` is enabled and the
-// proposal is low-risk pending it auto-approves it.
+// handleScanProposalLifecycle 根据提案状态更新对应
+// ScanReport 计数。当 `evo_auto_apply` 开启且提案为低风险的 pending 时自动批准。
 func (s *AgentEvolutionService) handleScanProposalLifecycle(ctx context.Context, settings domain.AgentRuntimeSettings, prop domain.EvolutionProposal, report *ScanReport) {
 	switch prop.Status {
 	case domain.EvoProposalSuperseded:
@@ -450,10 +421,9 @@ func safeAvg(total float64, n int) float64 {
 	return total / float64(n)
 }
 
-// skillPreferenceScore maps the {success, failure, total} triple into
-// a [0,1] preference score with mild smoothing so a single failure
-// against a brand-new tool does not crater its preference. Mirrors the
-// "preference_score REAL DEFAULT 0.5" baseline in §3.2.5.
+// skillPreferenceScore 将 {成功, 失败, 总计} 映射为
+// [0,1] 偏好分并轻度平滑，使新工具上单次失败不会把偏好拉穿。与 §3.2.5
+// 中 "preference_score REAL DEFAULT 0.5" 基线一致。
 func skillPreferenceScore(successes, failures, total int) float64 {
 	if total <= 0 {
 		return 0.5
@@ -462,9 +432,9 @@ func skillPreferenceScore(successes, failures, total int) float64 {
 	num := float64(successes) + 0.5*prior
 	den := float64(total) + prior
 	score := num/den - 0.3*float64(failures)/(float64(total)+1)
-	// Floor at 0.01 instead of 0 so the upsert path (which treats 0 as
-	// "unset" and defaults back to 0.5) does not overwrite a genuinely
-	// poor score.
+	// 下界取 0.01 而非 0，因 upsert 路径将 0 视为
+	//「未设」并回退 0.5，否则会把真正
+	// 很差的分数覆盖掉。
 	if score < 0.01 {
 		return 0.01
 	}

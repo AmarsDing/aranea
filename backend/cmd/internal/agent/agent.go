@@ -1,8 +1,6 @@
-// Package agent implements `aranea agent ...`. The command tree mirrors
-// the /api/v1/agents endpoints: list, get, default. Mutating operations
-// (create / update) intentionally live in the web UI for now because
-// they require a much richer prompt-editing experience than a CLI can
-// reasonably provide.
+// Package agent 实现 `aranea agent ...`。命令树与 /api/v1/agents 端点对应：
+// list、get、default。创建/更新等变更操作目前刻意放在 Web UI，因需更丰富的
+// 提示词编辑体验，CLI 难以合理承载。
 package agent
 
 import (
@@ -18,7 +16,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
@@ -88,9 +86,8 @@ func newGetCmd(g *apiclient.GlobalContext) *cobra.Command {
 	}
 }
 
-// Resolve looks up an agent by either its UUID or its agent_key. It is
-// exported so that other packages (the console launcher, the session
-// command) can reuse the lookup without copying the heuristic.
+// Resolve 按 UUID 或 agent_key 查询智能体。导出供其他包（console launcher、
+// session 命令）复用同一套查找逻辑，避免重复实现。
 func Resolve(ctx context.Context, g *apiclient.GlobalContext, idOrKey string) (domain.Agent, error) {
 	var a domain.Agent
 	if err := g.Client().Get(ctx, "/api/v1/agents/"+url.PathEscape(idOrKey), nil, &a); err == nil && a.ID != "" {

@@ -1,13 +1,10 @@
-// Package service – MemoryL4Service is the L4 persistent / knowledge-graph
-// façade described in `aranea/docs/16 memory-L4-persistent.md`. Phase 1
-// ships entity / relation CRUD with deduplication, neighborhood traversal,
-// version history, prompt rendering for L0 injection, and a stub for the
-// extraction pipeline (Phase 2).
+// Package service – MemoryL4Service 为 L4 持久/知识图门面，
+// 见 `aranea/docs/16 memory-L4-persistent.md`。第一阶段提供
+// 带去重的实体/关系 CRUD、邻域遍历、
+// 版本历史、供 L0 注入的提示渲染，以及
+// 提取管线的桩（第二阶段）。
 //
-// The service is intentionally synchronous: extraction worker scheduling
-// and embedding generation are owned by the caller (cmd/server) so tests
-// can drive the methods inline. All mutating operations also write an
-// audit log entry so administrators can reconstruct who changed what.
+// 本服务刻意同步：提取任务调度与嵌入生成由调用方（cmd/server）负责，测试可内联驱动方法。所有写操作同时写审计日志，便于还原变更者。
 package service
 
 import (
@@ -21,33 +18,27 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// MemoryL4Service mediates between the HTTP / L0 / L2 / L3 callers and the
-// SQLite L4 repository. The L3 dependency is narrow: only fact-link
-// operations need it, and they degrade gracefully when the L3 service is
-// not wired in.
+// MemoryL4Service 在 HTTP / L0 / L2 / L3 调用方与 SQLite L4 仓库间协调。L3 依赖很窄：仅事实链接需要，未接 L3 时优雅降级。
 type MemoryL4Service struct {
 	repo repository.Store
 	now  func() string
 }
 
-// NewMemoryL4Service builds the service over a repository. Callers may
-// later inject embedding / extraction sources once Phase 2 lands.
+// NewMemoryL4Service 在仓库上构建服务。第二阶段可再注入嵌入/提取源。
 func NewMemoryL4Service(repo repository.Store) *MemoryL4Service {
 	return &MemoryL4Service{repo: repo, now: nowUTC}
 }
 
-// SetClock overrides the clock for tests.
+// SetClock 覆盖时钟供测试使用。
 func (s *MemoryL4Service) SetClock(now func() string) {
 	if now != nil {
 		s.now = now
 	}
 }
 
-// --- Inputs / outputs --------------------------------------------------------
+// --- 输入/输出 --------------------------------------------------------
 
-// EntityUpsertInput is the parameter object accepted by both the HTTP
-// POST/PATCH path and the extraction pipeline. NameNormalized is computed
-// when empty.
+// EntityUpsertInput 为 HTTP POST/PATCH 与提取管线共用的参数对象。NameNormalized 在为空时计算。
 type EntityUpsertInput struct {
 	ID          string               `json:"id,omitempty"`
 	ScopeType   domain.ScopeType     `json:"scope_type"`
@@ -68,8 +59,7 @@ type EntityUpsertInput struct {
 	Reason      string               `json:"reason,omitempty"`
 }
 
-// RelationUpsertInput is the parameter object accepted by both the HTTP
-// POST path and the extraction pipeline.
+// RelationUpsertInput 为 HTTP POST 与提取管线共用的参数对象。
 type RelationUpsertInput struct {
 	ID            string               `json:"id,omitempty"`
 	ScopeType     domain.ScopeType     `json:"scope_type"`
@@ -89,7 +79,7 @@ type RelationUpsertInput struct {
 	Reason        string               `json:"reason,omitempty"`
 }
 
-// EntityListResult is the wire shape of GET §6.2 list endpoints.
+// EntityListResult 为 GET §6.2 列表端点的线形状。
 type EntityListResult struct {
 	Items  []domain.MemoryEntity `json:"items"`
 	Total  int                   `json:"total"`
@@ -97,9 +87,7 @@ type EntityListResult struct {
 	Offset int                   `json:"offset"`
 }
 
-// ExtractionReport summarises a single ExtractFromEpisode / Fact call.
-// The Phase 1 stub always returns zeros but the shape mirrors the doc so
-// the HTTP layer can be wired now.
+// ExtractionReport 汇总单次 ExtractFromEpisode / Fact 调用。第一阶段桩恒返回零，但形态与文档一致，HTTP 可先接线。
 type ExtractionReport struct {
 	NewEntities      int    `json:"new_entities"`
 	UpdatedEntities  int    `json:"updated_entities"`
@@ -110,10 +98,9 @@ type ExtractionReport struct {
 	Note             string `json:"note,omitempty"`
 }
 
-// --- Entity CRUD -------------------------------------------------------------
+// --- 实体 CRUD -------------------------------------------------------------
 
-// UpsertEntity stores or updates an entity row, writing an audit log
-// entry and a `memory_entity_versions` snapshot in the same transaction.
+// UpsertEntity 存储或更新实体行，在同一事务中写审计与 `memory_entity_versions` 快照。
 func (s *MemoryL4Service) UpsertEntity(ctx context.Context, in EntityUpsertInput) (domain.MemoryEntity, error) {
 	if in.ScopeType == "" {
 		return domain.MemoryEntity{}, validationError("scope_type is required")
@@ -208,7 +195,7 @@ func (s *MemoryL4Service) UpsertEntity(ctx context.Context, in EntityUpsertInput
 	return stored, nil
 }
 
-// GetEntity returns a single entity by ID.
+// GetEntity 按 ID 返回单个实体。
 func (s *MemoryL4Service) GetEntity(ctx context.Context, id string) (domain.MemoryEntity, error) {
 	if id == "" {
 		return domain.MemoryEntity{}, validationError("id is required")
@@ -216,7 +203,7 @@ func (s *MemoryL4Service) GetEntity(ctx context.Context, id string) (domain.Memo
 	return s.repo.GetEntity(id)
 }
 
-// ListEntities returns a paginated entity list scoped by the query.
+// ListEntities 按查询条件分页返回实体列表。
 func (s *MemoryL4Service) ListEntities(ctx context.Context, q repository.EntityListQuery) (EntityListResult, error) {
 	items, total, err := s.repo.ListEntities(q)
 	if err != nil {
@@ -233,8 +220,7 @@ func (s *MemoryL4Service) ListEntities(ctx context.Context, q repository.EntityL
 	return EntityListResult{Items: items, Total: total, Limit: limit, Offset: offset}, nil
 }
 
-// ArchiveEntity flips the entity status to `archived` and records an
-// audit entry. Used for soft-delete from the management UI.
+// ArchiveEntity 将实体状态置为 `archived` 并记审计。用于管理端软删。
 func (s *MemoryL4Service) ArchiveEntity(ctx context.Context, id, by, reason string) error {
 	if id == "" {
 		return validationError("id is required")
@@ -247,9 +233,7 @@ func (s *MemoryL4Service) ArchiveEntity(ctx context.Context, id, by, reason stri
 	return nil
 }
 
-// DeleteEntity flips the entity status to `deleted` and records an audit
-// entry. Hard delete is not supported — soft delete preserves graph
-// integrity for relations that referenced the entity.
+// DeleteEntity 将实体状态置为 `deleted` 并记审计。不支持硬删——软删保留仍引用该实体的关系完整性。
 func (s *MemoryL4Service) DeleteEntity(ctx context.Context, id, by, reason string) error {
 	if id == "" {
 		return validationError("id is required")
@@ -262,8 +246,7 @@ func (s *MemoryL4Service) DeleteEntity(ctx context.Context, id, by, reason strin
 	return nil
 }
 
-// RenameEntity updates an entity's name (and the canonical normalized
-// form). A new version snapshot is written to preserve history.
+// RenameEntity 更新实体名称（及规范归一形式）。写入新版本快照以保留历史。
 func (s *MemoryL4Service) RenameEntity(ctx context.Context, id, newName, by, reason string) (domain.MemoryEntity, error) {
 	if id == "" {
 		return domain.MemoryEntity{}, validationError("id is required")
@@ -306,9 +289,8 @@ func (s *MemoryL4Service) RenameEntity(ctx context.Context, id, newName, by, rea
 	return stored, nil
 }
 
-// MergeEntities marks each `mergeIDs` row as merged into `primaryID`,
-// rewires their relations to the primary entity, and writes a snapshot.
-// Relations that would become self-loops are archived instead of moved.
+// MergeEntities 将各 `mergeIDs` 行标记为合并入 `primaryID`，
+// 重连关系到主实体并写快照。将成自环的关系改为归档而非迁移。
 func (s *MemoryL4Service) MergeEntities(ctx context.Context, primaryID string, mergeIDs []string, by, reason string) error {
 	if primaryID == "" {
 		return validationError("primary id is required")
@@ -389,8 +371,7 @@ func (s *MemoryL4Service) MergeEntities(ctx context.Context, primaryID string, m
 	return nil
 }
 
-// ListEntityFacts returns the fact ids linked to an entity. Phase 2 wires
-// the bidirectional fact ↔ entity index when L3 extraction lands.
+// ListEntityFacts 返回与实体链接的事实 id。第二阶段在 L3 提取落地时接线双向 fact ↔ entity 索引。
 func (s *MemoryL4Service) ListEntityFacts(ctx context.Context, entityID string, limit int) ([]domain.MemoryEntityFactLink, error) {
 	if entityID == "" {
 		return nil, validationError("entity id is required")
@@ -398,8 +379,7 @@ func (s *MemoryL4Service) ListEntityFacts(ctx context.Context, entityID string, 
 	return s.repo.ListFactsForEntity(entityID, limit)
 }
 
-// ListEntityVersions returns the snapshot history of an entity newest
-// first.
+// ListEntityVersions 返回实体快照历史，最新在前。
 func (s *MemoryL4Service) ListEntityVersions(ctx context.Context, entityID string, limit int) ([]domain.MemoryEntityVersion, error) {
 	if entityID == "" {
 		return nil, validationError("entity id is required")
@@ -407,9 +387,7 @@ func (s *MemoryL4Service) ListEntityVersions(ctx context.Context, entityID strin
 	return s.repo.ListEntityVersions(entityID, limit)
 }
 
-// LinkEntityToFact upserts the entity ↔ fact reverse-index row used by
-// L3 extraction (Phase 2). Exposed publicly for plugin / extraction
-// pipelines.
+// LinkEntityToFact 对 L3 提取（第二阶段）使用的 entity ↔ fact 反向索引行做 upsert。对插件/提取管线公开。
 func (s *MemoryL4Service) LinkEntityToFact(ctx context.Context, entityID, factID string, weight float64) error {
 	if entityID == "" || factID == "" {
 		return validationError("entity_id and fact_id are required")
@@ -417,10 +395,9 @@ func (s *MemoryL4Service) LinkEntityToFact(ctx context.Context, entityID, factID
 	return s.repo.UpsertEntityFact(entityID, factID, weight)
 }
 
-// --- Relation CRUD -----------------------------------------------------------
+// --- 关系 CRUD -----------------------------------------------------------
 
-// UpsertRelation stores or updates a relation row keyed on
-// (scope_type, scope_id, source, target, relation_type).
+// UpsertRelation 按 (scope_type, scope_id, source, target, relation_type) 存储或更新关系行。
 func (s *MemoryL4Service) UpsertRelation(ctx context.Context, in RelationUpsertInput) (domain.MemoryRelation, error) {
 	if in.ScopeType == "" {
 		return domain.MemoryRelation{}, validationError("scope_type is required")
@@ -472,7 +449,7 @@ func (s *MemoryL4Service) UpsertRelation(ctx context.Context, in RelationUpsertI
 	return stored, nil
 }
 
-// GetRelation returns a single relation by ID.
+// GetRelation 按 ID 返回单条关系。
 func (s *MemoryL4Service) GetRelation(ctx context.Context, id string) (domain.MemoryRelation, error) {
 	if id == "" {
 		return domain.MemoryRelation{}, validationError("id is required")
@@ -480,7 +457,7 @@ func (s *MemoryL4Service) GetRelation(ctx context.Context, id string) (domain.Me
 	return s.repo.GetRelation(id)
 }
 
-// ListRelationsForNode returns the active relations connected to a node.
+// ListRelationsForNode 返回连接到节点的活动关系。
 func (s *MemoryL4Service) ListRelationsForNode(ctx context.Context, nodeID string, limit int) ([]domain.MemoryRelation, error) {
 	if nodeID == "" {
 		return nil, validationError("node id is required")
@@ -488,8 +465,7 @@ func (s *MemoryL4Service) ListRelationsForNode(ctx context.Context, nodeID strin
 	return s.repo.ListRelationsForNode(nodeID, limit)
 }
 
-// DeleteRelation flips the relation status to `deleted` and records an
-// audit entry.
+// DeleteRelation 将关系状态置为 `deleted` 并记审计。
 func (s *MemoryL4Service) DeleteRelation(ctx context.Context, id, by, reason string) error {
 	if id == "" {
 		return validationError("id is required")
@@ -502,11 +478,9 @@ func (s *MemoryL4Service) DeleteRelation(ctx context.Context, id, by, reason str
 	return nil
 }
 
-// --- Neighborhood / search ---------------------------------------------------
+// --- 邻域/搜索 ----------------------------------------------------------------
 
-// Neighborhood traverses up to `hops` hops outward from `centerID`,
-// returning at most `maxNodes` distinct entities plus the relations that
-// connect them. Hops are capped at 3 to keep latency bounded.
+// Neighborhood 从 `centerID` 向外最多 `hops` 跳，返回至多 `maxNodes` 个不同实体及连接它们的关系。跳数上限 3 以控制延迟。
 func (s *MemoryL4Service) Neighborhood(ctx context.Context, centerID string, hops, maxNodes int) (domain.GraphNeighborhood, error) {
 	if centerID == "" {
 		return domain.GraphNeighborhood{}, validationError("center id is required")
@@ -514,9 +488,7 @@ func (s *MemoryL4Service) Neighborhood(ctx context.Context, centerID string, hop
 	return s.repo.GetNeighborhood(centerID, hops, maxNodes)
 }
 
-// SearchByText is a simple keyword-based lookup over name / aliases /
-// description. Vector search will replace this once embeddings are
-// generated (Phase 2).
+// SearchByText 为基于名称/别名/描述的简单关键词查找。产生嵌入后（第二阶段）可换为向量搜索。
 func (s *MemoryL4Service) SearchByText(ctx context.Context, scope domain.ScopeType, scopeID, query string, topK int) ([]domain.MemoryEntity, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
@@ -535,14 +507,9 @@ func (s *MemoryL4Service) SearchByText(ctx context.Context, scope domain.ScopeTy
 	return items, err
 }
 
-// --- Pipeline stubs ---------------------------------------------------------
+// --- 管线桩 ----------------------------------------------------------------
 
-// ExtractFromEpisode runs the Phase 2 dictionary-based extractor over
-// an episode's title / goal / outcome / failure_reason fields. Each
-// match becomes (or refreshes) a knowledge-graph entity in the agent's
-// scope; the episode itself is *not* reverse-linked because the schema
-// does not yet provide an episode↔entity index — Phase 3 will widen the
-// link table. Returns Skipped=N when nothing matched.
+// ExtractFromEpisode 对情节的 title / goal / outcome / failure_reason 运行第二阶段基于词典的提取器。每次匹配在智能体作用域下创建（或刷新）知识图实体；情节本身*不*反链，因模式尚无 episode↔entity 索引——第三阶段将扩展链接表。无匹配时返回 Skipped=N。
 func (s *MemoryL4Service) ExtractFromEpisode(ctx context.Context, episodeID string) (ExtractionReport, error) {
 	if episodeID == "" {
 		return ExtractionReport{}, validationError("episode id is required")
@@ -603,11 +570,7 @@ func (s *MemoryL4Service) ExtractFromEpisode(ctx context.Context, episodeID stri
 	return report, nil
 }
 
-// ExtractFromFact runs the Phase 2 dictionary-based extractor over a
-// fact's statement + details_markdown. Each match becomes (or refreshes)
-// a knowledge-graph entity in the fact's scope and is reverse-linked
-// through `memory_entity_facts` so future neighborhood queries can
-// surface the originating fact alongside the entity.
+// ExtractFromFact 对事实的 statement + details_markdown 运行第二阶段基于词典的提取器。每次匹配在事实作用域下创建（或刷新）知识图实体，并通过 `memory_entity_facts` 反链，便于后续邻域查询同时展示来源事实与实体。
 func (s *MemoryL4Service) ExtractFromFact(ctx context.Context, factID string) (ExtractionReport, error) {
 	if factID == "" {
 		return ExtractionReport{}, validationError("fact id is required")
@@ -663,10 +626,7 @@ func (s *MemoryL4Service) ExtractFromFact(ctx context.Context, factID string) (E
 	return report, nil
 }
 
-// extractionScopeFromEpisode picks the most specific scope an episode
-// can attach to. Agent-owned episodes attach to the agent's scope so
-// extraction stays per-persona; team-owned episodes attach to the team
-// scope; everything else is skipped because there is no obvious owner.
+// extractionScopeFromEpisode 选择情节可挂的最细作用域。属智能体则挂智能体作用域以按人格提取；属团队则挂团队作用域；否则跳过（无明确归属）。
 func extractionScopeFromEpisode(episode domain.MemoryEpisode) (domain.ScopeType, string) {
 	if episode.AgentID != "" {
 		return domain.ScopeAgent, episode.AgentID
@@ -677,15 +637,12 @@ func extractionScopeFromEpisode(episode domain.MemoryEpisode) (domain.ScopeType,
 	return "", ""
 }
 
-// --- L0 prompt rendering -----------------------------------------------------
+// --- L0 提示渲染 ------------------------------------------------------------
 
-// l4MaxNeighborChars caps how much text the rendered neighborhood block
-// can occupy in the L0 prompt. Aligned with §5.8 prompt-budget defaults.
+// l4MaxNeighborChars 限制渲染的邻域块在 L0 提示中可占用的字符量。与 §5.8 提示预算默认一致。
 const l4MaxNeighborChars = 1500
 
-// RenderForPrompt formats a GraphNeighborhood into a markdown block
-// suitable for L0 injection. Returns ok=false when the neighborhood
-// holds no useful data (e.g. an isolated node).
+// RenderForPrompt 将 GraphNeighborhood 格式化为适合 L0 注入的 markdown。邻域无有效数据（如孤立节点）时 ok=false。
 func (s *MemoryL4Service) RenderForPrompt(n domain.GraphNeighborhood, maxChars int) (string, bool) {
 	if maxChars <= 0 || maxChars > 4000 {
 		maxChars = l4MaxNeighborChars
@@ -734,19 +691,11 @@ func (s *MemoryL4Service) RenderForPrompt(n domain.GraphNeighborhood, maxChars i
 	return body, true
 }
 
-// NeighborhoodSegmentForL0 is the L0RecallSource shim: given a session /
-// agent / query, it picks a center entity by keyword search across the
-// scopes the agent can see (agent → workspace → user → global), expands
-// to its k-hop neighborhood, and renders a `memory.l4.graph` segment.
+// NeighborhoodSegmentForL0 为 L0RecallSource 垫片：给定 session/agent/query，在智能体可见作用域（agent → workspace → user → global）内关键词选中心实体，扩展 k 跳邻域，渲染 `memory.l4.graph` 片段。
 //
-// All limits come from `agent_runtime_settings` (§3.3): the segment is
-// gated by `l4_enabled` AND `l4_graph_inject_neighbors`, neighbor count
-// is capped at `l4_graph_max_neighbors`, and traversal hops at
-// `l4_graph_max_hops` (clamped to ≤3 to keep latency bounded).
+// 各限制来自 `agent_runtime_settings`（§3.3）：片段需 `l4_enabled` 与 `l4_graph_inject_neighbors`；邻居数受 `l4_graph_max_neighbors` 限制；跳数受 `l4_graph_max_hops` 限制（≤3 以控制延迟）。
 //
-// Returns ok=false when the feature is disabled, the query is empty,
-// no candidate entity matches, or the neighborhood renders to an empty
-// block — so L0 simply omits the segment.
+// 功能关闭、查询为空、无匹配实体或邻域渲染为空块时 ok=false，L0 省略该片段。
 func (s *MemoryL4Service) NeighborhoodSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
 	return s.NeighborhoodSegmentForL0WithContext(ctx, domain.L0MemoryScopeContext{
 		SessionID: sessionID,
@@ -755,8 +704,7 @@ func (s *MemoryL4Service) NeighborhoodSegmentForL0(ctx context.Context, sessionI
 	})
 }
 
-// NeighborhoodSegmentForL0WithContext is the context-rich L0 seam. Team,
-// user, and workspace scope IDs are used when choosing the center entity.
+// NeighborhoodSegmentForL0WithContext 为带完整上下文的 L0 接缝。选中心实体时使用团队、用户与工作区作用域 ID。
 func (s *MemoryL4Service) NeighborhoodSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
 	if strings.TrimSpace(scope.Query) == "" || scope.AgentID == "" {
 		return domain.L0Segment{}, false
@@ -804,10 +752,7 @@ func (s *MemoryL4Service) NeighborhoodSegmentForL0WithContext(ctx context.Contex
 	}, true
 }
 
-// findCenterEntity walks the scope hierarchy an agent can see (agent →
-// workspace → user → global) and returns the first active entity whose
-// name / aliases / description match the query. Phase 2's attention
-// pipeline will replace this keyword search with vector recall.
+// findCenterEntity 按智能体可见作用域（agent → workspace → user → global）遍历，返回名称/别名/描述与查询匹配的首个活动实体。第二阶段的 attention 管线将把关键词搜索换为向量召回。
 func (s *MemoryL4Service) findCenterEntity(scope domain.L0MemoryScopeContext, query string) (domain.MemoryEntity, bool) {
 	candidates := []repository.EntityListQuery{
 		{ScopeType: domain.ScopeAgent, ScopeID: scope.AgentID},
@@ -832,7 +777,7 @@ func (s *MemoryL4Service) findCenterEntity(scope domain.L0MemoryScopeContext, qu
 	return domain.MemoryEntity{}, false
 }
 
-// --- Audit helper -----------------------------------------------------------
+// --- 审计辅助 ----------------------------------------------------------------
 
 func (s *MemoryL4Service) audit(action, resource, resourceID string, detail map[string]any) error {
 	body, _ := json.Marshal(detail)
@@ -848,7 +793,7 @@ func (s *MemoryL4Service) audit(action, resource, resourceID string, detail map[
 	})
 }
 
-// --- Pure helpers -----------------------------------------------------------
+// --- 纯函数辅助 --------------------------------------------------------------
 
 func normalizeEntityName(name string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(name)), " "))

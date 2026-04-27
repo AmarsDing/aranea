@@ -8,7 +8,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// agent identity / strategy / event / proposal / skill stat persistence.
+// 智能体身份、策略、事件、提案与技能统计的持久化。
 
 func (r *SQLiteRepository) GetAgentIdentity(agentID string) (domain.AgentIdentity, error) {
 	if agentID == "" {
@@ -473,9 +473,7 @@ func (r *SQLiteRepository) UpdateEvolutionProposalStatus(id, status, by, eventID
 	return err
 }
 
-// SupersedeProposalsByTarget marks all pending proposals for a given
-// agent + target_field that were created before `sinceISO` as superseded.
-// Used by §5.5 throttle window.
+// SupersedeProposalsByTarget 将某智能体在 target_field 上、创建于 `sinceISO` 之前的待处理提案标为已取代。供 §5.5 节流窗口使用。
 func (r *SQLiteRepository) SupersedeProposalsByTarget(agentID, targetField, sinceISO string) (int, error) {
 	if agentID == "" || targetField == "" {
 		return 0, errors.New("agent id and target_field are required")
@@ -600,5 +598,5 @@ func (r *SQLiteRepository) ListAgentSkillStats(agentID string, limit int) ([]dom
 	return out, rows.Err()
 }
 
-// guard against unused import when refactored.
+// 重构时防止未使用的 import。
 var _ = sql.ErrNoRows

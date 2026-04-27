@@ -21,13 +21,10 @@ type toolStore interface {
 	UpsertAgentRuntimeSettings(settings domain.AgentRuntimeSettings) (domain.AgentRuntimeSettings, error)
 }
 
-// EvolutionToolPolicySource is the narrow contract ToolService uses to
-// fold the agent's self-evolution tool blacklist and preference scores
-// into the EffectiveForAgent view. Implemented by *AgentEvolutionService.
+// EvolutionToolPolicySource 是 ToolService 用于将 Agent 自演化工具黑名单与偏好分数
+// 合并进 EffectiveForAgent 视图的窄接口。由 *AgentEvolutionService 实现。
 //
-// The seam keeps the tool surface independent of L4: when no source is
-// wired, EffectiveForAgent falls back to the static profile / allow /
-// deny computation only.
+// 该接缝使工具面与 L4 解耦：未注入来源时，EffectiveForAgent 仅回退到静态 profile / allow / deny 计算。
 type EvolutionToolPolicySource interface {
 	ToolPolicyForAgent(ctx context.Context, agentID string) (blacklist []string, preference map[string]float64, err error)
 }
@@ -41,9 +38,8 @@ func NewToolService(store toolStore) *ToolService {
 	return &ToolService{store: store}
 }
 
-// SetEvolutionPolicySource wires the optional self-evolution source used
-// by EffectiveForAgent. Callers (e.g. server bootstrap) should pass the
-// AgentEvolutionService instance after constructing both services.
+// SetEvolutionPolicySource 注入 EffectiveForAgent 使用的可选自演化策略来源。
+// 调用方（如 server 启动）应在两个服务都构造完成后传入 AgentEvolutionService 实例。
 func (s *ToolService) SetEvolutionPolicySource(src EvolutionToolPolicySource) {
 	s.evolution = src
 }
@@ -70,8 +66,7 @@ func (s *ToolService) ToggleEnabled(id string, enabled bool) (domain.Tool, error
 		return domain.Tool{}, err
 	}
 	if enabled && (tool.RiskLevel == "high" || tool.RiskLevel == "critical") {
-		// The frontend asks for confirmation; the backend still keeps the risk
-		// visible by returning the updated tool only after this explicit call.
+		// 前端会要求确认；后端仍通过仅在显式调用后返回更新后的工具来保留风险可见性。
 	}
 	return s.store.UpdateToolEnabled(id, enabled)
 }
@@ -160,8 +155,7 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 	if len(evoPreference) > 0 {
 		sort.SliceStable(items, func(i, j int) bool {
 			if items[i].EffectiveState != items[j].EffectiveState {
-				// Allowed items always sort before denied ones so the
-				// agent prompt renders the actionable subset first.
+				// 允许的项始终排在拒绝项之前，以便 Agent 提示词优先展示可执行子集。
 				return items[i].EffectiveState == "allowed"
 			}
 			return evoPreference[items[i].ToolKey] > evoPreference[items[j].ToolKey]
@@ -177,10 +171,8 @@ func (s *ToolService) EffectiveForAgent(agentID string) (domain.AgentEffectiveTo
 	}, nil
 }
 
-// resolveEvolutionPolicy looks up the agent's self-evolution tool
-// blacklist + preference scores via the optional source. Returns nils
-// when no source is wired or the lookup fails — callers must tolerate
-// the empty case so the tool view degrades gracefully.
+// resolveEvolutionPolicy 通过可选来源查询 Agent 自演化工具黑名单与偏好分数。
+// 未注入来源或查询失败时返回 nil；调用方须容忍空结果，使工具视图能优雅降级。
 func (s *ToolService) resolveEvolutionPolicy(agentID string) ([]string, map[string]float64) {
 	if s.evolution == nil {
 		return nil, nil
@@ -240,21 +232,15 @@ var toolGroups = map[string][]string{
 	"skill":      {"skill_search", "use_skill"},
 	"media":      {"read_image", "read_document", "create_image", "tts"},
 	"runtime":    {"shell_exec"},
-	// cli_admin is populated lazily from the cli_admin_* tool seeds so
-	// the group automatically expands when new admin tools are added.
+	// cli_admin 由 cli_admin_* 工具种子惰性填充，新增管理员工具时该组会自动扩展。
 	"cli_admin": repository.CLIAdminToolKeys(),
 }
 
-// toolProfiles defines the canonical, semantically meaningful tool
-// surfaces an agent can be granted. The names are deliberately
-// intent-driven (chat_only / read_only / coding / research / full)
-// instead of implementation-driven so operators can reason about an
-// agent's capability scope without reading the tool list.
+// toolProfiles 定义可授予 Agent 的规范、语义化工具面。命名刻意按意图（chat_only / read_only /
+// coding / research / full）而非实现划分，便于运维理解能力范围而无需通读工具列表。
 //
-// Legacy names ("minimal", "safe", "system_admin") are preserved here
-// so existing rows in agents.tools_profile keep their original
-// behaviour. Frontends should expose the new names; legacy values are
-// gracefully mapped to a comparable new profile via canonicalToolProfile.
+// 此处保留旧名（"minimal"、"safe"、"system_admin"），使 agents.tools_profile 既有行行为不变。
+// 前端应展示新名称；旧值经 canonicalToolProfile 平滑映射到可比较的新 profile。
 var toolProfiles = map[string][]string{
 	"chat_only": {},
 	"read_only": {"datetime", "read_file", "list_files"},
@@ -262,18 +248,15 @@ var toolProfiles = map[string][]string{
 	"research":  {"web_search", "web_fetch", "read_file", "list_files", "skill_search", "memory_search", "datetime"},
 	"full":      {"group:filesystem", "group:web", "group:skill", "group:memory", "group:media", "group:runtime", "group:cli_admin", "datetime"},
 
-	// Legacy aliases retained for backward compatibility with stored
-	// agent settings. Treat them as deprecated — new UI flows should
-	// pick from chat_only / read_only / coding / research / full.
+	// 为兼容已存储的 Agent 设置而保留的旧别名。视为已弃用——新 UI 应从
+	// chat_only / read_only / coding / research / full 中选择。
 	"minimal":      {},
 	"safe":         {"datetime", "read_file", "list_files"},
 	"system_admin": {"group:cli_admin", "web_fetch", "datetime"},
 }
 
-// canonicalToolProfile normalizes any profile string (including legacy
-// names) into one of the supported canonical profiles. It is used by
-// the runtime / API layer when reporting an agent's effective profile
-// so the frontend can render a consistent label.
+// canonicalToolProfile 将任意 profile 字符串（含旧名）规范为支持的 canonical profile 之一。
+// runtime / API 层在报告 Agent 有效 profile 时使用，以便前端显示一致标签。
 func canonicalToolProfile(profile string) string {
 	switch strings.ToLower(strings.TrimSpace(profile)) {
 	case "":

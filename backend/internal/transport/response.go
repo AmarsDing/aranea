@@ -30,9 +30,8 @@ func writeErr(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, errorResponse{Error: message})
 }
 
-// decodeBody reads a JSON body into target and writes a 400 error response when
-// the payload is invalid. The boolean return signals success so callers can
-// `return` immediately on failure without re-checking the error.
+// decodeBody 将 JSON 请求体解码到 target；载荷无效时写入 400 错误响应。
+// 返回布尔值表示成功，调用方可在失败时立即 return，无需再次检查 error。
 func decodeBody(w http.ResponseWriter, r *http.Request, target any) bool {
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -62,9 +61,8 @@ func publicError(fallbackStatus int, err error) (int, string) {
 	case status == http.StatusUnauthorized:
 		return status, "unauthorized"
 	case status == http.StatusConflict:
-		// L1 overflow / revision conflict / task-not-writable carry actionable
-		// detail (which field, which revision, which task) that the front-end
-		// surfaces in toasts.
+		// L1 溢出 / 修订冲突 / 任务不可写等错误带有可操作的明细（字段、修订、任务），
+		// 前端可在 toast 中展示。
 		switch {
 		case errors.Is(err, domain.ErrL1Overflow),
 			errors.Is(err, domain.ErrRevisionConflict),

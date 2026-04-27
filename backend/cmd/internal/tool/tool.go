@@ -1,7 +1,5 @@
-// Package tool implements `aranea tool ls/get/enable/disable`. The
-// command surface is intentionally narrow because tools are managed by
-// admins through the web UI; the CLI is for inspection and scripted
-// toggles.
+// Package tool 实现 `aranea tool ls/get/enable/disable`。命令面刻意保持
+// 精简，因工具多由管理员在 Web UI 中管理；CLI 用于检查与脚本化开关。
 package tool
 
 import (
@@ -15,7 +13,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tool",

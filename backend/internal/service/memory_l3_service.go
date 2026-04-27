@@ -1,13 +1,12 @@
-// Package service – MemoryL3Service is the L3 semantic-memory façade
-// described in `aranea/docs/15 memory-L3-semantic.md`. Phase 1 ships
-// fact CRUD, fingerprint-based dedup, version history, BM25 recall
-// (vector path is wired in but inert until embeddings are produced),
-// feedback-driven confidence, conflict tracking, decay batches, and
-// prompt rendering for L0 injection.
+// Package service – MemoryL3Service 为 L3 语义记忆门面，
+// 见 `aranea/docs/15 memory-L3-semantic.md`。第一阶段提供
+// 事实 CRUD、指纹去重、版本历史、BM25 召回
+//（向量路径已接线，在产生嵌入前保持不活跃）、
+// 反馈驱动置信度、冲突跟踪、衰减批次，以及
+// 供 L0 注入的提示渲染。
 //
-// The service intentionally has no goroutines of its own — decay /
-// embedding worker scheduling is the caller's responsibility. Tests can
-// drive RunDecayBatch / BuildEmbedding inline.
+// 本服务刻意不自带 goroutine——衰减/嵌入任务调度由调用方负责。
+// 测试可直接内联调用 RunDecayBatch / BuildEmbedding。
 package service
 
 import (
@@ -27,9 +26,8 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// MemoryL3Service mediates between the HTTP / L0 / consolidation layers
-// and the SQLite repository. It is the single owner of the upsert /
-// dedup / conflict-detection rules so callers can stay simple.
+// MemoryL3Service 在 HTTP / L0 / 整合层与 SQLite 仓库之间协调。
+// 独占 upsert / 去重 / 冲突检测规则，使调用方保持简单。
 type MemoryL3Service struct {
 	repo         repository.Store
 	pii          *PIIFilter
@@ -39,21 +37,19 @@ type MemoryL3Service struct {
 	scopeWeights map[domain.ScopeType]float64
 }
 
-// EmbeddingSource is the narrow contract MemoryL3Service uses to ask the
-// LLM provider for a vector embedding of a given text. Implementations
-// can wrap ProviderService or any HTTP client. The seam keeps the
-// service usable in tests where embeddings are stubbed.
+// EmbeddingSource 是 MemoryL3Service 向 LLM 提供方请求文本向量嵌入的窄接口。
+// 实现可包装 ProviderService 或任意 HTTP 客户端。该接缝使
+// 测试中可桩替换嵌入，服务仍可用。
 type EmbeddingSource interface {
 	Embed(ctx context.Context, model, text string) ([]float32, error)
 }
 
-// L4FactExtractionSource is the narrow dependency used to keep the L3 -> L4
-// extraction hook best-effort and acyclic.
+// L4FactExtractionSource 为 L3→L4 提取钩子的窄依赖，保持尽力而为且无环。
 type L4FactExtractionSource interface {
 	ExtractFromFact(ctx context.Context, factID string) (ExtractionReport, error)
 }
 
-// FactListResult is the wire shape of GET §6.2 list endpoints.
+// FactListResult 为 GET §6.2 列表端点的线形状。
 type FactListResult struct {
 	Items  []domain.MemoryFact `json:"items"`
 	Total  int                 `json:"total"`
@@ -61,8 +57,7 @@ type FactListResult struct {
 	Offset int                 `json:"offset"`
 }
 
-// FactPatch is the partial update payload (§6.2 PATCH). Pointers signal
-// "field present"; nil leaves the existing value untouched.
+// FactPatch 为部分更新载荷（§6.2 PATCH）。指针表示「字段有值」；nil 表示不改动原值。
 type FactPatch struct {
 	Statement       *string          `json:"statement,omitempty"`
 	DetailsMarkdown *string          `json:"details_markdown,omitempty"`
@@ -76,7 +71,7 @@ type FactPatch struct {
 	Reason          string           `json:"reason,omitempty"`
 }
 
-// BulkUpsertReport summarises a §5.6 BulkUpsert call.
+// BulkUpsertReport 汇总 §5.6 BulkUpsert 调用结果。
 type BulkUpsertReport struct {
 	Created    int `json:"created"`
 	Updated    int `json:"updated"`
@@ -85,21 +80,20 @@ type BulkUpsertReport struct {
 	Conflicts  int `json:"conflicts"`
 }
 
-// DecayReport summarises a §5.5 RunDecayBatch call.
+// DecayReport 汇总 §5.5 RunDecayBatch 调用结果。
 type DecayReport struct {
 	Processed      int     `json:"processed"`
 	Archived       int     `json:"archived"`
 	ConfidenceDrop float64 `json:"confidence_drop"`
 }
 
-// L3StatsReport is what GET /admin/memory/l3/stats returns.
+// L3StatsReport 为 GET /admin/memory/l3/stats 的返回结构。
 type L3StatsReport struct {
 	StatusCounts map[string]int `json:"status_counts"`
 }
 
-// NewMemoryL3Service builds a service over a repository with sensible
-// defaults: regex PII filter, no embedder (vector path inert), and the
-// scope weights from §5.3.
+// NewMemoryL3Service 在仓库上构建服务，带合理默认：正则 PII 过滤器、
+// 无嵌入器（向量路径不活跃），以及 §5.3 的作用域权重。
 func NewMemoryL3Service(repo repository.Store) *MemoryL3Service {
 	return &MemoryL3Service{
 		repo: repo,
@@ -115,26 +109,23 @@ func NewMemoryL3Service(repo repository.Store) *MemoryL3Service {
 	}
 }
 
-// SetEmbeddingSource wires the embedding provider used by Recall and
-// BuildEmbedding. Nil disables the vector path (BM25 still works).
+// SetEmbeddingSource 接入 Recall 与 BuildEmbedding 使用的嵌入提供方。nil 则禁用向量路径（BM25 仍可用）。
 func (s *MemoryL3Service) SetEmbeddingSource(src EmbeddingSource) { s.embedder = src }
 
-// SetL4ExtractionSource wires L4 dictionary/entity extraction after L3 fact
-// writes. Extraction failures are audited but never block the fact write.
+// SetL4ExtractionSource 在 L3 事实写入后连接 L4 词典/实体提取。提取失败会审计，从不阻塞事实写入。
 func (s *MemoryL3Service) SetL4ExtractionSource(src L4FactExtractionSource) { s.memoryL4 = src }
 
-// SetClock overrides the clock for tests.
+// SetClock 覆盖时钟供测试使用。
 func (s *MemoryL3Service) SetClock(now func() string) {
 	if now != nil {
 		s.now = now
 	}
 }
 
-// --- Write paths ------------------------------------------------------------
+// --- 写入路径 ------------------------------------------------------------
 
-// UpsertFact applies the §5.2 algorithm: PII detection, normalisation,
-// fingerprint dedup, version snapshot, audit log. Returns the resulting
-// fact (newly-created or updated).
+// UpsertFact 应用 §5.2 流程：PII 检测、规范化、
+// 指纹去重、版本快照、审计日志。返回结果事实（新建或更新）。
 func (s *MemoryL3Service) UpsertFact(ctx context.Context, in domain.FactUpsertInput) (domain.MemoryFact, error) {
 	_ = ctx
 	if !in.ScopeType.IsValid() {
@@ -167,10 +158,9 @@ func (s *MemoryL3Service) UpsertFact(ctx context.Context, in domain.FactUpsertIn
 	piiHit, redacted := s.pii.RedactPII(statement)
 	piiHitDetails, redactedDetails := s.pii.RedactPII(details)
 	if piiHit || piiHitDetails {
-		// Spec §5.2 step 2: when PII is detected, force the scope to
-		// user (or agent) so the redacted form is never shared. We pick
-		// "user" because most PII is user-scoped; if the upstream knows
-		// better it can pre-set the scope correctly.
+		// 规范 §5.2 第 2 步：检测到 PII 时强制作用域为
+		// user（或 agent），避免脱敏形式被共享。多数 PII 属用户级故选
+		// "user"；上游若更清楚可预先设置正确作用域。
 		if scope != domain.ScopeAgent && scope != domain.ScopeUser {
 			scope = domain.ScopeUser
 			if scopeID == "" {
@@ -199,7 +189,7 @@ func (s *MemoryL3Service) UpsertFact(ctx context.Context, in domain.FactUpsertIn
 		return domain.MemoryFact{}, err
 	}
 	if err == nil && existing.ID != "" {
-		// Update path — bump confidence (capped) and merge tags.
+		// 更新路径 — 提高置信度（有上限）并合并标签。
 		existing.Statement = statement
 		existing.StatementNormalized = normalized
 		existing.DetailsMarkdown = chooseNonEmpty(details, existing.DetailsMarkdown)
@@ -257,7 +247,7 @@ func (s *MemoryL3Service) UpsertFact(ctx context.Context, in domain.FactUpsertIn
 		return domain.MemoryFact{}, err
 	}
 
-	// Create path.
+	// 创建路径。
 	fact := domain.MemoryFact{
 		ID:                  newID(),
 		ScopeType:           scope,
@@ -307,8 +297,8 @@ func (s *MemoryL3Service) UpsertFact(ctx context.Context, in domain.FactUpsertIn
 	return created, nil
 }
 
-// BulkUpsert iterates UpsertFact and aggregates the per-row outcome.
-// Errors don't abort the batch; they are recorded in the report instead.
+// BulkUpsert 遍历 UpsertFact 并汇总每行结果。
+// 错误不中止整批；记录在报告中。
 func (s *MemoryL3Service) BulkUpsert(ctx context.Context, ins []domain.FactUpsertInput) (BulkUpsertReport, error) {
 	out := BulkUpsertReport{}
 	for _, in := range ins {
@@ -327,7 +317,7 @@ func (s *MemoryL3Service) BulkUpsert(ctx context.Context, ins []domain.FactUpser
 	return out, nil
 }
 
-// UpdateFact applies the partial patch and writes a version snapshot.
+// UpdateFact 应用部分补丁并写入版本快照。
 func (s *MemoryL3Service) UpdateFact(ctx context.Context, id string, patch FactPatch) (domain.MemoryFact, error) {
 	_ = ctx
 	if id == "" {
@@ -405,7 +395,7 @@ func (s *MemoryL3Service) UpdateFact(ctx context.Context, id string, patch FactP
 	return updated, nil
 }
 
-// DeleteFact soft-deletes a fact and removes it from the indexes.
+// DeleteFact 软删除事实并从索引中移除。
 func (s *MemoryL3Service) DeleteFact(ctx context.Context, id, by string) error {
 	_ = ctx
 	if id == "" {
@@ -420,9 +410,8 @@ func (s *MemoryL3Service) DeleteFact(ctx context.Context, id, by string) error {
 	return nil
 }
 
-// RollbackFact restores a previous version. It writes a new version row
-// (so the rollback itself is auditable) and bumps the live version
-// number rather than overwriting it.
+// RollbackFact 恢复到先前版本。写入新版本行
+//（回滚本身可审计）并提高当前版本号而非直接覆盖。
 func (s *MemoryL3Service) RollbackFact(ctx context.Context, id string, toVersion int, by string) (domain.MemoryFact, error) {
 	_ = ctx
 	if id == "" || toVersion <= 0 {
@@ -453,9 +442,9 @@ func (s *MemoryL3Service) RollbackFact(ctx context.Context, id string, toVersion
 	return s.repo.GetFact(id)
 }
 
-// --- Read paths -------------------------------------------------------------
+// --- 读取路径 -------------------------------------------------------------
 
-// Get returns a single fact by ID.
+// Get 按 ID 返回单条事实。
 func (s *MemoryL3Service) Get(ctx context.Context, id string) (domain.MemoryFact, error) {
 	_ = ctx
 	if id == "" {
@@ -464,7 +453,7 @@ func (s *MemoryL3Service) Get(ctx context.Context, id string) (domain.MemoryFact
 	return s.repo.GetFact(id)
 }
 
-// List returns paginated facts using the repository filter struct.
+// List 使用仓库过滤器结构体分页返回事实。
 func (s *MemoryL3Service) List(ctx context.Context, q repository.FactListQuery) (FactListResult, error) {
 	_ = ctx
 	items, total, err := s.repo.ListFacts(q)
@@ -478,21 +467,20 @@ func (s *MemoryL3Service) List(ctx context.Context, q repository.FactListQuery) 
 	return FactListResult{Items: items, Total: total, Limit: limit, Offset: q.Offset}, nil
 }
 
-// ListVersions returns the history rows for a fact (latest first).
+// ListVersions 返回某事实的历史行（最新在前）。
 func (s *MemoryL3Service) ListVersions(ctx context.Context, factID string, limit int) ([]domain.FactVersion, error) {
 	_ = ctx
 	return s.repo.ListFactVersions(factID, limit)
 }
 
-// ListFeedback returns the most-recent feedback entries.
+// ListFeedback 返回最近反馈记录。
 func (s *MemoryL3Service) ListFeedback(ctx context.Context, factID string, limit int) ([]domain.FactFeedback, error) {
 	_ = ctx
 	return s.repo.ListFactFeedback(factID, limit)
 }
 
-// Recall implements the §5.3 hybrid retrieval. Vector + BM25 results are
-// merged by fact id; the final score combines vector / BM25 / confidence
-// / recency / scope_weight using the spec coefficients.
+// Recall 实现 §5.3 混合检索。向量与 BM25 结果按事实 id 合并；
+// 最终分数按规范系数组合 vector / BM25 / 置信度 / 新近性 / scope_weight。
 func (s *MemoryL3Service) Recall(ctx context.Context, q domain.FactRecallQuery) ([]domain.FactRecallHit, error) {
 	if q.TopK <= 0 {
 		q.TopK = 5
@@ -515,7 +503,7 @@ func (s *MemoryL3Service) Recall(ctx context.Context, q domain.FactRecallQuery) 
 	queryText := strings.TrimSpace(q.Query)
 	wantVector := len(q.QueryEmbedding) > 0
 	if !wantVector && queryText != "" && s.embedder != nil {
-		// Best-effort: ask the embedder; failure is silent so BM25 still runs.
+		// 尽力请求嵌入器；失败静默，BM25 仍运行。
 		if vec, err := s.embedder.Embed(ctx, "", queryText); err == nil {
 			q.QueryEmbedding = vec
 			wantVector = true
@@ -559,9 +547,8 @@ func (s *MemoryL3Service) Recall(ctx context.Context, q domain.FactRecallQuery) 
 	return out, nil
 }
 
-// Feedback applies the §5.4 algorithm: insert the row, mutate confidence,
-// auto-archive when the threshold is crossed, and auto-create a conflict
-// after three consecutive rejects.
+// Feedback 应用 §5.4 流程：插入行、调整置信度、
+// 低于阈值自动归档，以及连续三次拒绝后自动创建冲突。
 func (s *MemoryL3Service) Feedback(ctx context.Context, fb domain.FactFeedback) error {
 	_ = ctx
 	if fb.FactID == "" {
@@ -600,7 +587,7 @@ func (s *MemoryL3Service) Feedback(ctx context.Context, fb domain.FactFeedback) 
 	case domain.FactFeedbackNotUsed:
 		delta = -0.01 * fb.Weight
 	case domain.FactFeedbackRefine:
-		// refine: keep confidence, bump importance only.
+		// refine：保持置信度，仅提高重要性。
 		_ = s.repo.UpdateFact(domain.MemoryFact{
 			ID: fact.ID, Statement: fact.Statement, StatementNormalized: fact.StatementNormalized,
 			Fingerprint: fact.Fingerprint, DetailsMarkdown: fact.DetailsMarkdown, Kind: fact.Kind,
@@ -619,7 +606,7 @@ func (s *MemoryL3Service) Feedback(ctx context.Context, fb domain.FactFeedback) 
 		if err = s.repo.UpdateFactConfidence(fact.ID, newConf, 0, posInc, negInc); err != nil {
 			return err
 		}
-		// archive when below threshold
+		// 低于阈值时归档
 		threshold := 0.2
 		settings, sErr := s.repo.GetAgentRuntimeSettings(fb.AgentID)
 		if sErr == nil && settings.L3ArchiveThreshold > 0 {
@@ -643,10 +630,9 @@ func (s *MemoryL3Service) Feedback(ctx context.Context, fb domain.FactFeedback) 
 	return nil
 }
 
-// DetectConflicts compares the fact against high-similarity neighbours
-// in the same scope. Phase 1 implementation uses BM25 as the proxy: any
-// match scoring above the floor that has a different fingerprint is
-// flagged as a candidate conflict for human review.
+// DetectConflicts 将事实与同作用域高相似邻居比较。
+// 第一阶段用 BM25 代理：得分高于下限且指纹不同者
+// 标为待人工复核的冲突候选。
 func (s *MemoryL3Service) DetectConflicts(ctx context.Context, factID string) ([]domain.FactConflict, error) {
 	_ = ctx
 	if factID == "" {
@@ -689,8 +675,8 @@ func (s *MemoryL3Service) DetectConflicts(ctx context.Context, factID string) ([
 	return out, nil
 }
 
-// ResolveConflict marks a conflict as resolved with the chosen action.
-// When resolution = keep_a / keep_b the loser is archived automatically.
+// ResolveConflict 按选定操作标记冲突已解决。
+// 当 resolution 为 keep_a / keep_b 时自动归档败方事实。
 func (s *MemoryL3Service) ResolveConflict(ctx context.Context, conflictID, resolution, by string) error {
 	_ = ctx
 	if conflictID == "" {
@@ -719,16 +705,15 @@ func (s *MemoryL3Service) ResolveConflict(ctx context.Context, conflictID, resol
 	return nil
 }
 
-// ListOpenConflicts proxies the repo call.
+// ListOpenConflicts 代理仓库调用。
 func (s *MemoryL3Service) ListOpenConflicts(ctx context.Context, scope domain.ScopeType, scopeID string) ([]domain.FactConflict, error) {
 	_ = ctx
 	return s.repo.ListOpenFactConflicts(scope, scopeID, 100)
 }
 
-// --- Async / batch ----------------------------------------------------------
+// --- 异步/批处理 ----------------------------------------------------------
 
-// BuildEmbedding asks the configured embedder for the fact's vector and
-// stores it. Safe to call repeatedly; it overwrites the existing blob.
+// BuildEmbedding 向配置的嵌入器请求事实向量并存储。可重复调用；覆盖已有 blob。
 func (s *MemoryL3Service) BuildEmbedding(ctx context.Context, factID string) error {
 	if s.embedder == nil {
 		return errors.New("embedding source is not configured")
@@ -753,8 +738,8 @@ func (s *MemoryL3Service) BuildEmbedding(ctx context.Context, factID string) err
 	return s.repo.UpsertFactEmbedding(factID, "", len(vec), blob, norm)
 }
 
-// RunDecayBatch scans for facts whose decay window expired and applies
-// the §5.5 algorithm. Returns counts so the caller can emit metrics.
+// RunDecayBatch 扫描衰减窗口已到期的事实并应用
+// §5.5 算法。返回计数以供调用方上报指标。
 func (s *MemoryL3Service) RunDecayBatch(ctx context.Context) (DecayReport, error) {
 	_ = ctx
 	report := DecayReport{}
@@ -782,14 +767,14 @@ func (s *MemoryL3Service) RunDecayBatch(ctx context.Context) (DecayReport, error
 		_ = s.repo.ApplyFactDecay(f.ID, factor, nextAt)
 	}
 	if report.Archived == 0 && report.Processed > 0 {
-		// also catch facts that fell below threshold via direct edit / feedback
+		// 同时捕获经直接编辑/反馈而低于阈值的事实
 		extra, _ := s.repo.ArchiveFactsBelowConfidence(threshold, 500)
 		report.Archived += extra
 	}
 	return report, nil
 }
 
-// Stats returns the §6.6 admin/stats payload.
+// Stats 返回 §6.6 管理端统计载荷。
 func (s *MemoryL3Service) Stats(ctx context.Context, scope domain.ScopeType, scopeID string) (L3StatsReport, error) {
 	_ = ctx
 	counts, err := s.repo.CountFactsByStatus(scope, scopeID)
@@ -799,11 +784,10 @@ func (s *MemoryL3Service) Stats(ctx context.Context, scope domain.ScopeType, sco
 	return L3StatsReport{StatusCounts: counts}, nil
 }
 
-// --- L0 rendering -----------------------------------------------------------
+// --- L0 渲染 -----------------------------------------------------------
 
-// RenderForPrompt formats the recall hits as a system block ready to
-// inject into the L0 assembly. The output content is bounded by maxChars
-// so the L0 budget logic stays predictable.
+// RenderForPrompt 将召回命中格式化为可注入 L0 组装的系统块。
+// 输出内容由 maxChars 限制，使 L0 预算逻辑可预期。
 func (s *MemoryL3Service) RenderForPrompt(ctx context.Context, hits []domain.FactRecallHit, maxChars int) (domain.FactPromptBlock, error) {
 	_ = ctx
 	if maxChars <= 0 {
@@ -837,9 +821,8 @@ func (s *MemoryL3Service) RenderForPrompt(ctx context.Context, hits []domain.Fac
 	}, nil
 }
 
-// RecallSegmentForL0 is the seam consumed by MemoryL0Service. It honours
-// the agent runtime settings (top_k / min_score / scopes / max_chars) so
-// L0 doesn't need to know any L3 internals.
+// RecallSegmentForL0 供 MemoryL0Service 使用的接缝。遵守
+// 智能体运行时设置（top_k / min_score / scopes / max_chars），L0 无需了解 L3 内部。
 func (s *MemoryL3Service) RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
 	return s.RecallSegmentForL0WithContext(ctx, domain.L0MemoryScopeContext{
 		SessionID: sessionID,
@@ -848,9 +831,8 @@ func (s *MemoryL3Service) RecallSegmentForL0(ctx context.Context, sessionID, age
 	})
 }
 
-// RecallSegmentForL0WithContext is the context-rich L0 seam. It includes
-// user/team/workspace scope IDs so settings such as
-// `l3_recall_scopes_json=["agent","team","workspace"]` work in normal chat.
+// RecallSegmentForL0WithContext 为带完整上下文的 L0 接缝。包含
+// user/team/workspace 作用域 ID，使 `l3_recall_scopes_json=["agent","team","workspace"]` 等设置在普通对话中生效。
 func (s *MemoryL3Service) RecallSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
 	if strings.TrimSpace(scope.Query) == "" {
 		return domain.L0Segment{}, false
@@ -888,7 +870,7 @@ func (s *MemoryL3Service) RecallSegmentForL0WithContext(ctx context.Context, sco
 	}, true
 }
 
-// --- internals --------------------------------------------------------------
+// --- 内部实现 --------------------------------------------------------------
 
 func (s *MemoryL3Service) recordVersion(f domain.MemoryFact, reason, by string) error {
 	if reason == "" {
@@ -1003,8 +985,8 @@ func (s *MemoryL3Service) expandScopes(includes []domain.ScopeType, q domain.Fac
 	return scopes, ids
 }
 
-// mergeRecallHits unions two hit slices keyed on fact id, preserving the
-// largest BM25 / vector score for each id.
+// mergeRecallHits 按事实 id 合并两组命中，对每个 id 保留
+// 最大的 BM25 / 向量分数。
 func mergeRecallHits(bm, vec []domain.FactRecallHit) []domain.FactRecallHit {
 	idx := map[string]*domain.FactRecallHit{}
 	push := func(h domain.FactRecallHit) {
@@ -1037,8 +1019,7 @@ func mergeRecallHits(bm, vec []domain.FactRecallHit) []domain.FactRecallHit {
 	return out
 }
 
-// applyRecallFilters drops hits whose fact doesn't match the requested
-// tag / kind filters. The repository already filters scope + status.
+// applyRecallFilters 丢弃不符合请求标签/种类过滤的命中。仓库已过滤作用域与状态。
 func applyRecallFilters(hits []domain.FactRecallHit, q domain.FactRecallQuery) []domain.FactRecallHit {
 	if len(q.Tags) == 0 && len(q.Kinds) == 0 {
 		return hits
@@ -1073,9 +1054,8 @@ func applyRecallFilters(hits []domain.FactRecallHit, q domain.FactRecallQuery) [
 	return out
 }
 
-// scoreHits applies the §5.3 final-score formula in-place. BM25 scores
-// from FTS5 are unbounded so we squash with a soft cap to 0..1; vector
-// scores are already cosine-normalised.
+// scoreHits 原地应用 §5.3 最终分数公式。FTS5 的 BM25 分数无界，
+// 故用软上限压到 0..1；向量分数已按余弦归一化。
 func scoreHits(hits []domain.FactRecallHit, scopeWeights map[domain.ScopeType]float64, nowISOValue string) {
 	now, _ := time.Parse(time.RFC3339, nowISOValue)
 	if now.IsZero() {
@@ -1121,7 +1101,7 @@ func recencyBoost(lastUsed string, now time.Time) float64 {
 	if delta < 0 {
 		delta = 0
 	}
-	// Half-life of ~30 days.
+	// 约 30 天半衰期。
 	boost := math.Exp(-delta / 30)
 	if boost > 1 {
 		boost = 1
@@ -1129,7 +1109,7 @@ func recencyBoost(lastUsed string, now time.Time) float64 {
 	return boost
 }
 
-// --- pure helpers -----------------------------------------------------------
+// --- 纯函数辅助 -----------------------------------------------------------
 
 func normalizeStatement(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -1146,7 +1126,7 @@ func normalizeStatement(s string) string {
 			b.WriteRune(r)
 			prevSpace = false
 		default:
-			// drop punctuation
+			// 丢弃标点
 		}
 	}
 	return strings.TrimSpace(b.String())

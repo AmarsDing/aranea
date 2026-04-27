@@ -1,10 +1,8 @@
-// Package web implements the Aranea ADK SubLauncher that boots the
-// backend HTTP server in-process. It mirrors the structure of
-// google.golang.org/adk/cmd/launcher/web but delegates the actual
-// service wiring to arenea/backend/internal/server so the standalone
-// `aranea-server` binary and the embedded launcher always behave the
-// same. This is the implementation of 前端/25 cli.md §1.4 / §5 — the
-// `aranea web` keyword used to spin up a local playground.
+// Package web 实现 Aranea 的 ADK SubLauncher，在进程内启动后端 HTTP 服务。
+// 结构仿照 google.golang.org/adk/cmd/launcher/web，但实际服务装配委托给
+// arenea/backend/internal/server，使独立 `aranea-server` 二进制与内嵌
+// launcher 行为一致。对应 前端/25 cli.md §1.4 / §5 —— 通过 `aranea web`
+// 关键字启动本地演练环境。
 package web
 
 import (
@@ -22,9 +20,8 @@ import (
 	"arenea/backend/internal/server"
 )
 
-// NewLauncher constructs the web SubLauncher. cfg is captured to read
-// the resolved backend config (HTTP address override, custom DB path)
-// without mutating the ADK launcher.Config struct.
+// NewLauncher 构建 web SubLauncher。cfg 被捕获以读取解析后的后端配置
+//（HTTP 地址覆盖、自定义 DB 路径）而不去改动 ADK 的 launcher.Config 结构体。
 func NewLauncher(cfg *araneal.Config) adklauncher.SubLauncher {
 	flags := flag.NewFlagSet("web", flag.ContinueOnError)
 	c := &webConfig{}
@@ -34,31 +31,30 @@ func NewLauncher(cfg *araneal.Config) adklauncher.SubLauncher {
 	return &webLauncher{flags: flags, config: c, arn: cfg}
 }
 
-// webConfig holds the parsed CLI flags for the web launcher.
+// webConfig 保存 web launcher 解析后的 CLI 标志。
 type webConfig struct {
 	Addr   string
 	DBPath string
 	Quiet  bool
 }
 
-// webLauncher implements adklauncher.SubLauncher.
+// webLauncher 实现 adklauncher.SubLauncher。
 type webLauncher struct {
 	flags  *flag.FlagSet
 	config *webConfig
 	arn    *araneal.Config
 }
 
-// Keyword implements adklauncher.SubLauncher.
+// Keyword 实现 adklauncher.SubLauncher。
 func (l *webLauncher) Keyword() string { return "web" }
 
-// SimpleDescription implements adklauncher.SubLauncher.
+// SimpleDescription 实现 adklauncher.SubLauncher。
 func (l *webLauncher) SimpleDescription() string {
 	return "boot the Aranea backend HTTP server (admin REST + chat SSE) in-process"
 }
 
-// CommandLineSyntax implements adklauncher.SubLauncher. We render the
-// flag set ourselves to keep the launcher independent from adk's
-// internal cli/util package.
+// CommandLineSyntax 实现 adklauncher.SubLauncher。自行渲染 flag 集，避免
+// 依赖 adk 内部 cli/util 包。
 func (l *webLauncher) CommandLineSyntax() string {
 	var buf bytes.Buffer
 	buf.WriteString("Flags:\n")
@@ -67,7 +63,7 @@ func (l *webLauncher) CommandLineSyntax() string {
 	return buf.String()
 }
 
-// Parse implements adklauncher.SubLauncher.
+// Parse 实现 adklauncher.SubLauncher。
 func (l *webLauncher) Parse(args []string) ([]string, error) {
 	if err := l.flags.Parse(args); err != nil {
 		return nil, fmt.Errorf("web: %w", err)
@@ -75,14 +71,13 @@ func (l *webLauncher) Parse(args []string) ([]string, error) {
 	return l.flags.Args(), nil
 }
 
-// Run implements adklauncher.SubLauncher. It bridges the ADK launcher
-// lifecycle with arenea/backend/internal/server.Run, taking care of:
+// Run 实现 adklauncher.SubLauncher。在 ADK launcher 生命周期与
+// arenea/backend/internal/server.Run 之间桥接，负责：
 //
-//   - resolving the DB path (flag → CLI config → env → default)
-//   - silencing the server logger when --quiet is set
-//   - publishing the bound listen address through the Ready channel
-//     so we can print a single, accurate banner pointing at the actual
-//     port (important when --addr=:0 is used).
+//   - 解析 DB 路径（标志 → CLI 配置 → 环境变量 → 默认）
+//   - 在设置 --quiet 时静默服务日志
+//   - 通过 Ready 通道发布实际监听的地址，以便打印单条准确横幅（
+//     在 --addr=:0 时指向实际端口尤为重要）。
 func (l *webLauncher) Run(ctx context.Context, _ *adklauncher.Config) error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
@@ -110,8 +105,7 @@ func (l *webLauncher) Run(ctx context.Context, _ *adklauncher.Config) error {
 	})
 }
 
-// quietWriter swallows server log output when --quiet is set without
-// requiring callers to import io/ioutil.
+// quietWriter 在 --quiet 时吞掉服务日志输出，而无需 import io/ioutil。
 type quietWriter struct{}
 
 func (quietWriter) Write(p []byte) (int, error) { return len(p), nil }

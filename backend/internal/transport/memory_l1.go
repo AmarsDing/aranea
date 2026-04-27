@@ -1,8 +1,6 @@
-// transport/memory_l1.go exposes the L1 working-memory HTTP surface
-// described in `aranea/docs/13 memory-L1-working.md` §6.2 and §6.3. The
-// router lives in sessions.go (handleSessionByID) which forwards L1 paths
-// here. Schema-management routes (§6.2) live on /api/v1/memory/l1/schemas
-// and are wired separately by registerMemoryL1Routes.
+// transport/memory_l1.go 暴露 L1 工作记忆 HTTP 接口，见 `aranea/docs/13 memory-L1-working.md` §6.2、§6.3。
+// 路由在 sessions.go（handleSessionByID）中，将 L1 路径转发至此。
+// 模式管理路由（§6.2）位于 /api/v1/memory/l1/schemas，由 registerMemoryL1Routes 单独挂载。
 package transport
 
 import (
@@ -14,16 +12,15 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// registerMemoryL1Routes is called from registerRoutes to bind the
-// agent-scoped schema management endpoints. Session-scoped task / field
-// routes are dispatched from handleSessionByID via splitSessionPathSuffix.
+// registerMemoryL1Routes 由 registerRoutes 调用，绑定智能体作用域的模式管理端点。
+// 会话作用域的任务 / 字段路由由 handleSessionByID 经 splitSessionPathSuffix 分发。
 func (h *HTTPHandler) registerMemoryL1Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/memory/l1/schemas", h.handleL1Schemas)
 	mux.HandleFunc("/api/v1/memory/l1/schemas/", h.handleL1SchemaByID)
 }
 
-// handleL1Routes dispatches /api/v1/sessions/{sid}/l1/... requests. The
-// suffix has already been parsed into segments (e.g. "tasks/abc/fields/x").
+// handleL1Routes 分发 /api/v1/sessions/{sid}/l1/... 请求。
+// suffix 已解析为路径段（例如 "tasks/abc/fields/x"）。
 func (h *HTTPHandler) handleL1Routes(w http.ResponseWriter, r *http.Request, sessionID, suffix string) {
 	svc := h.l1Service()
 	if svc == nil {
@@ -164,8 +161,8 @@ func (h *HTTPHandler) handleL1TaskItem(w http.ResponseWriter, r *http.Request, s
 	}
 }
 
-// handleL1TaskSubresource dispatches `tasks/{id}/<sub>...` paths.
-// Supported sub-resources:
+// handleL1TaskSubresource 分发 `tasks/{id}/<sub>...` 路径。
+// 支持的子资源：
 //   - fields                 (GET batch / PATCH batch-patch)
 //   - fields/{path}          (GET / PUT / DELETE)
 //   - fields/{path}/history  (GET)
@@ -314,10 +311,8 @@ func (h *HTTPHandler) handleL1FieldItem(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
-// handleL1Schemas serves /api/v1/memory/l1/schemas. GET filters by scope_type
-// and scope_id query params; POST upserts a new schema row. The schema body
-// itself stays as a JSON string so future Phase 2 validators can plug in
-// without a transport-layer change.
+// handleL1Schemas 处理 /api/v1/memory/l1/schemas。GET 按 scope_type、scope_id 查询参数过滤；
+// POST 插入或更新模式行。模式正文保持 JSON 字符串，便于后续第二阶段校验器接入而无需改传输层。
 func (h *HTTPHandler) handleL1Schemas(w http.ResponseWriter, r *http.Request) {
 	svc := h.l1Service()
 	if svc == nil {
@@ -407,9 +402,8 @@ func (h *HTTPHandler) handleL1SchemaByID(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// l1Service is a small accessor that hides the chatSvc indirection from the
-// handlers above. Returning nil triggers a 503 in callers so misconfigured
-// builds (no MemoryL1Service injected) don't panic.
+// l1Service 为小型访问器，对上层处理器隐藏 chatSvc 间接层。返回 nil 时调用方返回 503，
+// 避免错误构建（未注入 MemoryL1Service）导致 panic。
 func (h *HTTPHandler) l1Service() *service.MemoryL1Service {
 	if h.chatSvc == nil {
 		return nil

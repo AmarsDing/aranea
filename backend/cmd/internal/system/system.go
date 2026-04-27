@@ -1,4 +1,4 @@
-// Package system implements `aranea system health`.
+// Package system 实现 `aranea system health`。
 package system
 
 import (
@@ -8,7 +8,7 @@ import (
 	"arenea/backend/cmd/internal/output"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "system",

@@ -18,16 +18,11 @@ import (
 
 const fileToolMaxReadBytes = 1024 * 1024
 
-// Tool descriptions are written to be both informative and protective.
-// Each one explicitly states (1) what the tool does, (2) what data class
-// it operates on (filesystem bytes, datetime, or HTTP), and (3) the kinds
-// of questions that MUST NOT trigger the tool. Without this hardening the
-// model has historically called read_file / list_files to answer questions
-// about teams, members, sessions, providers — none of which live on disk.
-// Tool descriptions deliberately avoid curly-brace argument examples
-// (e.g. "{ path }") because ADK's instruction processor treats `{name}`
-// patterns as session-state placeholders and will fail injection if
-// the descriptions reach a system prompt template.
+// 工具描述兼顾信息量与防护性：逐项说明 (1) 工具做什么、(2) 操作的数据类别
+//（文件系统字节、时间或 HTTP）、(3) 哪些问题禁止触发该工具。若不加固，模型曾滥用
+// read_file / list_files 回答团队、成员、会话、提供商等问题——这些并不在磁盘上。
+// 描述刻意避免花括号参数示例（如 "{ path }"），因 ADK 将 `{name}` 视为会话状态占位符，
+// 若描述进入系统提示模板会导致注入失败。
 const (
 	readFileToolDescription = "Read raw bytes of a UTF-8 text file located inside the workspace source tree. " +
 		"Argument: path (string) relative to the project root, e.g. \"backend/internal/domain/models.go\". " +
@@ -242,15 +237,12 @@ func runtimeToolSet(items []string) map[string]bool {
 	return out
 }
 
-// runtimeProfileAllows decides whether a tool name is allowed under a
-// given profile. The profile vocabulary mirrors service.toolProfiles
-// and accepts both canonical and legacy names so settings stored
-// before the rename keep working without a database migration.
+// runtimeProfileAllows 判断在给定 profile 下是否允许某工具名。
+// 词汇与 service.toolProfiles 对齐，同时接受规范名与旧名，重命名前存储的设置无需迁移数据库即可工作。
 func runtimeProfileAllows(profile string, name string) bool {
 	switch strings.ToLower(strings.TrimSpace(profile)) {
 	case "chat_only", "minimal":
-		// chat_only intentionally exposes no tools — the agent must
-		// answer purely from the prompt and the runtime context.
+		// chat_only 刻意不暴露任何工具——Agent 须仅依据提示词与运行时上下文作答。
 		return false
 	case "read_only", "safe":
 		return name == "datetime" || name == "read_file" || name == "list_files"

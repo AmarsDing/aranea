@@ -11,20 +11,17 @@ import (
 	"time"
 )
 
-// idCounter monotonically increments to disambiguate IDs minted in the
-// same nanosecond — crucial for tight insertion loops (tests, batched
-// telemetry) where UnixNano() alone collides.
+// idCounter 单调递增，用于区分同一纳秒内生成的 ID；在紧循环插入
+//（测试、批量遥测等）中仅靠 UnixNano() 会碰撞，故此计数器很关键。
 var idCounter atomic.Uint64
 
-// uniqueID composes a sortable, collision-resistant ID. The ns prefix
-// keeps natural chronological ordering while the counter suffix
-// guarantees uniqueness when called repeatedly within the same ns.
+// uniqueID 组合出可排序、抗碰撞的 ID。ns 前缀保持自然时间顺序，
+// 计数器后缀保证同一纳秒内被重复调用时仍唯一。
 func uniqueID(prefix string) string {
 	return fmt.Sprintf("%s_%d_%d", prefix, time.Now().UTC().UnixNano(), idCounter.Add(1))
 }
 
-// scanner abstracts *sql.Row and *sql.Rows so helper scan functions can read
-// from either single-row or multi-row queries.
+// scanner 抽象 *sql.Row 与 *sql.Rows，便于扫描辅助函数在单行与多行查询中复用。
 type scanner interface {
 	Scan(dest ...any) error
 }
@@ -33,15 +30,14 @@ func nowISO() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// optionalColumn currently passes the column name through unchanged. It is kept
-// as a single point of indirection in case migrations introduce columns lazily
-// and we need to swap in NULL placeholders.
+// optionalColumn 目前原样传回列名；保留为单一间接层，以便迁移惰性增加列
+// 时需要替换为 NULL 占位符。
 func optionalColumn(_ string, column string) string {
 	return column
 }
 
-// previewText returns the first `limit` runes of value with an ellipsis suffix.
-// When limit is non-positive or value already fits, value is returned trimmed.
+// previewText 返回 value 的前 limit 个字符并加省略号。
+// limit 非正或内容已更短时，在 TrimSpace 后原样返回。
 func previewText(value string, limit int) string {
 	value = strings.TrimSpace(value)
 	if limit <= 0 || len([]rune(value)) <= limit {
@@ -51,8 +47,7 @@ func previewText(value string, limit int) string {
 	return string(runes[:limit]) + "..."
 }
 
-// normalizeJSONList ensures the persisted value is a valid JSON array. A bare
-// string is wrapped into a single-element array; empty input becomes "[]".
+// normalizeJSONList 确保持久化值为合法 JSON 数组。裸字符串会包成单元素数组；空输入为 "[]"。
 func normalizeJSONList(value string) string {
 	if strings.TrimSpace(value) == "" {
 		return "[]"
@@ -67,9 +62,8 @@ func normalizeJSONList(value string) string {
 	return string(encoded)
 }
 
-// decodeJSONFloatMap parses a `{"key":number}` JSON object into a Go map.
-// Empty / invalid input yields nil. Used by the L4 agent evolution
-// repository for tool / provider / model preference columns.
+// decodeJSONFloatMap 将 `{"key":number}` 形式的 JSON 解析为 Go map。
+// 空或非法输入返回 nil。供 L4 智能体演进仓库的 tool/provider/model 偏好列使用。
 func decodeJSONFloatMap(raw string) map[string]float64 {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "null" {
@@ -82,8 +76,7 @@ func decodeJSONFloatMap(raw string) map[string]float64 {
 	return out
 }
 
-// encodeJSONFloatMap is the inverse of decodeJSONFloatMap. Empty maps
-// serialise to "{}" so the column never holds an SQL-illegal empty string.
+// encodeJSONFloatMap 是 decodeJSONFloatMap 的逆操作。空 map 序列化为 "{}"，避免列出现非法空字符串。
 func encodeJSONFloatMap(in map[string]float64) string {
 	if len(in) == 0 {
 		return "{}"
@@ -95,8 +88,7 @@ func encodeJSONFloatMap(in map[string]float64) string {
 	return string(b)
 }
 
-// EncodeFloat32Blob serialises a float32 vector as little-endian bytes so
-// it round-trips through SQLite BLOB columns.
+// EncodeFloat32Blob 将 float32 向量序列化为小端字节，以便在 SQLite BLOB 列中往返。
 func EncodeFloat32Blob(vec []float32) []byte {
 	if len(vec) == 0 {
 		return nil
@@ -108,8 +100,7 @@ func EncodeFloat32Blob(vec []float32) []byte {
 	return out
 }
 
-// decodeFloat32Blob is the inverse of EncodeFloat32Blob. Returns an error
-// when the byte length isn't a multiple of 4.
+// decodeFloat32Blob 是 EncodeFloat32Blob 的逆操作。字节长度不是 4 的倍数时返回错误。
 func decodeFloat32Blob(blob []byte) ([]float32, error) {
 	if len(blob)%4 != 0 {
 		return nil, errors.New("invalid float32 blob length")
@@ -121,9 +112,7 @@ func decodeFloat32Blob(blob []byte) ([]float32, error) {
 	return out, nil
 }
 
-// vectorNorm returns the L2 norm of a float32 vector. Used both for the
-// query side of cosine similarity and to populate the embedding_norm
-// column.
+// vectorNorm 返回 float32 向量的 L2 范数。用于余弦相似度查询侧及填充 embedding_norm 列。
 func vectorNorm(vec []float32) float64 {
 	if len(vec) == 0 {
 		return 0
@@ -135,8 +124,7 @@ func vectorNorm(vec []float32) float64 {
 	return math.Sqrt(sum)
 }
 
-// dotProduct is the unrolled-friendly inner product used inside the
-// vector recall path.
+// dotProduct 为向量召回路径中使用的内积（利于展开循环）。
 func dotProduct(a []float32, b []float32) float64 {
 	if len(a) != len(b) {
 		return 0
@@ -148,8 +136,7 @@ func dotProduct(a []float32, b []float32) float64 {
 	return sum
 }
 
-// sanitizePromptFileID converts a free-form prompt file name into a stable id
-// suitable for use in primary keys.
+// sanitizePromptFileID 将任意提示文件名规范为适合作主键的稳定 id。
 func sanitizePromptFileID(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	value = strings.Map(func(r rune) rune {

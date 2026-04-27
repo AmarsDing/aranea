@@ -13,12 +13,9 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// MemoryL0Service is the assembly layer described in `12 memory-L0-sensory.md`.
-// It does NOT own any data of its own: history is in `messages`, summaries are
-// in `session_summaries`, agent prompts come from `agent_prompt_files`. The
-// service only orchestrates ordering, token budgeting, truncation, and
-// snapshot writing so ChatService / TeamRuntime can hand the LLM a clean
-// `messages` slice on every call.
+// MemoryL0Service 为 `12 memory-L0-sensory.md` 中的组装层。
+// 不自有数据：历史在 `messages`，摘要在 `session_summaries`，智能体提示来自 `agent_prompt_files`。
+// 本服务只负责排序、token 预算、截断与快照写入，使 ChatService/TeamRuntime 每次调用向 LLM 提供干净的 `messages` 切片。
 type MemoryL0Service struct {
 	repo      repository.Store
 	memoryL1  L1PromptSource
@@ -28,45 +25,30 @@ type MemoryL0Service struct {
 	evolution EvolutionPromptSource
 }
 
-// L1PromptSource is the narrow contract MemoryL0Service uses to render the
-// optional L1 working-memory segment. The full MemoryL1Service (in
-// memory_l1_service.go) implements it; the indirection avoids a circular
-// import while still allowing dependency injection from ChatService.
+// L1PromptSource 为 MemoryL0Service 渲染可选 L1 工作记忆片段的窄接口。完整 MemoryL1Service（memory_l1_service.go）实现之；间接层避免循环导入，并允许从 ChatService 注入。
 type L1PromptSource interface {
 	RenderActiveTaskForPrompt(ctx context.Context, sessionID, agentID string) (domain.L1PromptBlock, bool, error)
 }
 
-// L2RecallSource is the narrow contract MemoryL0Service uses to render the
-// optional L2 episodic recall segment described in
-// `aranea/docs/14 memory-L2-episodic.md` §5.3 / §5.4. Implemented by
-// *MemoryL2Service. The seam keeps the L0 happy path branch-free when the
-// recall feature is disabled (default in agent_runtime_settings).
+// L2RecallSource 为 MemoryL0Service 渲染可选 L2 情节回忆片段的窄接口，见
+// `aranea/docs/14 memory-L2-episodic.md` §5.3/§5.4。由 *MemoryL2Service 实现。当召回关闭（agent_runtime_settings 默认）时，该接缝使 L0 主路径无分支。
 type L2RecallSource interface {
 	RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool)
 }
 
-// L3RecallSource is the narrow contract MemoryL0Service uses to render the
-// optional L3 semantic-memory segment described in
-// `aranea/docs/15 memory-L3-semantic.md` §5.3 / §7. Implemented by
-// *MemoryL3Service. The seam keeps the L0 happy path branch-free when the
-// recall feature is disabled (default in agent_runtime_settings).
+// L3RecallSource 为 MemoryL0Service 渲染可选 L3 语义记忆片段的窄接口，见
+// `aranea/docs/15 memory-L3-semantic.md` §5.3/§7。由 *MemoryL3Service 实现。召回关闭时 L0 主路径无分支。
 type L3RecallSource interface {
 	RecallSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool)
 }
 
-// L4RecallSource is the narrow contract MemoryL0Service uses to render
-// the optional L4 knowledge-graph neighborhood segment described in
-// `aranea/docs/16 memory-L4-persistent.md` §5.7 / §10. Implemented by
-// *MemoryL4Service. The seam keeps the L0 happy path branch-free when
-// the recall feature is disabled (default in agent_runtime_settings).
+// L4RecallSource 为 MemoryL0Service 渲染可选 L4 知识图邻域片段的窄接口，见
+// `aranea/docs/16 memory-L4-persistent.md` §5.7/§10。由 *MemoryL4Service 实现。功能关闭时 L0 主路径无分支。
 type L4RecallSource interface {
 	NeighborhoodSegmentForL0WithContext(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool)
 }
 
-// EvolutionPromptSource is the narrow contract MemoryL0Service uses to
-// inject the agent's self-evolution segment (persona / values / tone /
-// strategy hints) into the system prompt. Implemented by
-// *AgentEvolutionService.
+// EvolutionPromptSource 为 MemoryL0Service 将自进化片段（persona/价值观/语气/策略提示）注入系统提示的窄接口。由 *AgentEvolutionService 实现。
 type EvolutionPromptSource interface {
 	BuildSelfPromptAppend(ctx context.Context, agentID string) (string, error)
 }
@@ -75,73 +57,51 @@ func NewMemoryL0Service(repo repository.Store) *MemoryL0Service {
 	return &MemoryL0Service{repo: repo}
 }
 
-// SetL1Source wires the MemoryL1Service into the L0 assembly pipeline. It is
-// optional: when nil the L0 layer simply omits the L1 segment.
+// SetL1Source 将 MemoryL1Service 接入 L0 组装流水线。可选：nil 则省略 L1 片段。
 func (s *MemoryL0Service) SetL1Source(src L1PromptSource) {
 	s.memoryL1 = src
 }
 
-// SetL2Source wires the MemoryL2Service into the L0 assembly pipeline. It is
-// optional: when nil the L0 layer simply omits the L2 recall segment. The
-// segment is also gated by `l2_recall_enabled` on agent_runtime_settings.
+// SetL2Source 将 MemoryL2Service 接入 L0 组装流水线。可选：nil 则省略 L2 召回片段。另受 agent_runtime_settings 的 `l2_recall_enabled` 门控。
 func (s *MemoryL0Service) SetL2Source(src L2RecallSource) {
 	s.memoryL2 = src
 }
 
-// SetL3Source wires the MemoryL3Service into the L0 assembly pipeline. It is
-// optional: when nil the L0 layer simply omits the L3 recall segment. The
-// segment is also gated by `l3_enabled` and `l0_inject_l3` on
-// agent_runtime_settings.
+// SetL3Source 将 MemoryL3Service 接入 L0 组装流水线。可选：nil 则省略 L3 召回片段。另受 `l3_enabled` 与 `l0_inject_l3` 门控。
 func (s *MemoryL0Service) SetL3Source(src L3RecallSource) {
 	s.memoryL3 = src
 }
 
-// SetL4Source wires the MemoryL4Service into the L0 assembly pipeline.
-// It is optional: when nil the L0 layer simply omits the L4 graph
-// segment. The segment is also gated by `l4_enabled` /
-// `l4_graph_inject_neighbors` on agent_runtime_settings.
+// SetL4Source 将 MemoryL4Service 接入 L0 组装流水线。可选：nil 则省略 L4 图谱片段。另受 `l4_enabled` / `l4_graph_inject_neighbors` 门控。
 func (s *MemoryL0Service) SetL4Source(src L4RecallSource) {
 	s.memoryL4 = src
 }
 
-// SetEvolutionSource wires the AgentEvolutionService into the L0
-// assembly pipeline. It is optional: when nil the L0 layer simply omits
-// the self-evolution system segment. The segment is also gated by
-// `l4_enabled` / `l4_identity_inject` / `l4_strategy_inject`.
+// SetEvolutionSource 将 AgentEvolutionService 接入 L0 组装流水线。可选：nil 则省略自进化系统片段。另受 `l4_enabled` / `l4_identity_inject` / `l4_strategy_inject` 门控。
 func (s *MemoryL0Service) SetEvolutionSource(src EvolutionPromptSource) {
 	s.evolution = src
 }
 
-// l0DefaultSafetyMargin reserves a few hundred tokens out of the model context
-// window for output framing, function-call schemas, and SSE overhead. The
-// budget formula is: max(0, context_window - reserved_for_output - safety).
+// l0DefaultSafetyMargin 从模型上下文窗口中预留数百 token，用于输出包装、函数调用模式与 SSE 开销。预算公式：max(0, context_window - reserved_for_output - safety)。
 const l0DefaultSafetyMargin = 256
 
-// l0PreviewLimit caps the rune count of `Preview` written into snapshots and
-// returned by /l0/preview. It is intentionally short — the full content lives
-// in `messages` / `session_summaries` already.
+// l0PreviewLimit 限制写入快照及 /l0/preview 返回的 `Preview` 字符数。刻意较短——完整内容已在 `messages` / `session_summaries`。
 const l0PreviewLimit = 200
 
-// l0HardMessageCap bounds the messages-per-window scan even when token sums
-// don't reach the budget (paranoia against runaway sessions).
+// l0HardMessageCap 限制每窗口扫描消息数上限，即使 token 未达预算（防止会话失控）。
 const l0HardMessageCap = 200
 
-// Assemble builds a model-ready prompt according to the request. The returned
-// SnapshotID is empty when snapshot_mode = off and no warning was raised.
+// Assemble 按请求构建可送模型的提示。snapshot_mode=off 且无告警时返回的 SnapshotID 为空。
 func (s *MemoryL0Service) Assemble(ctx context.Context, req domain.L0AssemblyRequest) (domain.L0AssemblyResult, error) {
 	return s.assemble(ctx, req, false)
 }
 
-// Preview is identical to Assemble but never persists a snapshot, never marks
-// session.context_status, and redacts every segment to its preview slice. It
-// powers the `/l0/preview` debug API and the in-app prompt debugger.
+// Preview 与 Assemble 相同但不持久化快照、不标记 session.context_status，并将各片段脱敏为预览长度。供 `/l0/preview` 调试 API 与应用内提示调试器。
 func (s *MemoryL0Service) Preview(ctx context.Context, req domain.L0AssemblyRequest) (domain.L0AssemblyResult, error) {
 	return s.assemble(ctx, req, true)
 }
 
-// RecordActual is called once the model usage is known so the snapshot can
-// store the real prompt token count and the session can update its ratio /
-// status. It is safe to pass an empty snapshotID when no snapshot was written.
+// RecordActual 在已知模型用量后调用，使快照记录真实提示 token 数，会话可更新比例/状态。未写快照时传空 snapshotID 安全。
 func (s *MemoryL0Service) RecordActual(ctx context.Context, sessionID string, snapshotID string, actualPromptTokens int, contextWindow int) error {
 	if sessionID == "" {
 		return errors.New("session id is required")
@@ -173,8 +133,7 @@ func (s *MemoryL0Service) GetSnapshot(ctx context.Context, id string) (domain.L0
 	return s.repo.GetL0AssemblySnapshotByID(id)
 }
 
-// assemble is the shared core for Assemble / Preview. The `previewMode` flag
-// strips the full `Content` from the returned segments and skips persistence.
+// assemble 为 Assemble/Preview 的共享核心。`previewMode` 为真时从返回片段去掉完整 `Content` 并跳过持久化。
 func (s *MemoryL0Service) assemble(ctx context.Context, req domain.L0AssemblyRequest, previewMode bool) (domain.L0AssemblyResult, error) {
 	if req.SessionID == "" {
 		return domain.L0AssemblyResult{}, errors.New("session_id is required")
@@ -311,9 +270,7 @@ func (s *MemoryL0Service) assemble(ctx context.Context, req domain.L0AssemblyReq
 	return result, nil
 }
 
-// resolveL0Settings reads the agent-level settings and falls back to the
-// service defaults when the agent has not been configured yet (or has no
-// row).
+// resolveL0Settings 读取智能体级设置；未配置或无行时回退服务默认。
 func (s *MemoryL0Service) resolveL0Settings(agentID string) domain.L0Settings {
 	defaults := domain.L0Settings{
 		RecentWindowTurns:  12,
@@ -432,9 +389,7 @@ func (s *MemoryL0Service) buildSystemSegments(ctx context.Context, agentID strin
 	return out, nil
 }
 
-// buildL1Segment delegates to the configured L1PromptSource. When the agent
-// has no active L1 task or the source is missing the function returns false so
-// the segment list stays clean.
+// buildL1Segment 委托给已配置的 L1PromptSource。无活动 L1 任务或缺少源时返回 false，保持片段列表干净。
 func (s *MemoryL0Service) buildL1Segment(ctx context.Context, sessionID, agentID string) (domain.L0Segment, bool) {
 	if s.memoryL1 == nil || sessionID == "" {
 		return domain.L0Segment{}, false
@@ -465,10 +420,7 @@ func (s *MemoryL0Service) buildL1Segment(ctx context.Context, sessionID, agentID
 	}, true
 }
 
-// buildL2Segment delegates to the configured L2RecallSource. The MemoryL2
-// service itself enforces the `l2_recall_enabled` flag and the per-agent
-// recall_max so this method only has to translate "no source" / "no hits"
-// into ok=false.
+// buildL2Segment 委托给已配置的 L2RecallSource。MemoryL2 自身强制 `l2_recall_enabled` 与 recall_max，此处仅将「无源/无命中」转为 ok=false。
 func (s *MemoryL0Service) buildL2Segment(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
 	if s.memoryL2 == nil || sessionID == "" {
 		return domain.L0Segment{}, false
@@ -476,10 +428,7 @@ func (s *MemoryL0Service) buildL2Segment(ctx context.Context, sessionID, agentID
 	return s.memoryL2.RecallSegmentForL0(ctx, sessionID, agentID, query)
 }
 
-// buildL3Segment delegates to the configured L3RecallSource. The MemoryL3
-// service itself enforces the `l3_enabled` flag, scope filters, top-k and
-// per-recall char budget so this method only has to translate "no source"
-// / "no hits" into ok=false.
+// buildL3Segment 委托给已配置的 L3RecallSource。MemoryL3 自身强制 `l3_enabled`、作用域、top-k 与每次召回字符预算，此处仅将「无源/无命中」转为 ok=false。
 func (s *MemoryL0Service) buildL3Segment(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
 	if s.memoryL3 == nil {
 		return domain.L0Segment{}, false
@@ -487,11 +436,7 @@ func (s *MemoryL0Service) buildL3Segment(ctx context.Context, scope domain.L0Mem
 	return s.memoryL3.RecallSegmentForL0WithContext(ctx, scope)
 }
 
-// buildL4Segment delegates to the configured L4RecallSource. The
-// MemoryL4Service itself enforces `l4_enabled` /
-// `l4_graph_inject_neighbors` and the per-agent neighborhood budget so
-// this method only has to translate "no source" / "no center" into
-// ok=false.
+// buildL4Segment 委托给已配置的 L4RecallSource。MemoryL4Service 自身强制 `l4_enabled` / `l4_graph_inject_neighbors` 与每智能体邻域预算，此处仅将「无源/无中心」转为 ok=false。
 func (s *MemoryL0Service) buildL4Segment(ctx context.Context, scope domain.L0MemoryScopeContext) (domain.L0Segment, bool) {
 	if s.memoryL4 == nil {
 		return domain.L0Segment{}, false
@@ -610,13 +555,10 @@ func (s *MemoryL0Service) resolveTurnCap(turns int) int {
 	if turns <= 0 {
 		return l0HardMessageCap
 	}
-	return turns * 2 // user + assistant per turn
+	return turns * 2 // 每轮 user + assistant
 }
 
-// applyTruncation trims segments until the prompt fits inside `budget`. It
-// always preserves system segments, the summary block, and the user.input
-// segment so the model still has the latest task. The strategy controls which
-// of `drop_tool_results` / `drop_oldest` / `summary` runs in what order.
+// applyTruncation 裁剪片段直至提示落在 `budget` 内。始终保留系统片段、摘要块与 user.input，使模型仍有最新任务。策略控制 `drop_tool_results` / `drop_oldest` / `summary` 的执行顺序。
 func applyTruncation(segments []domain.L0Segment, budget int, strategy string) ([]domain.L0Segment, int, []string, string) {
 	warnings := []string{"truncated"}
 	switch strings.ToLower(strings.TrimSpace(strategy)) {
@@ -637,7 +579,7 @@ func applyTruncation(segments []domain.L0Segment, budget int, strategy string) (
 		}
 		segs, dropped2 := dropOldestHistory(segs, budget)
 		return segs, dropped1 + dropped2, warnings, "hybrid"
-	default: // summary fallback (without an active SummaryService) → drop_oldest
+	default: // 无活跃 SummaryService 时 summary 回退 → drop_oldest
 		segs, dropped := dropOldestHistory(segments, budget)
 		return segs, dropped, append(warnings, "summary_unavailable"), "drop_oldest"
 	}
@@ -659,8 +601,7 @@ func dropMatching(segments []domain.L0Segment, match func(domain.L0Segment) bool
 	return out, dropped
 }
 
-// remainingTokens is a small helper used by dropMatching to ensure we don't
-// trim more than necessary.
+// remainingTokens 供 dropMatching 使用，避免过度裁剪。
 func remainingTokens(out []domain.L0Segment, all []domain.L0Segment) int {
 	if len(out) >= len(all) {
 		return 0
@@ -725,10 +666,7 @@ func appendUnique(values []string, value string) []string {
 	return append(values, value)
 }
 
-// assembleChatMessages flattens segments into a model-ready []L0ChatMessage.
-// All system / summary / l1 / l3 / l4 segments collapse into a single system
-// message at the top so providers that limit system role count keep working.
-// History and user.input segments preserve their roles 1:1.
+// assembleChatMessages 将片段展平为可送模型的 []L0ChatMessage。所有 system/summary/l1/l3/l4 片段合并为顶部单条 system，以兼容限制 system 条数的提供方。history 与 user.input 保持角色 1:1。
 func assembleChatMessages(segments []domain.L0Segment) []domain.L0ChatMessage {
 	var systemBlocks []string
 	var rest []domain.L0ChatMessage
@@ -845,9 +783,7 @@ func countSegments(segments []domain.L0Segment, section string) int {
 	return count
 }
 
-// mustMarshalSegments stores ONLY preview + meta so we never leak full prompt
-// bodies into the snapshot table. Full content remains addressable via the
-// source `messages.id` references.
+// mustMarshalSegments 仅存储 preview + 元数据，避免完整提示泄漏到快照表。完整内容仍可通过源 `messages.id` 引用访问。
 func mustMarshalSegments(segments []domain.L0Segment) string {
 	out := make([]map[string]any, len(segments))
 	for i, seg := range segments {

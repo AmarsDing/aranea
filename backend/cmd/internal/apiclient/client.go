@@ -1,7 +1,6 @@
-// Package apiclient is a thin HTTP wrapper around the Aranea REST API
-// (/api/v1/*). Every Cobra sub-command and the console launcher route
-// their requests through this client so that authentication, output
-// format defaults, and error reporting stay consistent.
+// Package apiclient 是围绕 Aranea REST API（/api/v1/*）的轻量 HTTP 封装。
+// 各 Cobra 子命令与 console launcher 均经此客户端发请求，以保持鉴权、
+// 输出格式默认与错误报告一致。
 package apiclient
 
 import (
@@ -21,9 +20,8 @@ import (
 	cliconfig "arenea/backend/cmd/internal/config"
 )
 
-// GlobalContext carries flags and resolved configuration that are shared
-// between every sub-command. A pointer to a single instance is wired into
-// the Cobra tree by root.New() and consulted lazily by each command.
+// GlobalContext 保存各子命令共享的标志与已解析配置。root.New() 在 Cobra
+// 树中挂入单例指针，各命令惰性读取。
 type GlobalContext struct {
 	BaseURL string
 	Token   string
@@ -34,26 +32,23 @@ type GlobalContext struct {
 	NoColor bool
 	Timeout time.Duration
 
-	// Resolved configuration loaded from ~/.aranea/config.toml plus
-	// environment variables. Filled in by Resolve().
+	// 自 ~/.aranea/config.toml 与环境变量合并后的已解析配置，由 Resolve() 填充。
 	Config *cliconfig.Config
 
 	resolved bool
 	client   *Client
 }
 
-// NewGlobalContext returns a zero-valued context. The caller is expected
-// to populate the public fields from Cobra flags and call Resolve()
-// inside PersistentPreRunE.
+// NewGlobalContext 返回零值上下文。调用方应自 Cobra 标志填充公开字段，
+// 并在 PersistentPreRunE 中调用 Resolve()。
 func NewGlobalContext() *GlobalContext {
 	return &GlobalContext{}
 }
 
-// Resolve loads configuration from disk (if present) and merges
-// environment variables and CLI flags following the precedence defined
-// in 前端/25 cli.md §10:
+// Resolve 从磁盘加载配置（若存在），并按 前端/25 cli.md §10 规定的优先级
+// 合并环境变量与 CLI 标志：
 //
-//	flag > environment variable > active profile > defaults.
+//	flag > 环境变量 > 活动 profile > 默认值。
 func (g *GlobalContext) Resolve() error {
 	if g.resolved {
 		return nil
@@ -109,22 +104,18 @@ func (g *GlobalContext) Resolve() error {
 	return nil
 }
 
-// Client returns the lazily constructed HTTP client. Resolve() must have
-// been called first; in practice that happens automatically through the
-// PersistentPreRunE hook on the root command.
+// Client 返回惰性构造的 HTTP 客户端。须先调用 Resolve()；实际中通过
+// 根命令的 PersistentPreRunE 自动完成。
 func (g *GlobalContext) Client() *Client {
 	if g.client == nil {
-		// Defensive: build a default client so commands invoked without
-		// the Cobra framework (tests, console launcher) still work.
+		// 防御性：若未经 Cobra 框架调用（测试、console launcher）仍构默认客户端。
 		_ = g.Resolve()
 	}
 	return g.client
 }
 
-// Client is a small wrapper around *http.Client that injects the base
-// URL, the bearer token and a couple of convenience helpers. It
-// intentionally does NOT generate typed bindings: each sub-command marks
-// the response shape it expects.
+// Client 是对 *http.Client 的薄封装，注入基址、bearer token 与若干辅助方法。
+// 故意不生成强类型绑定：各子命令自行标注期望的响应形态。
 type Client struct {
 	baseURL string
 	token   string
@@ -139,43 +130,39 @@ func newClient(baseURL, token string, timeout time.Duration) *Client {
 	}
 }
 
-// BaseURL exposes the resolved backend root, mostly for the console
-// launcher which needs to construct streaming URLs by hand.
+// BaseURL 返回解析后的后端根址，供 console 等需手写流式 URL 的场景使用。
 func (c *Client) BaseURL() string { return c.baseURL }
 
-// Token exposes the resolved bearer token, used by the streaming helpers
-// in the console launcher to attach Authorization headers.
+// Token 返回解析后的 bearer token，供 console 流式辅助函数附加 Authorization 头。
 func (c *Client) Token() string { return c.token }
 
-// Get performs a GET request against the API and decodes the JSON
-// response into out. Pass nil for out to ignore the body.
+// Get 对 API 执行 GET 并将 JSON 响应解码到 out。out 为 nil 时忽略 body。
 func (c *Client) Get(ctx context.Context, path string, query url.Values, out any) error {
 	return c.do(ctx, http.MethodGet, path, query, nil, "", out)
 }
 
-// Post performs a POST request with a JSON body.
+// Post 执行带 JSON body 的 POST 请求。
 func (c *Client) Post(ctx context.Context, path string, body any, out any) error {
 	return c.do(ctx, http.MethodPost, path, nil, body, "application/json", out)
 }
 
-// Put performs a PUT request with a JSON body.
+// Put 执行带 JSON body 的 PUT 请求。
 func (c *Client) Put(ctx context.Context, path string, body any, out any) error {
 	return c.do(ctx, http.MethodPut, path, nil, body, "application/json", out)
 }
 
-// Patch performs a PATCH request with a JSON body.
+// Patch 执行带 JSON body 的 PATCH 请求。
 func (c *Client) Patch(ctx context.Context, path string, body any, out any) error {
 	return c.do(ctx, http.MethodPatch, path, nil, body, "application/json", out)
 }
 
-// Delete performs a DELETE request, optionally with a JSON body.
+// Delete 执行 DELETE 请求，可选带 JSON body。
 func (c *Client) Delete(ctx context.Context, path string, body any, out any) error {
 	return c.do(ctx, http.MethodDelete, path, nil, body, "application/json", out)
 }
 
-// PostMultipart posts a multipart/form-data body. The first argument is
-// the form field name for the file part; the second is the file name
-// reported to the server.
+// PostMultipart 提交 multipart/form-data。第一个参数为文件字段名，第二个为
+// 向服务端报告的文件名。
 func (c *Client) PostMultipart(ctx context.Context, path, fieldName, fileName string, body io.Reader, extraFields map[string]string, out any) error {
 	pipeR, pipeW := io.Pipe()
 	mw := multipart.NewWriter(pipeW)
@@ -267,9 +254,8 @@ func (c *Client) url(path string, query url.Values) string {
 	return full
 }
 
-// APIError is the structured error type returned by the backend for any
-// 4xx/5xx response. It implements `error` so it can be compared with
-// errors.As / errors.Is upstream.
+// APIError 是后端为任意 4xx/5xx 返回的结构化错误类型。实现 `error` 接口，
+// 以便上游用 errors.As / errors.Is 比较。
 type APIError struct {
 	Status  int
 	Code    string `json:"code"`

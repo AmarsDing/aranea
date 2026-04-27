@@ -1,8 +1,7 @@
-// memory_l4_service_test.go covers the §13 acceptance criteria for the
-// L4 knowledge-graph service: entity upsert + dedup + version snapshots,
-// rename, merge (relations rewired), neighborhood traversal + render,
-// and the L0 NeighborhoodSegmentForL0 gating switches (l4_enabled,
-// l4_graph_inject_neighbors, l4_graph_max_neighbors / l4_graph_max_hops).
+// memory_l4_service_test.go 覆盖 §13 对 L4 知识图谱的验收：实体 upsert、去重、版本快照、
+// 重命名、合并（关系重连）、邻域遍历与渲染，
+// 以及 L0 NeighborhoodSegmentForL0 门控（l4_enabled、
+// l4_graph_inject_neighbors、l4_graph_max_neighbors / l4_graph_max_hops）。
 package service
 
 import (
@@ -15,9 +14,8 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// newTestL4Service spins up an in-memory L4 stack (repo + service). The
-// returned repo is shared so tests can poke at low-level state when an
-// invariant isn't exposed via the service surface.
+// newTestL4Service 搭建内存 L4 栈（repo + service）。返回的 repo 供测试在
+// 不变量未从服务层暴露时直接查看底层状态。
 func newTestL4Service(t *testing.T) (*MemoryL4Service, repository.Store) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "l4.db")
@@ -41,8 +39,7 @@ func mustUpsertEntity(t *testing.T, svc *MemoryL4Service, in EntityUpsertInput) 
 	return e
 }
 
-// §13 #1 – creating a new entity persists it as active and writes a v1
-// snapshot in `memory_entity_versions`.
+// §13 #1 – 新建实体存为 active 并在 `memory_entity_versions` 写 v1 快照。
 func TestL4UpsertCreatesEntityAndV1Version(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	e := mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -66,8 +63,7 @@ func TestL4UpsertCreatesEntityAndV1Version(t *testing.T) {
 	}
 }
 
-// §13 #2 – upserting the same (scope, type, normalized name) bumps the
-// version and reuses the entity ID rather than creating a duplicate row.
+// §13 #2 – 相同 (scope, type, 规范化名) upsert 升版本并复用实体 ID，不新插行。
 func TestL4UpsertDedupsByNaturalKey(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	first := mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -114,7 +110,7 @@ func TestL4UpsertRelationRejectsSelfLoop(t *testing.T) {
 	}
 }
 
-// §13 #3 – Neighborhood returns the center + connected relations.
+// §13 #3 – Neighborhood 返回中心节点与相连关系。
 func TestL4NeighborhoodReturnsConnectedNodes(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	alice := mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -153,8 +149,7 @@ func TestL4NeighborhoodReturnsConnectedNodes(t *testing.T) {
 	}
 }
 
-// §13 – RenderForPrompt produces a `# memory.l4.graph` block bounded by
-// max_chars and naming the center + at least one neighbor.
+// §13 – RenderForPrompt 生成 `# memory.l4.graph` 块，受 max_chars 限制且含中心与至少一邻居。
 func TestL4RenderForPromptBoundedByMaxChars(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	a := mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -188,7 +183,7 @@ func TestL4RenderForPromptBoundedByMaxChars(t *testing.T) {
 	}
 }
 
-// §13 – RenderForPrompt returns ok=false when neighborhood is empty.
+// §13 – 邻域为空时 RenderForPrompt 返回 ok=false。
 func TestL4RenderForPromptEmpty(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	if _, ok := svc.RenderForPrompt(domain.GraphNeighborhood{}, 200); ok {
@@ -196,8 +191,7 @@ func TestL4RenderForPromptEmpty(t *testing.T) {
 	}
 }
 
-// §13 #5 – Merge marks the source merged + rewires relations to the
-// primary; subsequent neighborhood lookups don't return the source.
+// §13 #5 – Merge 将源标为已合并并把关系改指主实体；后续邻域查询不再返回源。
 func TestL4MergeRewiresRelationsAndArchivesSource(t *testing.T) {
 	svc, repo := newTestL4Service(t)
 	canonical := mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -240,7 +234,7 @@ func TestL4MergeRewiresRelationsAndArchivesSource(t *testing.T) {
 	}
 }
 
-// §13 – Rename writes a new version with a name diff.
+// §13 – Rename 写入带名称 diff 的新版本。
 func TestL4RenameEntityWritesVersion(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	e := mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -266,7 +260,7 @@ func TestL4RenameEntityWritesVersion(t *testing.T) {
 	}
 }
 
-// §13 #6 – `l4_graph_inject_neighbors=false` (default) hides the segment.
+// §13 #6 – `l4_graph_inject_neighbors=false`（默认）不注入片段。
 func TestL4NeighborhoodSegmentForL0DisabledByDefault(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -277,8 +271,7 @@ func TestL4NeighborhoodSegmentForL0DisabledByDefault(t *testing.T) {
 	}
 }
 
-// §13 #6 – when both `l4_enabled` and `l4_graph_inject_neighbors` are
-// true, the segment is produced and bounded by `l4_graph_max_neighbors`.
+// §13 #6 – `l4_enabled` 与 `l4_graph_inject_neighbors` 均为 true 时产出片段，并受 `l4_graph_max_neighbors` 限制。
 func TestL4NeighborhoodSegmentForL0EmitsSegmentWhenEnabled(t *testing.T) {
 	svc, repo := newTestL4Service(t)
 	a := mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -314,9 +307,7 @@ func TestL4NeighborhoodSegmentForL0EmitsSegmentWhenEnabled(t *testing.T) {
 	}
 }
 
-// §13 #6 – `l4_enabled=false` disables both the segment and (per spec)
-// the system.self_evolution segment, so verify the L4 graph is omitted
-// even when the inject toggle is on.
+// §13 #6 – `l4_enabled=false` 同时关闭本片段与（按规范）system.self_evolution 片段，故即使 inject 打开也不应出现 L4 图。
 func TestL4NeighborhoodSegmentForL0RespectsEnableMaster(t *testing.T) {
 	svc, repo := newTestL4Service(t)
 	mustUpsertEntity(t, svc, EntityUpsertInput{
@@ -334,9 +325,8 @@ func TestL4NeighborhoodSegmentForL0RespectsEnableMaster(t *testing.T) {
 	}
 }
 
-// §12 Phase 2 – ExtractFromFact picks up dictionary terms from the
-// statement / details, persists them as entities in the fact's scope,
-// and reverse-links them via memory_entity_facts.
+// §12 第二阶段 – ExtractFromFact 从陈述/详情抽词典项，在事实作用域落实体，
+// 经 memory_entity_facts 反向链接。
 func TestL4ExtractFromFactCreatesEntitiesAndLinks(t *testing.T) {
 	svc, repo := newTestL4Service(t)
 	fact, err := repo.CreateFact(domain.MemoryFact{
@@ -364,8 +354,7 @@ func TestL4ExtractFromFactCreatesEntitiesAndLinks(t *testing.T) {
 	if len(hits) == 0 {
 		t.Fatalf("expected an entity matching 'react', got 0")
 	}
-	// Verify the reverse link exists by re-running extraction; counts
-	// should now show updates rather than new entities.
+	// 再跑抽取验证反向链接；计数应为更新而非新实体。
 	rerun, err := svc.ExtractFromFact(context.Background(), fact.ID)
 	if err != nil {
 		t.Fatalf("re-extract: %v", err)
@@ -378,9 +367,7 @@ func TestL4ExtractFromFactCreatesEntitiesAndLinks(t *testing.T) {
 	}
 }
 
-// §12 Phase 2 – ExtractFromEpisode reads the episode title / goal /
-// outcome and creates entities in the episode's scope. Episodes without
-// a usable scope short-circuit with skipped=N.
+// §12 第二阶段 – ExtractFromEpisode 读 episode 标题/目标/结果并在 episode 作用域建实体。无可用作用域时短路 skipped=N。
 func TestL4ExtractFromEpisodeCreatesEntities(t *testing.T) {
 	svc, repo := newTestL4Service(t)
 	episode, err := repo.CreateEpisode(domain.MemoryEpisode{
@@ -404,8 +391,7 @@ func TestL4ExtractFromEpisodeCreatesEntities(t *testing.T) {
 	}
 }
 
-// §12 Phase 2 – calls without dictionary matches return a benign
-// `note` and zero counts so the caller can short-circuit.
+// §12 第二阶段 – 无词典命中时返回友好 `note` 与零计数，调用方可短路。
 func TestL4ExtractFromFactNoMatchesIsBenign(t *testing.T) {
 	svc, repo := newTestL4Service(t)
 	fact, err := repo.CreateFact(domain.MemoryFact{
@@ -530,8 +516,7 @@ func TestL3RecallSegmentUsesTeamScopeContext(t *testing.T) {
 	}
 }
 
-// scanExtractionMatches must respect word boundaries — "react" must
-// match but "interaction" must not; canonical names are surfaced once.
+// scanExtractionMatches 须尊重词边界 — "react" 可匹配 "interaction" 不可；规范名只出现一次。
 func TestExtractionScannerRespectsWordBoundaries(t *testing.T) {
 	matches := scanExtractionMatches("Their interaction with the Reactor used React and Postgres.")
 	names := map[string]bool{}
@@ -544,7 +529,7 @@ func TestExtractionScannerRespectsWordBoundaries(t *testing.T) {
 	if !names["Postgres"] {
 		t.Fatalf("expected Postgres match, got %#v", matches)
 	}
-	// "Reactor" / "interaction" must not yield a match.
+	// "Reactor" / "interaction" 不得产生匹配。
 	for _, m := range matches {
 		if m.Name == "React" {
 			for _, alias := range m.Aliases {
@@ -556,7 +541,7 @@ func TestExtractionScannerRespectsWordBoundaries(t *testing.T) {
 	}
 }
 
-// §13 – SearchByText returns entities matching name or aliases.
+// §13 – SearchByText 返回名称或别名命中的实体。
 func TestL4SearchByTextMatchesAliases(t *testing.T) {
 	svc, _ := newTestL4Service(t)
 	mustUpsertEntity(t, svc, EntityUpsertInput{

@@ -6,10 +6,8 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// Services bundles every application service the HTTP layer depends on. Using
-// a single struct keeps the handler constructor stable as new services are
-// introduced and lets call sites name fields explicitly instead of relying on
-// positional arguments.
+// Services 聚合 HTTP 层依赖的全部应用服务。使用单一结构体可在新增服务时
+// 保持处理器构造函数稳定，并让调用方显式命名字段而非依赖位置参数。
 type Services struct {
 	Agent    *service.AgentService
 	Team     *service.TeamService
@@ -38,9 +36,8 @@ type HTTPHandler struct {
 	channelSvc  *service.ChannelService
 }
 
-// NewHTTPHandler wires every application route onto the default mux. The
-// concrete *HTTPHandler is kept as an internal alias of Services so individual
-// handler methods can address each dependency by name.
+// NewHTTPHandler 将所有应用路由挂到默认 mux 上。*HTTPHandler 作为 Services 的
+// 内部具现，使各处理方法可按名称访问各依赖。
 func NewHTTPHandler(svc Services) http.Handler {
 	h := &HTTPHandler{
 		agentSvc:    svc.Agent,
@@ -60,12 +57,11 @@ func NewHTTPHandler(svc Services) http.Handler {
 	return mux
 }
 
-// registerRoutes installs every API route. Routes are grouped by aggregate so
-// related endpoints stay visually adjacent and reordering is straightforward.
+// registerRoutes 注册全部 API 路由。按聚合根分组，使相关端点在视觉上相邻、便于调整顺序。
 func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", h.healthz)
 
-	// Agents & teams.
+	// 智能体与团队。
 	mux.HandleFunc("/api/v1/agents/validate-model", h.handleValidateModel)
 	mux.HandleFunc("/api/v1/agents/", h.handleAgentByID)
 	mux.HandleFunc("/api/v1/agents", h.handleAgents)
@@ -75,7 +71,7 @@ func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/team-runs", h.handleTeamRuns)
 	mux.HandleFunc("/api/v1/team-run-events", h.handleTeamRunEvents)
 
-	// Platform resources.
+	// 平台资源。
 	mux.HandleFunc("/api/v1/agent-categories/tree", h.handlePlatformTree("agent-categories"))
 	mux.HandleFunc("/api/v1/agent-categories", h.handlePlatformCollection("agent-categories"))
 	mux.HandleFunc("/api/v1/agent-categories/", h.handlePlatformItem("agent-categories", "/api/v1/agent-categories/"))
@@ -89,12 +85,12 @@ func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/mcp-servers", h.handlePlatformCollection("mcp-servers"))
 	mux.HandleFunc("/api/v1/mcp-servers/", h.handlePlatformItem("mcp-servers", "/api/v1/mcp-servers/"))
 
-	// Channels.
+	// 频道。
 	mux.HandleFunc("/api/v1/channels/catalog", h.handleChannelCatalog)
 	mux.HandleFunc("/api/v1/channels", h.handleChannels)
 	mux.HandleFunc("/api/v1/channels/", h.handleChannelByID)
 
-	// Skills & tools.
+	// 技能与工具。
 	mux.HandleFunc("/api/v1/skills/import", h.handleSkillImport)
 	mux.HandleFunc("/api/v1/skills/import/", h.handleSkillImportByID)
 	mux.HandleFunc("/api/v1/skills", h.handleSkills)
@@ -104,51 +100,46 @@ func (h *HTTPHandler) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tools", h.handleTools)
 	mux.HandleFunc("/api/v1/tools/", h.handleToolByID)
 
-	// Plugins & cron.
+	// 插件与定时任务。
 	mux.HandleFunc("/api/v1/plugins", h.handlePlugins)
 	mux.HandleFunc("/api/v1/plugins/", h.handlePluginByID)
 	mux.HandleFunc("/api/v1/cron-tasks", h.handlePlatformCollection("cron-tasks"))
 	mux.HandleFunc("/api/v1/cron-tasks/", h.handlePlatformItem("cron-tasks", "/api/v1/cron-tasks/"))
 	mux.HandleFunc("/api/v1/cron-task-runs", h.handleCronTaskRuns)
 
-	// Sessions & chat.
+	// 会话与聊天。
 	mux.HandleFunc("/api/v1/sessions", h.handleSessions)
 	mux.HandleFunc("/api/v1/sessions/", h.handleSessionByID)
 	mux.HandleFunc("/api/v1/chat/messages/stream", h.handleChatMessagesStream)
 	mux.HandleFunc("/api/v1/chat/messages", h.handleChatMessages)
 	mux.HandleFunc("/api/v1/chat/options", h.handleChatOptions)
 
-	// Memory L0 (sensory / context-window) debug surface.
+	// 记忆 L0（感知 / 上下文窗口）调试接口。
 	mux.HandleFunc("/api/v1/l0/preview", h.handleL0Preview)
 	mux.HandleFunc("/api/v1/l0/snapshots/", h.handleL0SnapshotByID)
 
-	// Memory L1 (working memory) schema management. Per-task / per-field
-	// routes are session-scoped and dispatched from handleSessionByID.
+	// 记忆 L1（工作记忆）模式管理。按任务 / 按字段的路由与会话绑定，由 handleSessionByID 分发。
 	h.registerMemoryL1Routes(mux)
 
-	// Memory L2 (episodic memory) admin routes. Per-session events /
-	// episodes / marks / recall are dispatched from handleSessionByID.
+	// 记忆 L2（情景记忆）管理端路由。按会话的事件 / 片段 / 标记 / 回忆由 handleSessionByID 分发。
 	h.registerMemoryL2AdminRoutes(mux)
 
-	// Memory L3 (semantic memory) routes. Facts are workspace-/user-
-	// scoped, not session-scoped, so they live under /api/v1/memory/l3/.
+	// 记忆 L3（语义记忆）路由。事实按工作区 / 用户等作用域，非会话作用域，故挂在 /api/v1/memory/l3/。
 	h.registerMemoryL3Routes(mux)
 
-	// Memory L4 (persistent / knowledge graph) routes and agent
-	// self-evolution surface. Both are workspace- / user- / agent-
-	// scoped and live under /api/v1/memory/l4/ and
-	// /api/v1/agent-evolution/ respectively.
+	// 记忆 L4（持久 / 知识图谱）路由与智能体自进化接口。二者均为工作区 / 用户 / 智能体作用域，
+	// 分别位于 /api/v1/memory/l4/ 与 /api/v1/agent-evolution/。
 	h.registerMemoryL4Routes(mux)
 	h.registerAgentEvolutionRoutes(mux)
 
-	// Model usage analytics.
+	// 模型用量分析。
 	mux.HandleFunc("/api/v1/model-usage/overview", h.handleModelUsageOverview)
 	mux.HandleFunc("/api/v1/model-usage/trends", h.handleModelUsageTrends)
 	mux.HandleFunc("/api/v1/model-usage/top-models", h.handleModelUsageTopModels)
 	mux.HandleFunc("/api/v1/model-usage/top-agents", h.handleModelUsageTopAgents)
 	mux.HandleFunc("/api/v1/model-usage/events", h.handleModelUsageEvents)
 
-	// Monitor / observability.
+	// 监控 / 可观测性。
 	mux.HandleFunc("/api/v1/monitor/logs/stream", h.handleMonitorLogStream)
 	mux.HandleFunc("/api/v1/monitor/logs", h.handleMonitorLogs)
 	mux.HandleFunc("/api/v1/monitor/events", h.handleMonitorEvents)

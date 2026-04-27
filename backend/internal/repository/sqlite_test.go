@@ -51,10 +51,8 @@ func TestSQLiteRepositorySearchAgentsFiltersAndCounts(t *testing.T) {
 		t.Fatalf("unexpected filtered result: %#v", result)
 	}
 
-	// Migrate() seeds the built-in __system_admin__ agent (see
-	// seedSystemAdminAgent in sqlite_seeds.go) so the unfiltered total is
-	// the two test agents plus one seeded admin. Filter by category so the
-	// pagination expectation only covers the agents this test inserted.
+	// Migrate() 会植入内置 __system_admin__（见 sqlite_seeds.go 的 seedSystemAdminAgent），
+	// 故未过滤总数为两条测试智能体加一条内置管理员。此处按分类过滤，使分页断言只针对本测试插入的智能体。
 	paged, err := repo.SearchAgents(domain.AgentListQuery{CategoryID: "cat_ops", Limit: 1, Offset: 0})
 	if err != nil {
 		t.Fatalf("search paged agents: %v", err)

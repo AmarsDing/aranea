@@ -10,11 +10,9 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// CreateL1Task inserts a new memory_l1_tasks row. Defaults are applied so
-// callers that only fill in the identity columns still get a sensible record.
-// The unique key (session_id, task_key, agent_id) is enforced by the schema;
-// duplicate inserts surface a constraint error and are mapped to ErrConflict
-// at the service layer (spec §5.5).
+// CreateL1Task 插入新的 memory_l1_tasks 行。会应用默认值，仅填标识列的调用方也能得到合理记录。
+// 唯一键 (session_id, task_key, agent_id) 由 schema 强制；重复插入触发约束错误，
+// 在服务层映射为 ErrConflict（规范 §5.5）。
 func (r *SQLiteRepository) CreateL1Task(t domain.MemoryL1Task) (domain.MemoryL1Task, error) {
 	if t.ID == "" {
 		return domain.MemoryL1Task{}, errors.New("l1 task id is required")
@@ -72,10 +70,8 @@ func (r *SQLiteRepository) CreateL1Task(t domain.MemoryL1Task) (domain.MemoryL1T
 	return r.GetL1TaskByID(t.ID)
 }
 
-// UpdateL1TaskStatus mutates the lifecycle column. ChatService /
-// TeamRuntime drive this through MemoryL1Service.EndTask. The endedAt /
-// archivedAt arguments may be empty, in which case the existing column value
-// is preserved.
+// UpdateL1TaskStatus 修改生命周期列。ChatService / TeamRuntime 经 MemoryL1Service.EndTask 驱动。
+// endedAt / archivedAt 可为空，此时保留列上已有值。
 func (r *SQLiteRepository) UpdateL1TaskStatus(taskID string, status domain.L1TaskStatus, endedAt string, archivedAt string) error {
 	if taskID == "" {
 		return errors.New("task id is required")
@@ -186,9 +182,8 @@ func (r *SQLiteRepository) ListL1TasksBySession(query domain.L1TaskListQuery) ([
 	return result, rows.Err()
 }
 
-// ArchiveIdleL1Tasks flips active tasks whose updated_at is older than the
-// before cutoff to status=archived. Returns how many rows were touched so
-// the cron caller can emit a metric.
+// ArchiveIdleL1Tasks 将 updated_at 早于 before 的活跃任务置为 status=archived。
+// 返回受影响行数，供定时任务上报指标。
 func (r *SQLiteRepository) ArchiveIdleL1Tasks(before string) (int, error) {
 	if before == "" {
 		return 0, errors.New("before is required")
@@ -210,11 +205,8 @@ func (r *SQLiteRepository) ArchiveIdleL1Tasks(before string) (int, error) {
 	return int(count), nil
 }
 
-// UpsertL1Field writes the field row, appends a history entry, recomputes the
-// owner task's used_tokens, and trims excess history rows. Everything happens
-// inside a single transaction so partial failures don't leave the budget
-// counter in a wrong state. Returns the field row as it lives in the database
-// after the write.
+// UpsertL1Field 写入字段行、追加历史、重算所属任务的 used_tokens、并裁减多余历史。
+// 全部在单事务内完成，避免部分失败导致预算计数错误。返回写入后数据库中的字段行。
 func (r *SQLiteRepository) UpsertL1Field(f domain.MemoryL1Field, history domain.MemoryL1FieldHistory, keepRevisions int) (domain.MemoryL1Field, error) {
 	if f.ID == "" {
 		return domain.MemoryL1Field{}, errors.New("field id is required")
@@ -372,9 +364,8 @@ func (r *SQLiteRepository) ListL1FieldsByTask(taskID string, includeInternal boo
 	return result, rows.Err()
 }
 
-// DeleteL1Field removes the row, refreshes the parent task's used_tokens
-// counter, and leaves the history rows in place so rollback still works
-// (callers that want a hard purge can also delete from history separately).
+// DeleteL1Field 删除行并刷新父任务的 used_tokens；历史行保留以便回滚
+//（需要硬清理者可另行删除历史）。
 func (r *SQLiteRepository) DeleteL1Field(fieldID string) error {
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -546,7 +537,7 @@ func (r *SQLiteRepository) DeleteL1Schema(id string) error {
 	return err
 }
 
-// --- internal helpers ---------------------------------------------------------
+// --- 内部辅助 -----------------------------------------------------------------
 
 func l1TaskSelectSQL() string {
 	return `SELECT id, session_id, run_id, team_id, agent_id,

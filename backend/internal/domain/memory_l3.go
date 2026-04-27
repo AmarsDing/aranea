@@ -1,12 +1,9 @@
-// Package domain – memory L3 semantic memory types described in
-// `aranea/docs/15 memory-L3-semantic.md`. L3 stores cross-session,
-// structured, declarative facts (preferences, rules, glossary entries)
-// scoped at agent / user / team / workspace / global levels and feeds
-// the memory.l3 prompt segment via L0 assembly.
+// Package domain – L3 语义记忆领域类型，见 `aranea/docs/15 memory-L3-semantic.md`。
+// L3 存储跨会话的结构化声明式事实（偏好、规则、术语表等），
+// 作用域为智能体 / 用户 / 团队 / 工作区 / 全局，并通过 L0 组装注入 memory.l3 提示段。
 package domain
 
-// ScopeType is the storage scope for a memory fact. Strings persist in
-// `memory_facts.scope_type` so changing values requires a migration.
+// ScopeType 为记忆事实的存储作用域。字符串持久化在 `memory_facts.scope_type`，变更需迁移。
 type ScopeType string
 
 const (
@@ -17,7 +14,7 @@ const (
 	ScopeAgent     ScopeType = "agent"
 )
 
-// IsValid returns true when the value matches one of the known scopes.
+// IsValid 在值与已知作用域之一匹配时为 true。
 func (s ScopeType) IsValid() bool {
 	switch s {
 	case ScopeGlobal, ScopeWorkspace, ScopeUser, ScopeTeam, ScopeAgent:
@@ -26,8 +23,7 @@ func (s ScopeType) IsValid() bool {
 	return false
 }
 
-// FactKind classifies the semantic content of a fact. Persisted in
-// `memory_facts.fact_kind` and surfaced in the prompt rendering.
+// FactKind 对事实的语义内容分类。持久化在 `memory_facts.fact_kind`，并在提示渲染中暴露。
 type FactKind string
 
 const (
@@ -39,7 +35,7 @@ const (
 	FactGeneric    FactKind = "fact"
 )
 
-// IsValid returns true when the value matches one of the known kinds.
+// IsValid 在值与已知种类之一匹配时为 true。
 func (k FactKind) IsValid() bool {
 	switch k {
 	case FactPreference, FactRule, FactPattern, FactPitfall, FactGlossary, FactGeneric:
@@ -48,7 +44,7 @@ func (k FactKind) IsValid() bool {
 	return false
 }
 
-// Fact statuses persisted in `memory_facts.status`.
+// 持久化在 `memory_facts.status` 的事实状态。
 const (
 	FactStatusActive     = "active"
 	FactStatusArchived   = "archived"
@@ -57,7 +53,7 @@ const (
 	FactStatusDeleted    = "deleted"
 )
 
-// Feedback type values. Persisted in `memory_fact_feedback.feedback_type`.
+// 反馈类型取值。持久化在 `memory_fact_feedback.feedback_type`。
 const (
 	FactFeedbackConfirm = "confirm"
 	FactFeedbackReject  = "reject"
@@ -67,7 +63,7 @@ const (
 	FactFeedbackNotUsed = "not_used"
 )
 
-// Conflict kinds and statuses persisted in `memory_fact_conflicts`.
+// 持久化在 `memory_fact_conflicts` 的冲突种类与状态。
 const (
 	FactConflictContradiction = "contradiction"
 	FactConflictOverlap       = "overlap"
@@ -80,9 +76,7 @@ const (
 	FactConflictStatusSuperseded = "superseded"
 )
 
-// MemoryFact is the persisted row in `memory_facts`. Field naming mirrors
-// the SQL column names so JSON tags double as the wire format for the
-// HTTP API §6.2.
+// MemoryFact 为 `memory_facts` 表的持久化行。字段名与 SQL 列一致，JSON 标签兼作 HTTP API §6.2 线格式。
 type MemoryFact struct {
 	ID                    string    `json:"id"`
 	ScopeType             ScopeType `json:"scope_type"`
@@ -131,9 +125,7 @@ type MemoryFact struct {
 	DeletedAt             string    `json:"deleted_at,omitempty"`
 }
 
-// FactUpsertInput is the application-level write payload accepted by the
-// service layer. Tags and Metadata are passed as native Go types and
-// serialised to JSON inside the repository.
+// FactUpsertInput 为服务层接受的应用级写入载荷。Tags 与 Metadata 以 Go 原生类型传入，在仓库内序列化为 JSON。
 type FactUpsertInput struct {
 	ScopeType       ScopeType      `json:"scope_type"`
 	ScopeID         string         `json:"scope_id,omitempty"`
@@ -158,9 +150,8 @@ type FactUpsertInput struct {
 	Reason          string         `json:"reason,omitempty"`
 }
 
-// FactRecallQuery is the input for §5.3 Recall. Either Query (text) or
-// QueryEmbedding (vector) is required; when both are present the text is
-// used for BM25 fallback and embedding for vector search.
+// FactRecallQuery 为 §5.3 Recall 的输入。Query（文本）或 QueryEmbedding（向量）至少其一必填；
+// 二者皆有时，文本用于 BM25 回退，嵌入用于向量检索。
 type FactRecallQuery struct {
 	WorkspaceID    string      `json:"workspace_id,omitempty"`
 	UserID         string      `json:"user_id,omitempty"`
@@ -176,9 +167,7 @@ type FactRecallQuery struct {
 	MaxChars       int         `json:"max_chars,omitempty"`
 }
 
-// FactRecallHit represents a single result of Recall along with the
-// component scores used to compute the final ranking. Reason carries the
-// retrieval path label ("bm25" / "vector" / "hybrid").
+// FactRecallHit 表示 Recall 的单条结果及用于最终排序的分项分数。Reason 为检索路径标签（"bm25" / "vector" / "hybrid"）。
 type FactRecallHit struct {
 	Fact        MemoryFact `json:"fact"`
 	VectorScore float64    `json:"vector_score"`
@@ -188,8 +177,7 @@ type FactRecallHit struct {
 	Reason      string     `json:"reason,omitempty"`
 }
 
-// FactFeedback is the user / runtime signal used to adjust confidence and
-// importance of a fact (§5.4).
+// FactFeedback 为用户 / 运行时信号，用于调整事实的置信度与重要性（§5.4）。
 type FactFeedback struct {
 	ID        string         `json:"id,omitempty"`
 	FactID    string         `json:"fact_id"`
@@ -203,8 +191,7 @@ type FactFeedback struct {
 	CreatedAt string         `json:"created_at,omitempty"`
 }
 
-// FactConflict captures a detected contradiction between two facts in the
-// same scope, plus the resolution metadata (§5.x).
+// FactConflict 记录同作用域内两事实间的检测矛盾及解决元数据（§5.x）。
 type FactConflict struct {
 	ID         string    `json:"id"`
 	FactAID    string    `json:"fact_a_id"`
@@ -222,9 +209,7 @@ type FactConflict struct {
 	UpdatedAt  string    `json:"updated_at,omitempty"`
 }
 
-// FactVersion is a snapshot row from `memory_fact_versions`. The diff is
-// stored as raw JSON so callers can present per-field changes without
-// re-deriving them from the live row.
+// FactVersion 为 `memory_fact_versions` 的快照行。diff 以原始 JSON 存储，调用方可展示逐字段变更而无需从现行行反推。
 type FactVersion struct {
 	ID           string   `json:"id"`
 	FactID       string   `json:"fact_id"`
@@ -240,8 +225,7 @@ type FactVersion struct {
 	CreatedAt    string   `json:"created_at,omitempty"`
 }
 
-// FactPromptBlock is the rendered output that L0 injects as the
-// `memory.l3` system block.
+// FactPromptBlock 为 L0 作为 `memory.l3` 系统块注入的渲染输出。
 type FactPromptBlock struct {
 	Section string          `json:"section"`
 	Role    string          `json:"role"`

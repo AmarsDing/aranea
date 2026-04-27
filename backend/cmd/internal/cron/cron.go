@@ -1,6 +1,5 @@
-// Package cron implements `aranea cron ls/runs`. Cron tasks are stored
-// under /api/v1/cron-tasks (platform resource) and runs are exposed via
-// /api/v1/cron-task-runs.
+// Package cron 实现 `aranea cron ls/runs`。定时任务存于
+// /api/v1/cron-tasks（平台资源），执行记录在 /api/v1/cron-task-runs。
 package cron
 
 import (
@@ -14,7 +13,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cron",

@@ -1,7 +1,5 @@
-// memory_l3_service_test.go covers the §12 acceptance criteria for the
-// L3 semantic-memory service: upsert + version, dedup + tag merge,
-// recall ordering, feedback-driven confidence (incl. archival and
-// auto-conflict), decay batch, PII redaction, and scope isolation.
+// memory_l3_service_test.go 覆盖 §12 对 L3 语义记忆服务的验收：upsert 与版本、去重与标签合并、
+// recall 排序、反馈驱动置信度（含归档与自动冲突）、衰减批处理、PII 脱敏与作用域隔离。
 package service
 
 import (
@@ -14,9 +12,8 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// newTestL3Service spins up an in-memory L3 stack (repo + service). The
-// returned repo is shared so tests can poke at low-level state when an
-// invariant isn't exposed via the service surface.
+// newTestL3Service 搭建内存 L3 栈（repo + service）。返回的 repo 供测试在
+// 不变量未从服务层暴露时直接查看底层状态。
 func newTestL3Service(t *testing.T) (*MemoryL3Service, repository.Store) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "l3.db")
@@ -40,8 +37,7 @@ func mustUpsert(t *testing.T, svc *MemoryL3Service, in domain.FactUpsertInput) d
 	return fact
 }
 
-// §12 #1 – create a fact and verify both memory_facts and v1 of
-// memory_fact_versions are written.
+// §12 #1 – 创建事实并校验 memory_facts 与 memory_fact_versions 的 v1 均已写入。
 func TestL3UpsertCreatesFactAndV1Version(t *testing.T) {
 	svc, _ := newTestL3Service(t)
 	fact := mustUpsert(t, svc, domain.FactUpsertInput{
@@ -64,8 +60,7 @@ func TestL3UpsertCreatesFactAndV1Version(t *testing.T) {
 	}
 }
 
-// §12 #2 – upserting the same statement in the same scope bumps the
-// version and merges tags rather than creating a duplicate row.
+// §12 #2 – 同作用域相同陈述 upsert 应升版本并合并标签，而非新插一行。
 func TestL3UpsertDedupsByFingerprintAndMergesTags(t *testing.T) {
 	svc, repo := newTestL3Service(t)
 	first := mustUpsert(t, svc, domain.FactUpsertInput{
@@ -96,8 +91,7 @@ func TestL3UpsertDedupsByFingerprintAndMergesTags(t *testing.T) {
 	}
 }
 
-// §12 #3 – Recall returns ≤ top_k results sorted by final_score and the
-// rendered prompt fits inside max_chars.
+// §12 #3 – Recall 返回按 final_score 排序且数量 ≤ top_k，渲染后提示不超长 max_chars。
 func TestL3RecallRespectsTopKAndRenderBudget(t *testing.T) {
 	svc, _ := newTestL3Service(t)
 	mustUpsert(t, svc, domain.FactUpsertInput{
@@ -137,7 +131,7 @@ func TestL3RecallRespectsTopKAndRenderBudget(t *testing.T) {
 	}
 }
 
-// §12 #5 – confirm bumps confidence by +0.10, reject by -0.20.
+// §12 #5 – 确认 +0.10、拒绝 -0.20 调整置信度。
 func TestL3FeedbackAdjustsConfidence(t *testing.T) {
 	svc, repo := newTestL3Service(t)
 	fact := mustUpsert(t, svc, domain.FactUpsertInput{
@@ -171,7 +165,7 @@ func TestL3FeedbackAdjustsConfidence(t *testing.T) {
 	}
 }
 
-// §12 #6 – three consecutive rejects auto-create a conflict row.
+// §12 #6 – 连续三次拒绝自动建冲突行。
 func TestL3FeedbackAutoCreatesConflictAfterThreeRejects(t *testing.T) {
 	svc, _ := newTestL3Service(t)
 	fact := mustUpsert(t, svc, domain.FactUpsertInput{
@@ -195,8 +189,7 @@ func TestL3FeedbackAutoCreatesConflictAfterThreeRejects(t *testing.T) {
 	}
 }
 
-// §12 #7 – decay batch lowers confidence and archives facts that fall
-// below the archive threshold.
+// §12 #7 – 衰减批处理降置信度，低于归档阈的事实归档。
 func TestL3DecayBatchArchivesLowConfidenceFacts(t *testing.T) {
 	svc, repo := newTestL3Service(t)
 	low := mustUpsert(t, svc, domain.FactUpsertInput{
@@ -232,8 +225,7 @@ func TestL3DecayBatchArchivesLowConfidenceFacts(t *testing.T) {
 	}
 }
 
-// §12 #8 – PII detection forces scope to user and exposes only the
-// redacted statement.
+// §12 #8 – PII 检测强制 user 作用域，仅展示脱敏后陈述。
 func TestL3UpsertRedactsPIIAndForcesUserScope(t *testing.T) {
 	svc, _ := newTestL3Service(t)
 	fact := mustUpsert(t, svc, domain.FactUpsertInput{
@@ -263,8 +255,7 @@ func TestL3UpsertRedactsPIIAndForcesUserScope(t *testing.T) {
 	}
 }
 
-// §12 #9 – facts in scope=user must not appear in scope=workspace recall
-// results.
+// §12 #9 – scope=user 的事实不得出现在 scope=workspace 的 recall 结果中。
 func TestL3RecallRespectsScopeIsolation(t *testing.T) {
 	svc, _ := newTestL3Service(t)
 	mustUpsert(t, svc, domain.FactUpsertInput{
@@ -290,7 +281,7 @@ func TestL3RecallRespectsScopeIsolation(t *testing.T) {
 	}
 }
 
-// §12 #11 – disabling l3_enabled hides the L0 segment.
+// §12 #11 – 关闭 l3_enabled 不注入 L0 片段。
 func TestL3RecallSegmentForL0RespectsDisabledFlag(t *testing.T) {
 	svc, repo := newTestL3Service(t)
 	mustUpsert(t, svc, domain.FactUpsertInput{
@@ -320,7 +311,7 @@ func TestL3RecallSegmentForL0RespectsDisabledFlag(t *testing.T) {
 	}
 }
 
-// --- helpers ----------------------------------------------------------------
+// --- 辅助 ----------------------------------------------------------------
 
 func containsAll(haystack, needles []string) bool {
 	set := map[string]bool{}

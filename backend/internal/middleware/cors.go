@@ -2,8 +2,8 @@ package middleware
 
 import "net/http"
 
-// CORS allows browser clients (e.g. Quasar on another port) to call the API.
-// Reflects the request Origin and handles OPTIONS preflight.
+// CORS 允许浏览器客户端（例如其他端口的 Quasar）调用 API。
+// 回显请求的 Origin，并处理 OPTIONS 预检。
 func CORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if o := r.Header.Get("Origin"); o != "" {

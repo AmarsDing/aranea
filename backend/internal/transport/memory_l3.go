@@ -1,8 +1,6 @@
-// transport/memory_l3.go exposes the L3 semantic-memory HTTP surface
-// described in `aranea/docs/15 memory-L3-semantic.md` §6.2 – §6.6. The
-// resource is workspace-/user-/agent-scoped (not session-scoped) so the
-// routes are registered in handler.go directly under
-// `/api/v1/memory/l3/...` rather than dispatched from sessions.go.
+// transport/memory_l3.go 暴露 L3 语义记忆 HTTP 接口，见 `aranea/docs/15 memory-L3-semantic.md` §6.2–§6.6。
+// 资源按工作区 / 用户 / 智能体等作用域（非会话作用域），路由在 handler.go 中直接注册于
+// `/api/v1/memory/l3/...`，不由 sessions.go 分发。
 package transport
 
 import (
@@ -16,9 +14,8 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// registerMemoryL3Routes installs both the user-facing fact / recall /
-// feedback endpoints and the admin-only decay / embedding / stats
-// endpoints. Admin endpoints live under /api/v1/admin/memory/l3/.
+// registerMemoryL3Routes 同时挂载面向用户的事实 / 回忆 / 反馈端点，
+// 以及仅管理端可用的衰减 / 嵌入 / 统计端点。管理路由位于 /api/v1/admin/memory/l3/。
 func (h *HTTPHandler) registerMemoryL3Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/memory/l3/facts", h.handleL3FactsCollection)
 	mux.HandleFunc("/api/v1/memory/l3/facts/", h.handleL3FactsItem)
@@ -32,8 +29,7 @@ func (h *HTTPHandler) registerMemoryL3Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/admin/memory/l3/stats", h.handleL3Stats)
 }
 
-// l3Service mirrors l2Service: nil triggers a 503 in callers so a
-// misconfigured build (no MemoryL3Service injected) surfaces clearly.
+// l3Service 与 l2Service 类似：返回 nil 时调用方返回 503，错误构建（未注入 MemoryL3Service）可明确暴露。
 func (h *HTTPHandler) l3Service() *service.MemoryL3Service {
 	if h.chatSvc == nil {
 		return nil
@@ -41,7 +37,7 @@ func (h *HTTPHandler) l3Service() *service.MemoryL3Service {
 	return h.chatSvc.MemoryL3()
 }
 
-// --- Fact CRUD --------------------------------------------------------------
+// --- 事实 CRUD --------------------------------------------------------------
 
 func (h *HTTPHandler) handleL3FactsCollection(w http.ResponseWriter, r *http.Request) {
 	svc := h.l3Service()
@@ -88,8 +84,8 @@ func (h *HTTPHandler) handleL3FactsCollection(w http.ResponseWriter, r *http.Req
 	}
 }
 
-// handleL3FactsItem dispatches /api/v1/memory/l3/facts/{id}[/...] paths.
-// Sub-resources:
+// handleL3FactsItem 分发 /api/v1/memory/l3/facts/{id}[/...] 路径。
+// 子资源：
 //   - /versions  (GET)
 //   - /feedback  (GET, POST)
 //   - /rollback  (POST)
@@ -253,7 +249,7 @@ func (h *HTTPHandler) handleL3FactsBulkUpsert(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, report)
 }
 
-// --- Recall -----------------------------------------------------------------
+// --- 回忆 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL3Recall(w http.ResponseWriter, r *http.Request) {
 	svc := h.l3Service()
@@ -280,7 +276,7 @@ func (h *HTTPHandler) handleL3Recall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, listResponse[domain.FactRecallHit]{Items: hits})
 }
 
-// --- Conflicts --------------------------------------------------------------
+// --- 冲突 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL3Conflicts(w http.ResponseWriter, r *http.Request) {
 	svc := h.l3Service()
@@ -341,7 +337,7 @@ func (h *HTTPHandler) handleL3ConflictItem(w http.ResponseWriter, r *http.Reques
 	writeErr(w, http.StatusNotFound, errors.New("unknown conflict path"))
 }
 
-// --- Admin ------------------------------------------------------------------
+// --- 管理 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL3DecayRun(w http.ResponseWriter, r *http.Request) {
 	svc := h.l3Service()

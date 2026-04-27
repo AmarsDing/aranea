@@ -1,8 +1,5 @@
-// Package service hosts the MemoryL1Service that owns the L1 working memory
-// described in `aranea/docs/13 memory-L1-working.md`. Phase 1 lands the
-// task / field CRUD, prompt rendering, and the snapshot needed for L2
-// archival. Schema validation, TTL expiry, and Team coordinator/worker
-// fan-out arrive in later phases (§11) and reuse the same surface.
+// Package service 承载 `aranea/docs/13 memory-L1-working.md` 所述 L1 工作记忆的 MemoryL1Service。第一阶段提供
+// 任务/字段 CRUD、提示渲染及 L2 归档所需快照。模式校验、TTL 到期与团队协调/工作者扇出在后续阶段（§11）复用同一面。
 package service
 
 import (
@@ -19,32 +16,25 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// MemoryL1Service is the L1 working-memory façade consumed by ChatService /
-// TeamRuntime / HTTP handlers. It owns no state of its own; persistence is
-// delegated to repository.Store and prompt rendering happens in-memory on
-// every call so callers always see fresh field values.
+// MemoryL1Service 为 ChatService/TeamRuntime/HTTP 使用的 L1 工作记忆门面。不自有状态；持久化委托 repository.Store，每次调用在内存中渲染提示，调用方总见最新字段值。
 type MemoryL1Service struct {
 	repo repository.Store
 	now  func() string
 }
 
-// NewMemoryL1Service constructs an L1 service. The repository must already
-// run §3 of the spec migration (memory_l1_* tables). The clock is injected
-// for deterministic tests.
+// NewMemoryL1Service 构建 L1 服务。仓库须已执行规范 §3 迁移（memory_l1_* 表）。注入时钟以支持确定性测试。
 func NewMemoryL1Service(repo repository.Store) *MemoryL1Service {
 	return &MemoryL1Service{repo: repo, now: nowUTC}
 }
 
-// SetClock overrides the time source. Tests use this to lock timestamps.
+// SetClock 覆盖时间源。测试用此固定时间戳。
 func (s *MemoryL1Service) SetClock(now func() string) {
 	if now != nil {
 		s.now = now
 	}
 }
 
-// StartL1TaskInput is the parameter object for StartTask. It mirrors the
-// domain shape but lets callers omit IDs / defaults so ChatService doesn't
-// have to import the repository package.
+// StartL1TaskInput 为 StartTask 的参数对象。与域形状对应但可省略 ID/默认，使 ChatService 不必导入 repository。
 type StartL1TaskInput struct {
 	SessionID    string
 	RunID        string
@@ -60,22 +50,18 @@ type StartL1TaskInput struct {
 	Metadata     map[string]any
 }
 
-// L1TaskView bundles a task with its current fields and (optionally) the
-// JSON Schema bound to it. The HTTP layer renders this directly.
+// L1TaskView 将任务与当前字段及（可选）绑定的 JSON Schema 打包。HTTP 层直接渲染。
 type L1TaskView struct {
 	Task   domain.MemoryL1Task     `json:"task"`
 	Fields []domain.MemoryL1Field  `json:"fields"`
 	Schema *domain.MemoryL1Schema  `json:"schema,omitempty"`
 }
 
-// l1FieldPathPattern enforces the path grammar from spec §5.2 step 2:
-// `^[a-zA-Z_][a-zA-Z0-9_.]*$` with a soft length cap of 256 chars.
+// l1FieldPathPattern 实施规范 §5.2 第 2 步路径文法：
+// `^[a-zA-Z_][a-zA-Z0-9_.]*$`，软长度上限 256 字符。
 var l1FieldPathPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_.]{0,255}$`)
 
-// StartTask is idempotent: when a task with the same (session, key, agent)
-// triple already exists in a non-terminal state we return that row instead
-// of creating a duplicate. This matches the spec §5.5 hook for "first
-// user message" because ChatService may retry on transient failures.
+// StartTask 幂等：相同 (session, key, agent) 在未处于终态时返回已有行，不建重复。符合规范 §5.5「首条用户消息」挂钩，因 ChatService 可能因瞬态失败重试。
 func (s *MemoryL1Service) StartTask(ctx context.Context, in StartL1TaskInput) (domain.MemoryL1Task, error) {
 	if in.SessionID == "" {
 		return domain.MemoryL1Task{}, validationError("session_id is required")
@@ -135,9 +121,7 @@ func (s *MemoryL1Service) StartTask(ctx context.Context, in StartL1TaskInput) (d
 	return created, nil
 }
 
-// EndTask flips a task into a terminal state (completed / failed / ...) and
-// stamps ended_at. It is safe to call repeatedly: subsequent invocations
-// observe the existing terminal status and short-circuit.
+// EndTask 将任务置为终态（completed/failed/…）并填写 ended_at。可重复调用：已终态则短路返回。
 func (s *MemoryL1Service) EndTask(ctx context.Context, taskID string, status domain.L1TaskStatus) error {
 	if taskID == "" {
 		return validationError("task_id is required")
@@ -162,11 +146,11 @@ func (s *MemoryL1Service) EndTask(ctx context.Context, taskID string, status dom
 		"agent":       task.AgentID,
 		"session":     task.SessionID,
 	})
-	_ = ctx // reserved for future cancel propagation
+	_ = ctx // 预留取消传播
 	return nil
 }
 
-// GetTask returns the full view (task + fields + schema) for a single task.
+// GetTask 返回单任务的完整视图（任务+字段+可选 schema）。
 func (s *MemoryL1Service) GetTask(ctx context.Context, taskID string) (L1TaskView, error) {
 	if taskID == "" {
 		return L1TaskView{}, validationError("task_id is required")
@@ -187,8 +171,7 @@ func (s *MemoryL1Service) GetTask(ctx context.Context, taskID string) (L1TaskVie
 	return view, nil
 }
 
-// GetTaskByKey resolves a task by its (session, key, agent) tuple. Returns
-// ErrNotFound when no such task exists.
+// GetTaskByKey 按 (session, key, agent) 解析任务。不存在则返回 ErrNotFound。
 func (s *MemoryL1Service) GetTaskByKey(ctx context.Context, sessionID, taskKey, agentID string) (L1TaskView, error) {
 	if sessionID == "" || taskKey == "" {
 		return L1TaskView{}, validationError("session_id and task_key are required")
@@ -200,7 +183,7 @@ func (s *MemoryL1Service) GetTaskByKey(ctx context.Context, sessionID, taskKey, 
 	return s.GetTask(ctx, task.ID)
 }
 
-// ListActive returns all non-terminal tasks for a session, newest first.
+// ListActive 返回会话下所有非终态任务，最新在前。
 func (s *MemoryL1Service) ListActive(ctx context.Context, sessionID string) ([]L1TaskView, error) {
 	tasks, err := s.repo.ListL1TasksBySession(domain.L1TaskListQuery{SessionID: sessionID, IncludeEnded: false})
 	if err != nil {
@@ -218,15 +201,13 @@ func (s *MemoryL1Service) ListActive(ctx context.Context, sessionID string) ([]L
 	return out, nil
 }
 
-// ListTasks returns tasks matching the query. Used by the HTTP layer for
-// the session sidebar.
+// ListTasks 返回符合查询的任务。HTTP 层用于会话侧栏。
 func (s *MemoryL1Service) ListTasks(ctx context.Context, query domain.L1TaskListQuery) ([]domain.MemoryL1Task, error) {
 	_ = ctx
 	return s.repo.ListL1TasksBySession(query)
 }
 
-// UpdateTaskShared overwrites the shared_with list. Used by Team coordinator
-// to publish a `plan` field to its workers.
+// UpdateTaskShared 覆盖 shared_with 列表。团队协调者向工作者发布 `plan` 字段时使用。
 func (s *MemoryL1Service) UpdateTaskShared(ctx context.Context, taskID string, shared []domain.L1FieldShare) error {
 	_ = ctx
 	if taskID == "" {
@@ -235,9 +216,7 @@ func (s *MemoryL1Service) UpdateTaskShared(ctx context.Context, taskID string, s
 	return s.repo.UpdateL1TaskShared(taskID, shared)
 }
 
-// UpdateTaskBudget changes the per-task token budget. Returns 422 when the
-// caller tries to set a budget below the currently used tokens since that
-// would put the task into immediate overflow.
+// UpdateTaskBudget 修改每任务 token 预算。若新预算低于已用量则返回 422（会立即使任务溢出）。
 func (s *MemoryL1Service) UpdateTaskBudget(ctx context.Context, taskID string, budgetTokens int) error {
 	_ = ctx
 	if taskID == "" {
@@ -256,8 +235,7 @@ func (s *MemoryL1Service) UpdateTaskBudget(ctx context.Context, taskID string, b
 	return s.repo.UpdateL1TaskBudget(taskID, budgetTokens)
 }
 
-// GetField returns one field. The read counter is bumped lazily so callers
-// can see "stale" fields in the UI for trimming decisions (§9 expiry).
+// GetField 返回单字段。读计数惰性增加，便于 UI 展示「陈旧」字段以做裁剪决策（§9 到期）。
 func (s *MemoryL1Service) GetField(ctx context.Context, taskID, fieldPath string) (domain.MemoryL1Field, error) {
 	if taskID == "" || fieldPath == "" {
 		return domain.MemoryL1Field{}, validationError("task_id and field_path are required")
@@ -271,8 +249,7 @@ func (s *MemoryL1Service) GetField(ctx context.Context, taskID, fieldPath string
 	return field, nil
 }
 
-// ListFieldsByTask lists fields for a task. When includeInternal is false
-// the visibility=internal rows are filtered out (matches the LLM tool view).
+// ListFieldsByTask 列出任务字段。includeInternal 为 false 时过滤 visibility=internal（与 LLM 工具视图一致）。
 func (s *MemoryL1Service) ListFieldsByTask(ctx context.Context, taskID string, includeInternal bool) ([]domain.MemoryL1Field, error) {
 	_ = ctx
 	if taskID == "" {
@@ -281,14 +258,14 @@ func (s *MemoryL1Service) ListFieldsByTask(ctx context.Context, taskID string, i
 	return s.repo.ListL1FieldsByTask(taskID, includeInternal)
 }
 
-// SetField executes the spec §5.2 write flow:
-//  1. resolve & lock task; reject terminal status
-//  2. validate field path / value
-//  3. enforce per-field token cap
-//  4. apply optimistic lock (IfRevision)
-//  5. enforce per-task budget unless visibility=internal
-//  6. transactional upsert + history append + budget recompute
-//  7. emit audit log
+// SetField 执行规范 §5.2 写流程：
+//  1. 解析并锁定任务；拒绝终态
+//  2. 校验字段路径/值
+//  3. 强制执行每字段 token 上限
+//  4. 应用乐观锁（IfRevision）
+//  5. 除非 visibility=internal，强制执行每任务预算
+//  6. 事务 upsert + 历史追加 + 预算重算
+//  7. 写审计日志
 func (s *MemoryL1Service) SetField(ctx context.Context, taskID string, patch domain.L1FieldPatch) (domain.MemoryL1Field, error) {
 	_ = ctx
 	if taskID == "" {
@@ -302,7 +279,7 @@ func (s *MemoryL1Service) SetField(ctx context.Context, taskID string, patch dom
 		return domain.MemoryL1Field{}, err
 	}
 	if task.Status.IsTerminal() || task.Status == domain.L1TaskPaused {
-		// paused is also write-protected; only `active` accepts writes.
+		// paused 亦受写保护；仅 `active` 可写。
 		if task.Status != domain.L1TaskActive {
 			return domain.MemoryL1Field{}, fmt.Errorf("%w: status=%s", domain.ErrTaskNotWritable, task.Status)
 		}
@@ -474,10 +451,8 @@ func (s *MemoryL1Service) SetField(ctx context.Context, taskID string, patch dom
 	return stored, nil
 }
 
-// PatchFields applies multiple SetField calls in order. Failures abort the
-// remaining patches and surface the first error so the caller can react.
-// (Phase 2 will upgrade this to a single transaction once the repository
-// exposes a batch upsert.)
+// PatchFields 按顺序执行多次 SetField。失败则中止余下补丁并返回首个错误。
+//（第二阶段仓库提供批量 upsert 后可为单事务。）
 func (s *MemoryL1Service) PatchFields(ctx context.Context, taskID string, patches []domain.L1FieldPatch) ([]domain.MemoryL1Field, error) {
 	out := make([]domain.MemoryL1Field, 0, len(patches))
 	for _, patch := range patches {
@@ -490,9 +465,7 @@ func (s *MemoryL1Service) PatchFields(ctx context.Context, taskID string, patche
 	return out, nil
 }
 
-// DeleteField removes a field from the task. The history rows stay so a
-// later rollback can restore them. The owner task's used_tokens is
-// recomputed inside the repository transaction.
+// DeleteField 从任务移除字段。历史行保留以便回滚。owner 任务的 used_tokens 在仓库事务内重算。
 func (s *MemoryL1Service) DeleteField(ctx context.Context, taskID, fieldPath string) error {
 	_ = ctx
 	if taskID == "" || fieldPath == "" {
@@ -512,9 +485,7 @@ func (s *MemoryL1Service) DeleteField(ctx context.Context, taskID, fieldPath str
 	return nil
 }
 
-// RollbackField copies an older revision back to head as a brand-new write.
-// The old revision number is preserved in history so the audit trail still
-// shows what happened.
+// RollbackField 将旧版本复制回表头作为全新写入。历史中保留原版本号，审计轨迹仍完整。
 func (s *MemoryL1Service) RollbackField(ctx context.Context, taskID, fieldPath string, toRevision int, changedBy string) (domain.MemoryL1Field, error) {
 	_ = ctx
 	if taskID == "" || fieldPath == "" {
@@ -546,7 +517,7 @@ func (s *MemoryL1Service) RollbackField(ctx context.Context, taskID, fieldPath s
 	return s.SetField(ctx, taskID, patch)
 }
 
-// ListFieldHistory returns recent revisions for a field (newest first).
+// ListFieldHistory 返回字段最近版本（最新在前）。
 func (s *MemoryL1Service) ListFieldHistory(ctx context.Context, taskID, fieldPath string, limit int) ([]domain.MemoryL1FieldHistory, error) {
 	_ = ctx
 	if taskID == "" || fieldPath == "" {
@@ -559,13 +530,11 @@ func (s *MemoryL1Service) ListFieldHistory(ctx context.Context, taskID, fieldPat
 	return s.repo.ListL1FieldHistory(field.ID, limit)
 }
 
-// RenderForPrompt builds the markdown block that L0 injects into the system
-// message. Visibility filtering matches spec §5.3:
-//   - pin_to_prompt = false → skipped
-//   - visibility = internal → skipped
-//   - visibility = shared & viewer ∉ shared_with[field].read_by → skipped
-//   - expires_at < now → skipped (and a future TTL job will mark it
-//     internal; we simply don't render the value here)
+// RenderForPrompt 构建 L0 注入系统消息的 markdown 块。可见性过滤同规范 §5.3：
+//   - pin_to_prompt = false → 跳过
+//   - visibility = internal → 跳过
+//   - visibility = shared 且 viewer ∉ shared_with[field].read_by → 跳过
+//   - expires_at < now → 跳过（未来 TTL 任务会标为 internal；此处不渲染值）
 func (s *MemoryL1Service) RenderForPrompt(ctx context.Context, taskID, viewerAgentID string) (domain.L1PromptBlock, error) {
 	_ = ctx
 	if taskID == "" {
@@ -612,10 +581,7 @@ func (s *MemoryL1Service) RenderForPrompt(ctx context.Context, taskID, viewerAge
 	}, nil
 }
 
-// RenderActiveTaskForPrompt is the entry point used by MemoryL0Service. It
-// picks the most recently updated active task for the given (session,
-// agent) pair and renders it. Returns ok=false when no eligible task
-// exists so L0 can omit the segment cleanly.
+// RenderActiveTaskForPrompt 为 MemoryL0Service 入口。选取给定 (session, agent) 最近更新的活动任务并渲染。无合适任务时 ok=false，L0 可干净省略该片段。
 func (s *MemoryL1Service) RenderActiveTaskForPrompt(ctx context.Context, sessionID, agentID string) (domain.L1PromptBlock, bool, error) {
 	if sessionID == "" {
 		return domain.L1PromptBlock{}, false, nil
@@ -640,9 +606,7 @@ func (s *MemoryL1Service) RenderActiveTaskForPrompt(ctx context.Context, session
 	return block, true, nil
 }
 
-// SnapshotForEpisode produces the JSON-friendly view that the L2 episode
-// pipeline (`aranea/docs/14`) consumes. The snapshot mirrors every
-// non-internal field plus task identity and counters.
+// SnapshotForEpisode 产生 L2 情节管线（`aranea/docs/14`）消费的 JSON 视图。镜像所有非 internal 字段及任务标识与计数。
 func (s *MemoryL1Service) SnapshotForEpisode(ctx context.Context, taskID string) (domain.L1Episode, error) {
 	_ = ctx
 	if taskID == "" {
@@ -692,8 +656,7 @@ func (s *MemoryL1Service) SnapshotForEpisode(ctx context.Context, taskID string)
 	}, nil
 }
 
-// ArchiveIdle flips active tasks whose updated_at is older than `before` to
-// status=archived. Returns the count for the cron caller's metric.
+// ArchiveIdle 将 updated_at 早于 `before` 的活动任务置为 archived。返回数量供定时任务指标。
 func (s *MemoryL1Service) ArchiveIdle(ctx context.Context, before string) (int, error) {
 	_ = ctx
 	if before == "" {
@@ -702,9 +665,7 @@ func (s *MemoryL1Service) ArchiveIdle(ctx context.Context, before string) (int, 
 	return s.repo.ArchiveIdleL1Tasks(before)
 }
 
-// UpsertSchema stores or updates a schema row. The HTTP layer normalises the
-// ID before calling so repeat POSTs to the same key return 200 instead of
-// 409.
+// UpsertSchema 存储或更新 schema 行。HTTP 层调用前会规范化 ID，同键重复 POST 返回 200 而非 409。
 func (s *MemoryL1Service) UpsertSchema(ctx context.Context, schema domain.MemoryL1Schema) (domain.MemoryL1Schema, error) {
 	_ = ctx
 	if schema.SchemaKey == "" || schema.ScopeType == "" {
@@ -716,14 +677,13 @@ func (s *MemoryL1Service) UpsertSchema(ctx context.Context, schema domain.Memory
 	return s.repo.UpsertL1Schema(schema)
 }
 
-// ListSchemas returns every schema for a given scope tuple. Empty filters are
-// treated as "match anything" so the front-end can list everything.
+// ListSchemas 返回给定作用域元组下全部 schema。空过滤表示匹配全部，前端可列出所有。
 func (s *MemoryL1Service) ListSchemas(ctx context.Context, scopeType, scopeID string) ([]domain.MemoryL1Schema, error) {
 	_ = ctx
 	return s.repo.ListL1Schemas(scopeType, scopeID)
 }
 
-// GetSchema returns a schema row by ID.
+// GetSchema 按 ID 返回 schema 行。
 func (s *MemoryL1Service) GetSchema(ctx context.Context, id string) (domain.MemoryL1Schema, error) {
 	_ = ctx
 	if id == "" {
@@ -732,9 +692,7 @@ func (s *MemoryL1Service) GetSchema(ctx context.Context, id string) (domain.Memo
 	return s.repo.GetL1SchemaByID(id)
 }
 
-// DeleteSchema removes a schema row. Tasks that pinned to it via
-// l1_default_schema_id keep working — the L0 renderer simply omits the
-// "missing required fields" hint.
+// DeleteSchema 删除 schema 行。通过 l1_default_schema_id 引用的任务仍可用——L0 渲染器仅省略「缺失必填字段」提示。
 func (s *MemoryL1Service) DeleteSchema(ctx context.Context, id string) error {
 	_ = ctx
 	if id == "" {
@@ -743,11 +701,9 @@ func (s *MemoryL1Service) DeleteSchema(ctx context.Context, id string) error {
 	return s.repo.DeleteL1Schema(id)
 }
 
-// --- HELPERS -----------------------------------------------------------------
+// --- 辅助 --------------------------------------------------------------------
 
-// l1Settings is the resolved subset of agent_runtime_settings that the L1
-// write path consults. It is materialised once per call to keep the SetField
-// happy-path branch-free.
+// l1Settings 为 L1 写路径解析的 agent_runtime_settings 子集。每次调用物化一次，使 SetField 主路径无分支。
 type l1Settings struct {
 	enabled        bool
 	budget         int
@@ -793,9 +749,7 @@ func (s *MemoryL1Service) resolveBudget(agentID string) int {
 	return s.resolveSettings(agentID).budget
 }
 
-// maybeLoadSchema fetches the agent's default schema if one is configured.
-// Returns nil when either no agent ID is set or the schema can't be resolved
-// (so the GET task view degrades gracefully).
+// maybeLoadSchema 若已配置则拉取智能体默认 schema。无 agent ID 或无法解析时返回 nil，GET 任务视图优雅降级。
 func (s *MemoryL1Service) maybeLoadSchema(agentID string) *domain.MemoryL1Schema {
 	settings := s.resolveSettings(agentID)
 	if settings.defaultSchema == "" {
@@ -822,9 +776,7 @@ func (s *MemoryL1Service) audit(action, resource, resourceID string, detail map[
 	})
 }
 
-// encodeFieldValue translates the polymorphic patch.Value into the (text,
-// json) tuple stored on disk. The chosen column is dictated by FieldKind so
-// downstream readers don't have to introspect.
+// encodeFieldValue 将多态 patch.Value 转为落盘的 (text, json) 元组。列由 FieldKind 决定，下游无需自省。
 func encodeFieldValue(kind string, value any) (string, string, error) {
 	if value == nil {
 		return "", "", nil
@@ -902,15 +854,13 @@ func estimateFieldTokens(text, jsonValue, ref string) int {
 		return estimateTokensApprox(jsonValue)
 	}
 	if ref != "" {
-		// References are typically <100 chars; charge a flat 8 tokens so
-		// their presence still counts against the budget.
+		// 引用通常 <100 字符；固定计 8 token，使其仍占预算。
 		return 8
 	}
 	return 0
 }
 
-// taskShares answers "is `viewer` allowed to read field `path` of task?".
-// Field-level grants always take precedence over default visibility.
+// taskShares 判断 viewer 是否可读任务的 path 字段。字段级授权优先于默认可见性。
 func taskShares(task domain.MemoryL1Task, fieldPath, viewer string) bool {
 	if viewer == "" || viewer == task.AgentID {
 		return true
@@ -963,9 +913,7 @@ func fieldValueAsAny(f domain.MemoryL1Field) any {
 	return nil
 }
 
-// renderFieldsAsMarkdown matches the layout shown in spec §5.3 so the model
-// always sees a familiar header and bullet list. Fields are sorted by path
-// for deterministic prompts.
+// renderFieldsAsMarkdown 与规范 §5.3 版式一致，模型见固定标题与列表。按 path 排序以保证提示确定性。
 func renderFieldsAsMarkdown(task domain.MemoryL1Task, fields []domain.MemoryL1Field) string {
 	if len(fields) == 0 {
 		return ""

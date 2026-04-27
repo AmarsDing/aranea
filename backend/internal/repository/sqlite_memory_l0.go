@@ -6,9 +6,8 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// InsertL0AssemblySnapshot persists one assembly run. Callers (MemoryL0Service)
-// own the ID generation so the snapshot can be referenced from the model-call
-// span before the row hits SQLite.
+// InsertL0AssemblySnapshot 持久化一次组装运行。调用方（MemoryL0Service）自行生成 ID，
+// 以便在行写入 SQLite 之前即可从模型调用 span 引用该快照。
 func (r *SQLiteRepository) InsertL0AssemblySnapshot(snap domain.L0AssemblySnapshot) error {
 	if snap.ID == "" || snap.SessionID == "" {
 		return errors.New("snapshot id and session_id are required")
@@ -52,9 +51,8 @@ func (r *SQLiteRepository) InsertL0AssemblySnapshot(snap domain.L0AssemblySnapsh
 	return err
 }
 
-// UpdateL0AssemblySnapshotActualTokens is called after the model call returns
-// usage. Storing the real prompt tokens lets the analytics pipeline measure
-// estimator drift and feed the agent-evolution loop.
+// UpdateL0AssemblySnapshotActualTokens 在模型调用返回用量后调用。
+// 保存真实 prompt token 数便于分析管道衡量估计器漂移并驱动智能体演进闭环。
 func (r *SQLiteRepository) UpdateL0AssemblySnapshotActualTokens(snapshotID string, actualPromptTokens int, usedRatio float64) error {
 	if snapshotID == "" {
 		return errors.New("snapshot id is required")
@@ -104,9 +102,8 @@ func (r *SQLiteRepository) ListL0AssemblySnapshotsBySpan(spanID string) ([]domai
 	return scanL0Snapshots(rows)
 }
 
-// ListSessionSummaries returns the existing condensed segments stored on
-// `session_summaries` newest-first. The L0 service only needs a small window
-// (typically the last 8) to seed the prompt header.
+// ListSessionSummaries 返回 `session_summaries` 中已存的浓缩片段，按新到旧排序。
+// L0 服务通常只需最近一小段窗口（常见为最后 8 条）用于填充提示头。
 func (r *SQLiteRepository) ListSessionSummaries(sessionID string, limit int) ([]domain.SessionSummary, error) {
 	if sessionID == "" {
 		return nil, errors.New("session id is required")
@@ -134,8 +131,8 @@ func (r *SQLiteRepository) ListSessionSummaries(sessionID string, limit int) ([]
 	return result, rows.Err()
 }
 
-// AddSessionSummary inserts a summary row produced by SummaryService. The
-// caller fills `ID` / `CreatedAt` to keep this file dependency-free.
+// AddSessionSummary 插入由 SummaryService 生成的摘要行。
+// 调用方填写 `ID` / `CreatedAt`，以免本文件引入额外依赖。
 func (r *SQLiteRepository) AddSessionSummary(summary domain.SessionSummary) (domain.SessionSummary, error) {
 	if summary.ID == "" || summary.SessionID == "" {
 		return domain.SessionSummary{}, errors.New("summary id and session_id are required")

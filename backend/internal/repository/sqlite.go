@@ -14,11 +14,9 @@ import (
 //go:embed migrations/0001_init.sql
 var migrations embed.FS
 
-// SQLiteRepository is the single concrete implementation of Store backed by an
-// embedded SQLite database. The implementation is deliberately split into many
-// per-aggregate files (sqlite_agents.go, sqlite_sessions.go, ...) so each file
-// stays focused and small. Cross-cutting helpers live in sqlite_helpers.go and
-// the migration / seeding logic is anchored here.
+// SQLiteRepository 是以嵌入式 SQLite 实现 Store 的唯一具体类型。实现刻意拆成多个
+// 按聚合划分的文件（sqlite_agents.go、sqlite_sessions.go 等），以保持单文件职责单一、体积可控。
+// 横切辅助函数在 sqlite_helpers.go，迁移与种子数据逻辑以本文件为锚点。
 type SQLiteRepository struct {
 	db *sql.DB
 }
@@ -42,10 +40,8 @@ func (r *SQLiteRepository) Close() error {
 	return r.db.Close()
 }
 
-// Migrate runs the embedded schema in two passes: tables-only first so the
-// legacy column upgrade can ALTER TABLE, then the full schema so indexes are
-// created last. After the schema is up to date all bootstrap seed data is
-// installed.
+// Migrate 分两遍执行嵌入的 schema：先仅建表以便遗留列升级可执行 ALTER TABLE，
+// 再执行完整 schema 使索引最后创建。schema 就绪后安装所有启动种子数据。
 func (r *SQLiteRepository) Migrate() error {
 	schema, err := migrations.ReadFile("migrations/0001_init.sql")
 	if err != nil {
@@ -80,9 +76,8 @@ func (r *SQLiteRepository) Migrate() error {
 	return r.seedAvatarAssets()
 }
 
-// ensureLegacyColumns adds columns to existing tables for installations that
-// were created before later columns existed. Each entry is keyed by table name
-// and lists the column name with its SQLite DDL fragment used by ADD COLUMN.
+// ensureLegacyColumns 为旧安装中已存在、但缺少后续新增列的表追加列。
+// 外层 map 以表名为键；内层为列名及用于 ADD COLUMN 的 SQLite DDL 片段。
 func (r *SQLiteRepository) ensureLegacyColumns() error {
 	columns := map[string]map[string]string{
 		"agents": {

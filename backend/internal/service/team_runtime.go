@@ -482,10 +482,8 @@ func (s *ChatService) generateTeamStep(ctx context.Context, run domain.TeamRun, 
 		}
 	}
 
-	// Each sub-agent gets its own L0 assembly so its prompt window, summaries
-	// and L1/L3/L4 toggles are independent (spec F10). When the L0 service is
-	// unavailable we still keep the legacy plain-history assembly so team runs
-	// don't regress.
+	// 每个子智能体独立 L0 组装，提示窗口、摘要与 L1/L3/L4 开关互不影响（规范 F10）。
+	// L0 不可用时仍保留历史+纯文本组装的旧路径，避免团队运行回退。
 	var (
 		messages []runtime.ChatMessage
 		l0Result domain.L0AssemblyResult
@@ -898,10 +896,9 @@ func (s *ChatService) estimateGeneratedCost(providerModel domain.PlatformResourc
 	return inputCost + outputCost
 }
 
-// teamRuntimeContext builds the structured runtime context shared by all
-// members of a team run. It captures who is in the team, which mode is
-// orchestrating them, and the session metadata. Each member then clones
-// this context with its specific role before the LLM call.
+// teamRuntimeContext 构建团队运行中所有成员共享的结构化运行时上下文。
+// 记录团队成员、编排模式与会话元数据。各成员在调用 LLM 前
+// 用自身角色克隆此上下文。
 func (s *ChatService) teamRuntimeContext(session domain.Session, team domain.Team, def teamDefinition, members []teamMember, mode string, options SendMessageOptions) *runtime.RuntimeContext {
 	dialogMode := strings.TrimSpace(options.DialogMode)
 	if dialogMode == "" {

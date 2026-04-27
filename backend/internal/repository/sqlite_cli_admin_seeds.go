@@ -2,15 +2,11 @@ package repository
 
 import "arenea/backend/internal/domain"
 
-// cliAdminToolSeeds enumerates the `cli_admin_*` toolkit that backs the
-// system administrator agent (see aranea/docs/25 cli.md §6.2). Each
-// entry is a thin wrapper around an existing /api/v1 endpoint so tool
-// invocations route through the same service layer (and thus the same
-// audit / permission / plugin chain) as the Web console. The metadata
-// JSON pins the HTTP binding, the risk class and the cli_admin group so
-// downstream executors can dispatch without hard-coding a Go switch.
+// cliAdminToolSeeds 枚举支撑系统管家的 `cli_admin_*` 工具集（见 aranea/docs/25 cli.md §6.2）。
+// 每项是对已有 /api/v1 端点的薄封装，使工具调用与 Web 控制台走同一服务层（审计/权限/插件链一致）。
+// metadata JSON 固定 HTTP 绑定、风险等级与 cli_admin 分组，下游执行器无需硬编码 Go switch。
 var cliAdminToolSeeds = []domain.Tool{
-	// ---- Skill ------------------------------------------------------
+	// ---- 技能 -------------------------------------------------------
 	{
 		Key: "cli_admin_skill_list", DisplayName: "Skill 列表", Description: "搜索 / 分页查询 Skill。",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -89,7 +85,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("high", "DELETE", "/api/v1/skills/{id}"),
 	},
 
-	// ---- Agent ------------------------------------------------------
+	// ---- 智能体 -----------------------------------------------------
 	{
 		Key: "cli_admin_agent_list", DisplayName: "Agent 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -133,7 +129,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("medium", "PATCH", "/api/v1/agents/{id}/tools/policy"),
 	},
 
-	// ---- Team -------------------------------------------------------
+	// ---- 团队 -------------------------------------------------------
 	{
 		Key: "cli_admin_team_list", DisplayName: "Team 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -165,7 +161,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("medium", "POST", "/api/v1/team-runs"),
 	},
 
-	// ---- Tool -------------------------------------------------------
+	// ---- 工具 -------------------------------------------------------
 	{
 		Key: "cli_admin_tool_list", DisplayName: "Tool 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -191,7 +187,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("medium", "PATCH", "/api/v1/tools/{id}/config"),
 	},
 
-	// ---- Plugin -----------------------------------------------------
+	// ---- 插件 -------------------------------------------------------
 	{
 		Key: "cli_admin_plugin_list", DisplayName: "Plugin 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -223,7 +219,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("medium", "PATCH", "/api/v1/plugins/{id}"),
 	},
 
-	// ---- MCP --------------------------------------------------------
+	// ---- MCP 服务 ---------------------------------------------------
 	{
 		Key: "cli_admin_mcp_list", DisplayName: "MCP Server 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -255,7 +251,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("low", "POST", "/api/v1/mcp-servers/{id}/test"),
 	},
 
-	// ---- Cron -------------------------------------------------------
+	// ---- 定时任务 ---------------------------------------------------
 	{
 		Key: "cli_admin_cron_list", DisplayName: "Cron 任务列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -299,7 +295,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("medium", "POST", "/api/v1/cron-tasks/{id}/trigger"),
 	},
 
-	// ---- Channel ----------------------------------------------------
+	// ---- 渠道 -------------------------------------------------------
 	{
 		Key: "cli_admin_channel_list", DisplayName: "Channel 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -337,7 +333,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("high", "POST", "/api/v1/channels/{id}/send"),
 	},
 
-	// ---- Provider ---------------------------------------------------
+	// ---- 模型提供方 ---------------------------------------------------
 	{
 		Key: "cli_admin_provider_list", DisplayName: "LLM Provider 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -369,7 +365,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("low", "POST", "/api/v1/llm-provider-models/inspect"),
 	},
 
-	// ---- Session ----------------------------------------------------
+	// ---- 会话 -------------------------------------------------------
 	{
 		Key: "cli_admin_session_list", DisplayName: "Session 列表",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -389,7 +385,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("medium", "POST", "/api/v1/chat/messages"),
 	},
 
-	// ---- Monitor ----------------------------------------------------
+	// ---- 监控 -------------------------------------------------------
 	{
 		Key: "cli_admin_monitor_audit", DisplayName: "审计日志查询",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -415,7 +411,7 @@ var cliAdminToolSeeds = []domain.Tool{
 		MetadataJSON:         cliAdminMeta("low", "GET", "/api/v1/model-usage/overview"),
 	},
 
-	// ---- System -----------------------------------------------------
+	// ---- 系统 -------------------------------------------------------
 	{
 		Key: "cli_admin_system_health", DisplayName: "后端健康检查",
 		Category: "system", RiskLevel: "low", Enabled: true, Readonly: true,
@@ -436,16 +432,12 @@ var cliAdminToolSeeds = []domain.Tool{
 	},
 }
 
-// cliAdminMeta produces the standard metadata JSON for a CLI admin tool.
-// Keeping the function next to the seed table makes it obvious which
-// fields downstream executors can rely on (group, risk, http binding).
+// cliAdminMeta 生成 CLI 管理端工具的标准 metadata JSON。与种子表放一起，便于看出执行器可依赖的字段（分组、风险、HTTP 绑定）。
 func cliAdminMeta(risk, method, path string) string {
 	return `{"group":"cli_admin","cli_admin":true,"risk":"` + risk + `","http":{"method":"` + method + `","path":"` + path + `"}}`
 }
 
-// CLIAdminToolKeys returns the deterministic list of cli_admin_* tool
-// keys used to populate the system_admin agent's tools_allow_json and
-// to seed the `cli_admin` tool group consumed by the policy resolver.
+// CLIAdminToolKeys 返回 cli_admin_* 工具 key 的稳定列表，用于填充 system_admin 的 tools_allow_json 及策略解析器消费的 `cli_admin` 工具组种子。
 func CLIAdminToolKeys() []string {
 	keys := make([]string, len(cliAdminToolSeeds))
 	for i, t := range cliAdminToolSeeds {

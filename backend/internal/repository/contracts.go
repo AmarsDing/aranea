@@ -97,9 +97,8 @@ type Store interface {
 	AddAuditLog(l domain.AuditLog) error
 	ListAuditLogs(limit int) ([]domain.AuditLog, error)
 
-	// L1 working memory (aranea/docs/13 memory-L1-working.md §4.2). All methods
-	// are synchronous; the service wraps them into the higher-level lifecycle
-	// hooks consumed by ChatService and the HTTP layer.
+	// L1 工作记忆（aranea/docs/13 memory-L1-working.md §4.2）。方法均为同步；
+	// 服务层将其包装为 ChatService 与 HTTP 层使用的高层生命周期钩子。
 	CreateL1Task(t domain.MemoryL1Task) (domain.MemoryL1Task, error)
 	UpdateL1TaskStatus(taskID string, status domain.L1TaskStatus, endedAt string, archivedAt string) error
 	UpdateL1TaskUsedTokens(taskID string, usedTokens int) error
@@ -125,7 +124,7 @@ type Store interface {
 	GetL1SchemaByID(id string) (domain.MemoryL1Schema, error)
 	DeleteL1Schema(id string) error
 
-	// L2 episodic memory (aranea/docs/14 memory-L2-episodic.md §4.2).
+	// L2 情景记忆（aranea/docs/14 memory-L2-episodic.md §4.2）。
 	CreateEpisode(e domain.MemoryEpisode) (domain.MemoryEpisode, error)
 	UpdateEpisode(e domain.MemoryEpisode) error
 	GetEpisode(id string) (domain.MemoryEpisode, error)
@@ -147,7 +146,7 @@ type Store interface {
 	CountAgentEpisodesSince(agentID, since string) (int, error)
 	InsertToolInvocation(t domain.ToolInvocation) (domain.ToolInvocation, error)
 
-	// L3 semantic memory (aranea/docs/15 memory-L3-semantic.md §4.2).
+	// L3 语义记忆（aranea/docs/15 memory-L3-semantic.md §4.2）。
 	CreateFact(f domain.MemoryFact) (domain.MemoryFact, error)
 	UpdateFact(f domain.MemoryFact) error
 	GetFact(id string) (domain.MemoryFact, error)
@@ -182,8 +181,8 @@ type Store interface {
 	ArchiveFactsBelowConfidence(threshold float64, limit int) (int, error)
 	CountFactsByStatus(scope domain.ScopeType, scopeID string) (map[string]int, error)
 
-	// L4 persistent / evolutionary memory
-	// (aranea/docs/16 memory-L4-persistent.md §5.1).
+	// L4 持久 / 演化记忆
+	//（aranea/docs/16 memory-L4-persistent.md §5.1）。
 	UpsertEntity(e domain.MemoryEntity) (domain.MemoryEntity, error)
 	GetEntity(id string) (domain.MemoryEntity, error)
 	GetEntityByName(scope domain.ScopeType, scopeID string, t domain.EntityType, normalized string) (domain.MemoryEntity, error)
@@ -204,7 +203,7 @@ type Store interface {
 
 	GetNeighborhood(centerID string, hops, maxNodes int) (domain.GraphNeighborhood, error)
 
-	// Agent evolution (§5.3).
+	// Agent 演化（§5.3）。
 	GetAgentIdentity(agentID string) (domain.AgentIdentity, error)
 	UpsertAgentIdentity(id domain.AgentIdentity) (domain.AgentIdentity, error)
 	GetAgentStrategyProfile(agentID string) (domain.AgentStrategyProfile, error)
@@ -226,7 +225,7 @@ type Store interface {
 	ListAgentSkillStats(agentID string, limit int) ([]domain.AgentSkillStat, error)
 }
 
-// EntityListQuery filters knowledge graph nodes in the repository layer.
+// EntityListQuery 在仓储层筛选知识图谱节点。
 type EntityListQuery struct {
 	ScopeType   domain.ScopeType
 	ScopeID     string
@@ -239,7 +238,7 @@ type EntityListQuery struct {
 	Offset      int
 }
 
-// EvolutionEventQuery filters EvolutionEvent rows for list endpoints.
+// EvolutionEventQuery 为列表接口筛选 EvolutionEvent 行。
 type EvolutionEventQuery struct {
 	AgentID     string
 	WorkspaceID string
@@ -250,7 +249,7 @@ type EvolutionEventQuery struct {
 	Offset      int
 }
 
-// EvolutionProposalQuery filters EvolutionProposal rows for list endpoints.
+// EvolutionProposalQuery 为列表接口筛选 EvolutionProposal 行。
 type EvolutionProposalQuery struct {
 	AgentID     string
 	WorkspaceID string
@@ -262,9 +261,8 @@ type EvolutionProposalQuery struct {
 	Offset      int
 }
 
-// FactListQuery filters facts in the repository layer. Empty values are
-// ignored so the same struct works for the "show all" admin endpoint and
-// the scoped agent UI.
+// FactListQuery 在仓储层筛选事实。空字段会被忽略，使同一结构体同时适用于
+// 「展示全部」的管理端接口与限定范围的 Agent 界面。
 type FactListQuery struct {
 	ScopeType   domain.ScopeType
 	ScopeID     string

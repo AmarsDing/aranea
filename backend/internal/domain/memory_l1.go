@@ -1,9 +1,7 @@
 package domain
 
-// L1TaskStatus enumerates the lifecycle states of a working-memory task as
-// described in `aranea/docs/13 memory-L1-working.md` §3.1. The string values
-// match what is persisted in `memory_l1_tasks.status` and surfaced through the
-// HTTP API, so they double as the source of truth for the front-end.
+// L1TaskStatus 枚举工作记忆任务的生命周期状态，见 `aranea/docs/13 memory-L1-working.md` §3.1。
+// 字符串值与持久化在 `memory_l1_tasks.status` 及 HTTP API 暴露的一致，亦作为前端事实来源。
 type L1TaskStatus string
 
 const (
@@ -16,8 +14,7 @@ const (
 	L1TaskArchived  L1TaskStatus = "archived"
 )
 
-// IsTerminal reports whether the status means "no more writes" so the L1
-// service can refuse mutations and the L0 renderer can stop injecting it.
+// IsTerminal 表示状态是否为「不可再写」，L1 服务可据此拒绝变更，L0 渲染器可停止注入。
 func (s L1TaskStatus) IsTerminal() bool {
 	switch s {
 	case L1TaskCompleted, L1TaskFailed, L1TaskCancelled, L1TaskTimeout, L1TaskArchived:
@@ -26,17 +23,15 @@ func (s L1TaskStatus) IsTerminal() bool {
 	return false
 }
 
-// L1FieldShare encodes per-field cross-agent visibility. Stored as JSON inside
-// `memory_l1_tasks.shared_with_json`. ReadBy contains agent IDs (or `team:*`
-// wildcards) that may read the listed field even if it is otherwise private.
+// L1FieldShare 编码按字段的跨智能体可见性。以 JSON 存在 `memory_l1_tasks.shared_with_json`。
+// ReadBy 为可读取所列字段的智能体 ID（或 `team:*` 通配），即便该字段默认为私有。
 type L1FieldShare struct {
 	Field  string   `json:"field"`
 	ReadBy []string `json:"read_by"`
 }
 
-// MemoryL1Task is the in-memory shape of one row in `memory_l1_tasks`. The
-// container ties a working-memory snapshot to a session / agent / run so the
-// L0 renderer and ChatService can find the right state for each turn.
+// MemoryL1Task 为 `memory_l1_tasks` 表一行的内存形态。
+// 将工作记忆快照与会话 / 智能体 / 运行关联，供 L0 渲染器与 ChatService 在每轮定位正确状态。
 type MemoryL1Task struct {
 	ID            string         `json:"id"`
 	SessionID     string         `json:"session_id"`
@@ -60,9 +55,8 @@ type MemoryL1Task struct {
 	UpdatedAt     string         `json:"updated_at"`
 }
 
-// MemoryL1Field is the in-memory shape of one row in `memory_l1_fields`. The
-// value is split across text / json / ref columns so callers can store either
-// a primitive payload, a structured payload, or just a reference id.
+// MemoryL1Field 为 `memory_l1_fields` 表一行的内存形态。
+// 值分布在 text / json / ref 列，调用方可存原始载荷、结构化载荷或仅引用 id。
 type MemoryL1Field struct {
 	ID            string         `json:"id"`
 	TaskID        string         `json:"task_id"`
@@ -90,8 +84,7 @@ type MemoryL1Field struct {
 	UpdatedAt     string         `json:"updated_at"`
 }
 
-// MemoryL1FieldHistory records one revision of a field. It is appended on
-// every write (see spec §5.2) so users can roll back.
+// MemoryL1FieldHistory 记录字段的一次修订。每次写入追加（见规范 §5.2），供用户回滚。
 type MemoryL1FieldHistory struct {
 	ID            string `json:"id"`
 	FieldID       string `json:"field_id"`
@@ -109,9 +102,8 @@ type MemoryL1FieldHistory struct {
 	CreatedAt     string `json:"created_at"`
 }
 
-// MemoryL1Schema represents one declared expected-fields schema for a scope
-// (agent / skill / team / global). The actual JSON Schema text lives in
-// SchemaJSON. Validation against this schema happens on writes (Phase 2).
+// MemoryL1Schema 表示某作用域（智能体 / 技能 / 团队 / 全局）声明的预期字段模式。
+// 实际 JSON Schema 文本在 SchemaJSON。与此模式的校验在写入时进行（第二阶段）。
 type MemoryL1Schema struct {
 	ID            string         `json:"id"`
 	ScopeType     string         `json:"scope_type"`
@@ -126,9 +118,8 @@ type MemoryL1Schema struct {
 	UpdatedAt     string         `json:"updated_at"`
 }
 
-// L1FieldPatch is the input to MemoryL1Service.SetField / PatchFields. The
-// service decides which value column to fill based on FieldKind. IfRevision
-// implements the optimistic-lock contract from spec §5.2 step 6.
+// L1FieldPatch 为 MemoryL1Service.SetField / PatchFields 的输入。
+// 服务按 FieldKind 决定写入哪一值列。IfRevision 实现规范 §5.2 第 6 步的乐观锁约定。
 type L1FieldPatch struct {
 	FieldPath    string         `json:"field_path"`
 	FieldKind    string         `json:"field_kind,omitempty"`
@@ -147,8 +138,7 @@ type L1FieldPatch struct {
 	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
-// L1TaskListQuery is the filter used by the HTTP layer to list tasks of one
-// session.
+// L1TaskListQuery 为 HTTP 层列举单会话任务时使用的过滤条件。
 type L1TaskListQuery struct {
 	SessionID    string
 	AgentID      string
@@ -156,11 +146,9 @@ type L1TaskListQuery struct {
 	IncludeEnded bool
 }
 
-// L1PromptBlock is the rendered view of a task's prompt-visible fields. It is
-// produced by MemoryL1Service.RenderForPrompt and consumed by MemoryL0Service
-// (see spec §5.3). The Content is the markdown / yaml fed into the model;
-// MissingFields lists schema-required paths that are still empty so the L0
-// layer can append a "please fill in" reminder.
+// L1PromptBlock 为任务在提示中可见字段的渲染结果。
+// 由 MemoryL1Service.RenderForPrompt 生成，由 MemoryL0Service 消费（见规范 §5.3）。
+// Content 为送入模型的 markdown / yaml；MissingFields 列出模式中仍为空的路径，供 L0 追加「请补全」提示。
 type L1PromptBlock struct {
 	Section       string   `json:"section"`
 	Role          string   `json:"role"`
@@ -172,9 +160,7 @@ type L1PromptBlock struct {
 	TaskID        string   `json:"task_id,omitempty"`
 }
 
-// L1Episode is the snapshot delivered to the L2 episode pipeline when a task
-// ends. The actual L2 schema lives in `aranea/docs/14`; this is just the
-// transport shape.
+// L1Episode 为任务结束时交付给 L2 片段流水线的快照。L2 实际模式见 `aranea/docs/14`；此处仅为传输形态。
 type L1Episode struct {
 	TaskID       string         `json:"task_id"`
 	SessionID    string         `json:"session_id"`

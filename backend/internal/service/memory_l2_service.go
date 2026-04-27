@@ -1,13 +1,11 @@
-// Package service – MemoryL2Service is the L2 episodic-memory façade
-// described in `aranea/docs/14 memory-L2-episodic.md`. Phase 1 ships
-// archival of L1 tasks into `memory_episodes`, the unified event view
-// (UNION ALL across messages / tools / skills / model usage / team_run_steps),
-// episode CRUD, and event Marks. Phase 2 adds BM25 indexing and Recall.
+// Package service – MemoryL2Service 为 L2 情节记忆门面，
+// 见 `aranea/docs/14 memory-L2-episodic.md`。第一阶段提供
+// 将 L1 任务归档到 `memory_episodes`、统一事件视图
+//（对 messages / tools / skills / model usage / team_run_steps 做 UNION ALL）、
+// 情节 CRUD 与事件标记。第二阶段增加 BM25 索引与 Recall。
 //
-// The service intentionally has no goroutines of its own — index builds
-// and consolidation are scheduled by the caller (cmd/server) so we can
-// keep tests deterministic. Phase 1 tests can simply call BuildIndexFor
-// inline.
+// 本服务刻意不自带 goroutine——索引构建与整合由调用方（cmd/server）调度，
+// 以保证测试可重复。第一阶段测试可直接内联调用 BuildIndexFor。
 package service
 
 import (
@@ -24,10 +22,9 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// MemoryL2Service mediates between L1 tasks, episode storage, the unified
-// event view, marks, and (Phase 2) Recall. The L1 dependency is narrow on
-// purpose: the Snapshot-only contract (mirrors L1PromptSource) keeps the
-// import graph acyclic and lets tests inject a stub.
+// MemoryL2Service 在 L1 任务、情节存储、统一事件视图、标记与（第二阶段）Recall 间协调。
+// L1 依赖刻意收窄：仅快照契约（与 L1PromptSource 类似）保持
+// 导入无环，测试可注入桩。
 type MemoryL2Service struct {
 	repo     repository.Store
 	memoryL1 L1SnapshotSource
@@ -35,46 +32,38 @@ type MemoryL2Service struct {
 	now      func() string
 }
 
-// L1SnapshotSource is the slim view of MemoryL1Service that L2 needs when
-// archiving an L1 task into an episode. Implemented by *MemoryL1Service.
+// L1SnapshotSource 为 L2 将 L1 任务归档为情节时所需的 MemoryL1Service 薄视图。由 *MemoryL1Service 实现。
 type L1SnapshotSource interface {
 	SnapshotForEpisode(ctx context.Context, taskID string) (domain.L1Episode, error)
 }
 
-// L4EpisodeExtractionSource is the narrow dependency used to extract graph
-// entities from newly-created episodes without making L2 depend on L4's full
-// service surface.
+// L4EpisodeExtractionSource 为从新创建情节提取图实体的窄依赖，避免 L2 依赖 L4 全量服务面。
 type L4EpisodeExtractionSource interface {
 	ExtractFromEpisode(ctx context.Context, episodeID string) (ExtractionReport, error)
 }
 
-// NewMemoryL2Service builds the service over a repository and (optionally)
-// an L1 source. Callers wire the L1 source via SetL1Source so tests can
-// instantiate an L2 service without bringing the full L1 plumbing.
+// NewMemoryL2Service 在仓库上构建服务，并可接 L1 源。调用方通过 SetL1Source 接线，测试可不拉通完整 L1。
 func NewMemoryL2Service(repo repository.Store) *MemoryL2Service {
 	return &MemoryL2Service{repo: repo, now: nowUTC}
 }
 
-// SetL1Source attaches an L1 snapshot provider used during ArchiveL1Task.
-// Nil disables L1-derived archival but keeps the milestone path live.
+// SetL1Source 挂接 ArchiveL1Task 使用的 L1 快照提供方。nil 则禁用基于 L1 的归档，里程碑路径仍可用。
 func (s *MemoryL2Service) SetL1Source(src L1SnapshotSource) { s.memoryL1 = src }
 
-// SetL4ExtractionSource wires L4 extraction after episode writes. Extraction
-// failures are best-effort and never block L2 archival / milestone creation.
+// SetL4ExtractionSource 在情节写入后连接 L4 提取。提取失败为尽力而为，不阻塞 L2 归档/里程碑创建。
 func (s *MemoryL2Service) SetL4ExtractionSource(src L4EpisodeExtractionSource) { s.memoryL4 = src }
 
-// SetClock overrides the clock for tests.
+// SetClock 覆盖时钟供测试使用。
 func (s *MemoryL2Service) SetClock(now func() string) {
 	if now != nil {
 		s.now = now
 	}
 }
 
-// --- Inputs / outputs --------------------------------------------------------
+// --- 输入/输出 --------------------------------------------------------
 
-// CreateEpisodeInput is the parameter object accepted by both the
-// ArchiveL1Task path (after L1 snapshot extraction) and the manual
-// CreateMilestoneEpisode path. The HTTP layer also reuses it for §6.3 POST.
+// CreateEpisodeInput 为 ArchiveL1Task（L1 快照提取后）与手工
+// CreateMilestoneEpisode 共用的参数对象。HTTP 层也复用于 §6.3 POST。
 type CreateEpisodeInput struct {
 	SessionID      string                 `json:"session_id"`
 	RunID          string                 `json:"run_id,omitempty"`
@@ -99,7 +88,7 @@ type CreateEpisodeInput struct {
 	EndedAt        string                 `json:"ended_at,omitempty"`
 }
 
-// EpisodeListResult is the wire shape of GET §6.3.
+// EpisodeListResult 为 GET §6.3 的线形状。
 type EpisodeListResult struct {
 	Items  []domain.MemoryEpisode `json:"items"`
 	Total  int                    `json:"total"`
@@ -107,9 +96,8 @@ type EpisodeListResult struct {
 	Offset int                    `json:"offset"`
 }
 
-// EpisodeDetail is the wire shape of GET §6.3 (single episode). Marks come
-// from `memory_event_marks`; recent events come from a window of `ListL2Events`
-// scoped to the same session and bounded by `started_at` / `ended_at`.
+// EpisodeDetail 为 GET §6.3 单条情节的线形状。标记来自 `memory_event_marks`；
+// 最近事件来自同会话的 `ListL2Events` 窗口，受 `started_at` / `ended_at` 约束。
 type EpisodeDetail struct {
 	Episode domain.MemoryEpisode     `json:"episode"`
 	Events  []domain.MemoryL2Event   `json:"events,omitempty"`
@@ -117,7 +105,7 @@ type EpisodeDetail struct {
 	Summary string                   `json:"summary,omitempty"`
 }
 
-// EventListResult is the wire shape of GET §6.2.
+// EventListResult 为 GET §6.2 的线形状。
 type EventListResult struct {
 	Items  []domain.MemoryL2Event `json:"items"`
 	Total  int                    `json:"total"`
@@ -125,7 +113,7 @@ type EventListResult struct {
 	Offset int                    `json:"offset"`
 }
 
-// MarkInput is the wire shape of POST §6.4.
+// MarkInput 为 POST §6.4 的线形状。
 type MarkInput struct {
 	EpisodeID string         `json:"episode_id,omitempty"`
 	RefKind   string         `json:"ref_kind"`
@@ -137,19 +125,17 @@ type MarkInput struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
-// RetentionReport is returned by ApplyRetention so the cron caller can emit
-// metrics / audit log lines.
+// RetentionReport 由 ApplyRetention 返回，供定时任务记录指标/审计行。
 type RetentionReport struct {
 	ArchivedEpisodes int `json:"archived_episodes"`
 	DeletedEpisodes  int `json:"deleted_episodes"`
 }
 
-// --- Episode lifecycle -------------------------------------------------------
+// --- 情节生命周期 -------------------------------------------------------
 
-// ArchiveL1Task implements §5.2: pull the L1 snapshot, aggregate counters,
-// derive importance, and create the episode (status=pending consolidation).
-// It is idempotent on (session_id, l1_task_id) – when an active episode
-// already exists for the task we return it unchanged.
+// ArchiveL1Task 实现 §5.2：拉取 L1 快照、汇总计数、
+// 推导重要性并创建情节（状态=pending consolidation）。
+// 在 (session_id, l1_task_id) 上幂等——若任务已有活动情节则原样返回。
 func (s *MemoryL2Service) ArchiveL1Task(ctx context.Context, l1TaskID string) (domain.MemoryEpisode, error) {
 	if l1TaskID == "" {
 		return domain.MemoryEpisode{}, validationError("l1_task_id is required")
@@ -248,18 +234,16 @@ func (s *MemoryL2Service) ArchiveL1Task(ctx context.Context, l1TaskID string) (d
 		"importance": created.Importance,
 	})
 	if settings.IndexEnabled {
-		// Best-effort: index failures must never block archival.
+		// 尽力：索引失败不得阻塞归档。
 		_ = s.BuildIndexFor(ctx, created.ID)
 	}
 	s.extractEpisodeToL4(ctx, created.ID)
 	return created, nil
 }
 
-// CreateMilestoneEpisode is the §5.4 user / Critic / Plugin entry point.
-// Unlike ArchiveL1Task it does not require an L1 snapshot — callers supply
-// the title / goal / outcome directly. Importance defaults to 0.6 (above
-// the typical consolidation floor) so the consolidation worker picks it up
-// quickly.
+// CreateMilestoneEpisode 为 §5.4 用户/Critic/插件入口。
+// 与 ArchiveL1Task 不同，不需要 L1 快照——调用方直接提供 title/goal/outcome。
+// 重要性默认 0.6（高于一般整合门槛），整合任务会较快拾取。
 func (s *MemoryL2Service) CreateMilestoneEpisode(ctx context.Context, in CreateEpisodeInput) (domain.MemoryEpisode, error) {
 	_ = ctx
 	if in.SessionID == "" {
@@ -340,9 +324,8 @@ func (s *MemoryL2Service) CreateMilestoneEpisode(ctx context.Context, in CreateE
 	return created, nil
 }
 
-// UpdateEpisode mutates the editable fields of an episode. Callers must pass
-// the full row (typical pattern: GET → mutate → PATCH). The repository
-// preserves embedding / consolidation status so the worker can keep going.
+// UpdateEpisode 修改情节可编辑字段。调用方应传完整行（典型：GET → 修改 → PATCH）。仓库
+// 保留嵌入/整合状态，工作线程可继续运行。
 func (s *MemoryL2Service) UpdateEpisode(ctx context.Context, ep domain.MemoryEpisode) (domain.MemoryEpisode, error) {
 	_ = ctx
 	if ep.ID == "" {
@@ -361,7 +344,7 @@ func (s *MemoryL2Service) UpdateEpisode(ctx context.Context, ep domain.MemoryEpi
 	return updated, nil
 }
 
-// DeleteEpisode is a soft delete. The underlying events stay queryable.
+// DeleteEpisode 为软删除。底层事件仍可查。
 func (s *MemoryL2Service) DeleteEpisode(ctx context.Context, id string) error {
 	_ = ctx
 	if id == "" {
@@ -374,9 +357,8 @@ func (s *MemoryL2Service) DeleteEpisode(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetEpisode loads an episode plus its marks and a recent slice of events.
-// The events window uses the episode timestamps when available so callers
-// see only related rows.
+// GetEpisode 加载情节及其标记与最近事件切片。
+// 在可用时使用情节时间戳作为事件窗口，使调用方只见相关行。
 func (s *MemoryL2Service) GetEpisode(ctx context.Context, id string) (EpisodeDetail, error) {
 	_ = ctx
 	if id == "" {
@@ -401,7 +383,7 @@ func (s *MemoryL2Service) GetEpisode(ctx context.Context, id string) (EpisodeDet
 	}, nil
 }
 
-// ListEpisodes returns paginated episodes for a session.
+// ListEpisodes 分页返回某会话的情节。
 func (s *MemoryL2Service) ListEpisodes(ctx context.Context, sessionID, kind string, limit, offset int) (EpisodeListResult, error) {
 	_ = ctx
 	if sessionID == "" {
@@ -423,7 +405,7 @@ func (s *MemoryL2Service) ListEpisodes(ctx context.Context, sessionID, kind stri
 	return EpisodeListResult{Items: items, Total: total, Limit: limit, Offset: offset}, nil
 }
 
-// ListEvents proxies to the repository's UNION ALL query.
+// ListEvents 代理到仓库的 UNION ALL 查询。
 func (s *MemoryL2Service) ListEvents(ctx context.Context, q domain.MemoryL2EventQuery) (EventListResult, error) {
 	_ = ctx
 	if q.SessionID == "" {
@@ -449,11 +431,10 @@ func (s *MemoryL2Service) ListEvents(ctx context.Context, q domain.MemoryL2Event
 	return EventListResult{Items: items, Total: total, Limit: limit, Offset: offset}, nil
 }
 
-// --- Marks -------------------------------------------------------------------
+// --- 标记 -------------------------------------------------------------------
 
-// Mark applies a §3.4 mark and bumps the linked episode's importance per
-// §5.4 (star ⇒ +0.2; consolidate ⇒ +0.15 etc., capped at 1.0). When
-// EpisodeID is empty and the ref is itself an episode, we use ref_id.
+// Mark 应用 §3.4 标记并按 §5.4 提高关联情节重要性（star ⇒ +0.2；consolidate ⇒ +0.15 等，上限 1.0）。当
+// EpisodeID 为空且引用本身为情节时，使用 ref_id。
 func (s *MemoryL2Service) Mark(ctx context.Context, in MarkInput) (domain.MemoryEventMark, error) {
 	_ = ctx
 	if in.RefKind == "" || in.RefID == "" || in.MarkType == "" {
@@ -472,9 +453,7 @@ func (s *MemoryL2Service) Mark(ctx context.Context, in MarkInput) (domain.Memory
 	if mark.EpisodeID == "" && in.RefKind == "episode" {
 		mark.EpisodeID = in.RefID
 	}
-	// session_id resolution: prefer the linked episode; fall back to ""
-	// (the repository will reject ""). For non-episode refs the caller
-	// must pass episode_id explicitly so we can resolve the session.
+	// session_id 解析：优先关联情节；否则为 ""（仓库会拒绝 ""）。非情节引用须显式传 episode_id 以解析会话。
 	sessionID, err := s.resolveSessionForMark(mark)
 	if err != nil {
 		return domain.MemoryEventMark{}, err
@@ -497,8 +476,7 @@ func (s *MemoryL2Service) Mark(ctx context.Context, in MarkInput) (domain.Memory
 	return stored, nil
 }
 
-// UnMark soft-deletes a mark by ID. Importance is left as-is so a
-// subsequent re-mark doesn't double-count.
+// UnMark 按 ID 软删标记。重要性不变，避免再次标记时重复累加。
 func (s *MemoryL2Service) UnMark(ctx context.Context, id string) error {
 	_ = ctx
 	if id == "" {
@@ -511,7 +489,7 @@ func (s *MemoryL2Service) UnMark(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListMarks returns recent marks for a session (optionally filtered by type).
+// ListMarks 返回某会话的最近标记（可按类型过滤）。
 func (s *MemoryL2Service) ListMarks(ctx context.Context, sessionID, markType string, limit int) ([]domain.MemoryEventMark, error) {
 	_ = ctx
 	if sessionID == "" {
@@ -520,11 +498,9 @@ func (s *MemoryL2Service) ListMarks(ctx context.Context, sessionID, markType str
 	return s.repo.ListEventMarks(sessionID, markType, limit)
 }
 
-// --- Recall (Phase 2 surface, BM25-only) ------------------------------------
+// --- 召回（第二阶段能力，仅 BM25） ------------------------------------
 
-// RecallByQuery executes the §5.3 fusion against the BM25 index. Vector
-// recall lands once embeddings are wired (Phase 3); the function shape is
-// stable so callers don't need to migrate later.
+// RecallByQuery 对 BM25 索引执行 §5.3 融合。向量召回在接入嵌入后可用（第三阶段）；函数签名稳定，调用方无需后续迁移。
 func (s *MemoryL2Service) RecallByQuery(ctx context.Context, q domain.MemoryL2RecallQuery) ([]domain.MemoryL2RecallResult, error) {
 	_ = ctx
 	if q.SessionID == "" {
@@ -557,10 +533,7 @@ func (s *MemoryL2Service) RecallByQuery(ctx context.Context, q domain.MemoryL2Re
 	return results, nil
 }
 
-// RecallSegmentForL0 returns a prompt-ready segment when the agent has L2
-// recall enabled and there are matching episodes. The L0 service injects it
-// alongside L3 / L4 segments. The function NEVER errors – missing data
-// silently returns ok=false so the L0 happy path stays branch-free.
+// RecallSegmentForL0 在启用 L2 召回且有匹配情节时返回可注入提示的片段。L0 与 L3/L4 片段一并注入。函数永不返回错误——缺数据时静默 ok=false，L0 主路径无分支。
 func (s *MemoryL2Service) RecallSegmentForL0(ctx context.Context, sessionID, agentID, query string) (domain.L0Segment, bool) {
 	if sessionID == "" {
 		return domain.L0Segment{}, false
@@ -592,11 +565,9 @@ func (s *MemoryL2Service) RecallSegmentForL0(ctx context.Context, sessionID, age
 	}, true
 }
 
-// --- Indexing ---------------------------------------------------------------
+// --- 索引 -------------------------------------------------------------------
 
-// BuildIndexFor renders the FTS5 row for an episode. Phase 1 picks a small
-// concatenation of (title, goal, outcome_summary, result_preview, key
-// decisions) — enough for the BM25 ranker; Phase 3 will bolt on embeddings.
+// BuildIndexFor 为情节生成 FTS5 行。第一阶段串接 (title, goal, outcome_summary, result_preview, key decisions) 的小文本——足够 BM25 排序；第三阶段可再加嵌入。
 func (s *MemoryL2Service) BuildIndexFor(ctx context.Context, episodeID string) error {
 	_ = ctx
 	if episodeID == "" {
@@ -628,12 +599,10 @@ func (s *MemoryL2Service) BuildIndexFor(ctx context.Context, episodeID string) e
 	return nil
 }
 
-// --- Retention --------------------------------------------------------------
+// --- 保留策略 --------------------------------------------------------------
 
-// ApplyRetention archives episodes older than `archive_after_days` and
-// hard-deletes archived/deleted rows older than `retention_days`. Both
-// thresholds are read from the agent's runtime settings; missing rows
-// fall back to spec defaults (90 days retention / 30 days archival).
+// ApplyRetention 将超过 `archive_after_days` 的情节归档，并
+// 硬删除早于 `retention_days` 的已归档/已删行。两阈值从智能体运行时设置读取；缺省回退规范默认（保留 90 天 / 归档 30 天）。
 func (s *MemoryL2Service) ApplyRetention(ctx context.Context) (RetentionReport, error) {
 	_ = ctx
 	settings := s.resolveSettings("")
@@ -655,7 +624,7 @@ func (s *MemoryL2Service) ApplyRetention(ctx context.Context) (RetentionReport, 
 	return RetentionReport{ArchivedEpisodes: archived, DeletedEpisodes: deleted}, nil
 }
 
-// --- internals ---------------------------------------------------------------
+// --- 内部实现 ---------------------------------------------------------------
 
 type l2Settings struct {
 	EpisodeEnabled       bool
@@ -717,10 +686,7 @@ func (s *MemoryL2Service) findExistingEpisodeForTask(sessionID, l1TaskID string)
 	return domain.MemoryEpisode{}, false
 }
 
-// resolveSessionForMark resolves the session_id for a new mark. Episode-
-// scoped marks read from the linked episode; everything else defers to
-// the caller (front-end) so we never have to reverse-engineer the table
-// of origin.
+// resolveSessionForMark 解析新标记的 session_id。情节级标记从关联情节读取；其余由调用方（前端）显式提供，避免反查来源表。
 func (s *MemoryL2Service) resolveSessionForMark(m domain.MemoryEventMark) (string, error) {
 	if m.EpisodeID != "" {
 		ep, err := s.repo.GetEpisode(m.EpisodeID)
@@ -734,8 +700,8 @@ func (s *MemoryL2Service) resolveSessionForMark(m domain.MemoryEventMark) (strin
 	return "", validationError("session_id (or episode_id) is required for mark")
 }
 
-// adjustImportanceForMark bumps the importance per §5.4. Best-effort —
-// failures are silent so the mark itself still lands.
+// adjustImportanceForMark 按 §5.4 提高重要性。尽力而为——
+// 失败静默，标记本身仍会落库。
 func (s *MemoryL2Service) adjustImportanceForMark(episodeID, markType string) {
 	delta := 0.0
 	switch strings.ToLower(strings.TrimSpace(markType)) {
@@ -799,9 +765,9 @@ func (s *MemoryL2Service) extractEpisodeToL4(ctx context.Context, episodeID stri
 	})
 }
 
-// --- Pure helpers -----------------------------------------------------------
+// --- 纯函数辅助 -----------------------------------------------------------
 
-// l2SessionStats aggregates quick counters for an episode header.
+// l2SessionStats 汇总情节头部的快速计数。
 type l2SessionStats struct {
 	MessageCount      int
 	ToolCallCount     int
@@ -811,9 +777,8 @@ type l2SessionStats struct {
 	TotalCostMicroUSD int64
 }
 
-// collectSessionStats walks the unified event view to fill the counters
-// stored on the episode. The window respects (started_at, ended_at) when
-// both are set; otherwise we use the entire session.
+// collectSessionStats 遍历统一事件视图填充情节上存储的计数。
+// 若同时设置 (started_at, ended_at) 则尊重该窗口；否则使用整段会话。
 func (s *MemoryL2Service) collectSessionStats(sessionID, agentID, startedAt, endedAt string) l2SessionStats {
 	var stats l2SessionStats
 	events, _, err := s.repo.ListL2Events(domain.MemoryL2EventQuery{
@@ -846,8 +811,8 @@ func (s *MemoryL2Service) collectSessionStats(sessionID, agentID, startedAt, end
 	return stats
 }
 
-// computeImportance is the §5.2 step-5 scoring formula. It is intentionally
-// linear and bounded so the front-end can show the contributing factors.
+// computeImportance 为 §5.2 第 5 步评分公式。刻意为线性有界，
+// 便于前端展示各因素贡献。
 func computeImportance(snap domain.L1Episode, stats l2SessionStats) float64 {
 	imp := 0.3
 	if snap.Status == domain.L1TaskCompleted {
@@ -876,10 +841,7 @@ func computeImportance(snap domain.L1Episode, stats l2SessionStats) float64 {
 	return imp
 }
 
-// extractKeyDecisionsArtifacts walks the L1 snapshot picking out fields
-// whose path starts with "decisions." or "artifacts." Phase 1 keeps the
-// extractor simple — just pull the rendered values; future phases will
-// hydrate richer metadata from `session_trace_spans`.
+// extractKeyDecisionsArtifacts 遍历 L1 快照，抽取路径以 "decisions." 或 "artifacts." 开头的字段。第一阶段保持简单——仅取渲染值；后续可从 `session_trace_spans` 丰富元数据。
 func extractKeyDecisionsArtifacts(snap domain.L1Episode) ([]domain.L2KeyDecision, []domain.L2KeyArtifact) {
 	var decisions []domain.L2KeyDecision
 	var artifacts []domain.L2KeyArtifact
@@ -989,11 +951,7 @@ func applyKindFilter(results []domain.MemoryL2RecallResult, kinds []domain.Episo
 	return out
 }
 
-// fuseRecallScores normalises BM25 (already flipped to "higher = better")
-// into [0,1] and computes the §5.3 weighted final rank. With BM25 being
-// the only signal in Phase 1, the fused score is dominated by it; the
-// importance term keeps high-value episodes from being buried by very
-// recent low-score hits.
+// fuseRecallScores 将 BM25（已翻转为「越高越好」）归一化到 [0,1] 并计算 §5.3 加权最终排名。第一阶段仅 BM25 信号时融合分主要由其决定；重要性项避免高价值情节被极新低分命中埋没。
 func fuseRecallScores(results []domain.MemoryL2RecallResult) []domain.MemoryL2RecallResult {
 	if len(results) == 0 {
 		return results
@@ -1016,9 +974,7 @@ func fuseRecallScores(results []domain.MemoryL2RecallResult) []domain.MemoryL2Re
 	return results
 }
 
-// renderRecallMarkdown formats recall results as a compact bullet list so
-// the LLM can absorb them with minimal prompt overhead. Only summary
-// fields are rendered (per §9: "Recall 只返回摘要").
+// renderRecallMarkdown 将召回结果格式化为紧凑列表，降低提示开销。仅渲染摘要字段（§9：「Recall 只返回摘要」）。
 func renderRecallMarkdown(results []domain.MemoryL2RecallResult) string {
 	var b strings.Builder
 	b.WriteString("## Episodic Memory (recall)\n")
@@ -1038,9 +994,7 @@ func renderRecallMarkdown(results []domain.MemoryL2RecallResult) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// buildIndexText concatenates the searchable surface of an episode. We
-// repeat the title to give it more weight in BM25 (FTS5 doesn't support
-// per-field boosts in Phase 1).
+// buildIndexText 串接情节的可搜索表面。标题重复一次以在 BM25 中加大权重（第一阶段 FTS5 不支持按字段加权）。
 func buildIndexText(ep domain.MemoryEpisode) string {
 	var parts []string
 	if ep.Title != "" {

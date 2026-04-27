@@ -1,10 +1,7 @@
-// Package service – lightweight regex-based PII filter used by the L3
-// memory pipeline (`aranea/docs/15 memory-L3-semantic.md` §5.2 step 2).
-// The implementation is intentionally simple — phone / email / credit
-// card / id-like number detection — so it can run synchronously on the
-// upsert path without taking a dependency on a NER model. Service code
-// uses `RedactPII` to produce both a flag (was anything detected?) and a
-// masked version of the input that's safe to surface in shared scopes.
+// Package service – L3 记忆管线（`aranea/docs/15 memory-L3-semantic.md` §5.2 第 2 步）使用的轻量正则 PII 过滤器。
+// 实现刻意保持简单 —— 电话 / 邮箱 / 信用卡 / 类身份证数字 —— 以便在 upsert 路径同步运行，
+// 不依赖 NER 模型。业务代码用 `RedactPII` 同时得到是否命中与
+// 可安全出现在共享域中的脱敏文本。
 package service
 
 import (
@@ -12,16 +9,14 @@ import (
 	"strings"
 )
 
-// PIIFilter detects and masks personally identifiable information in
-// free-form text. The zero value is ready to use.
+// PIIFilter 检测并脱敏自由文本中的个人可识别信息。零值即可使用。
 type PIIFilter struct{}
 
-// NewPIIFilter returns a default PII filter with the built-in regex set.
+// NewPIIFilter 返回带内置正则集合的默认 PII 过滤器。
 func NewPIIFilter() *PIIFilter { return &PIIFilter{} }
 
-// piiPatterns are matched against the input in order. Each pattern's
-// match is replaced with a fixed mask token so downstream callers can
-// detect redactions without reparsing.
+// piiPatterns 按顺序与输入匹配。每则模式的匹配替换为固定掩码标记，下游
+// 可据此识别脱敏而无需重解析。
 var piiPatterns = []struct {
 	name    string
 	mask    string
@@ -35,9 +30,8 @@ var piiPatterns = []struct {
 	{
 		name: "phone",
 		mask: "[REDACTED_PHONE]",
-		// Permissive intl phone matcher — at least 7 digits with optional
-		// separators / leading +. The leading boundary keeps it from
-		// eating the digit suffix of unrelated identifiers.
+		// 宽松国际电话：至少 7 位数字，可选分隔符/前置 +。前导边界避免
+		// 吞掉无关标识符尾部的数字。
 		pattern: regexp.MustCompile(`(?:\+?\d[\d\s\-]{6,}\d)`),
 	},
 	{
@@ -48,17 +42,14 @@ var piiPatterns = []struct {
 	{
 		name: "id_number",
 		mask: "[REDACTED_ID]",
-		// Long digit / alnum runs that look like national IDs / SSNs but
-		// are not phone/credit-card matches (we run this last so the
-		// other masks have already caught them).
+		// 长数字/字母数字串，形似国民身份证/SSN 等，且非先前几类（最后执行，
+		// 故其它掩码已先处理）。
 		pattern: regexp.MustCompile(`\b[A-Z0-9]{8,}\b`),
 	},
 }
 
-// RedactPII scans the input and returns (hit, redacted). When no PII is
-// detected the original string is returned and hit is false. The
-// detection is best-effort: the goal is to keep obvious leaks out of
-// shared scopes, not to guarantee zero-leakage.
+// RedactPII 扫描输入，返回 (是否命中, 脱敏后文本)。未检测到 PII 时返回原文且 hit 为 false。
+// 检测为尽力而为：目标是把明显泄露挡在共享域外，不保证零泄露。
 func (f *PIIFilter) RedactPII(text string) (bool, string) {
 	if strings.TrimSpace(text) == "" {
 		return false, text
@@ -74,8 +65,7 @@ func (f *PIIFilter) RedactPII(text string) (bool, string) {
 	return hit, out
 }
 
-// HasPII is the cheap variant for callers that only need the boolean
-// flag (e.g. ACL gates).
+// HasPII 为仅需布尔标记的轻量版（如 ACL 门槛）。
 func (f *PIIFilter) HasPII(text string) bool {
 	if strings.TrimSpace(text) == "" {
 		return false
@@ -88,10 +78,8 @@ func (f *PIIFilter) HasPII(text string) bool {
 	return false
 }
 
-// Hits returns the names of every PII pattern that matched the input.
-// Useful for callers (e.g. AgentEvolutionService.UpdateIdentity) that
-// want to surface *which* PII categories were detected rather than just
-// a flag. Returns nil when nothing matched.
+// Hits 返回与输入匹配的所有 PII 模式名。供调用方（如 AgentEvolutionService.UpdateIdentity）展示
+// *哪类* PII 被检出，而非仅布尔。无匹配时返回 nil。
 func (f *PIIFilter) Hits(text string) []string {
 	if strings.TrimSpace(text) == "" {
 		return nil

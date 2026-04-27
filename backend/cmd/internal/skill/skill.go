@@ -1,8 +1,6 @@
-// Package skill implements `aranea skill ...`. Read-only commands hit
-// /api/v1/skills directly; the install / import / apply flow is
-// orchestrated client-side by install.go because it needs to clone
-// repositories, validate frontmatter and resolve conflicts
-// interactively before posting to the import API.
+// Package skill 实现 `aranea skill ...`。只读类命令直接请求 /api/v1/skills；
+// install / import / apply 流程由 install.go 在客户端编排，因需 clone 仓库、
+// 校验 frontmatter 并在提交到 import API 前交互式解决冲突。
 package skill
 
 import (
@@ -16,7 +14,7 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// NewCommand returns the parent command.
+// NewCommand 返回父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "skill",

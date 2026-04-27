@@ -9,10 +9,8 @@ import (
 	"arenea/backend/internal/repository"
 )
 
-// newTestL2Service spins up an in-memory L2 stack (repo + L1 + L2). The L2
-// service is wired with the real L1Service so the ArchiveL1Task path goes
-// through SnapshotForEpisode end to end. Tests that don't need archival
-// can ignore the returned L1Service.
+// newTestL2Service 搭建内存 L2 栈（repo + L1 + L2）。L2 接真实 L1Service，使 ArchiveL1Task 经
+// SnapshotForEpisode 贯通。不需要归档的测试可忽略返回的 L1Service。
 func newTestL2Service(t *testing.T) (*MemoryL2Service, *MemoryL1Service, repository.Store) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "l2.db")
@@ -30,9 +28,8 @@ func newTestL2Service(t *testing.T) (*MemoryL2Service, *MemoryL1Service, reposit
 	return l2, l1, repo
 }
 
-// seedAgentSettings flips L2 toggles so feature-gated paths run. Defaults
-// in the spec keep L2 episodes enabled but recall off; tests opt in
-// explicitly.
+// seedAgentSettings 打开 L2 开关以跑特性门控路径。规范默认 L2 episode 开、recall 关；测试
+// 显式开启 recall。
 func seedAgentSettings(t *testing.T, repo repository.Store, agentID string, recall bool) {
 	t.Helper()
 	if _, err := repo.UpsertAgentRuntimeSettings(domain.AgentRuntimeSettings{
@@ -96,17 +93,15 @@ func TestL2ArchiveL1TaskCreatesEpisode(t *testing.T) {
 		t.Fatalf("expected l1_task_id linkage, got %q", episode.L1TaskID)
 	}
 	if episode.Importance < 0.5 {
-		// completed task + at least one field => base 0.3 + 0.2 (completed)
-		// = 0.5 floor. Lower numbers indicate the importance formula was
-		// not applied.
+		// 已完成任务 + 至少一字段 => 基线 0.3 + 0.2（完成）= 0.5 下限。更低表示
+		// 未套用重要性公式。
 		t.Fatalf("expected importance >= 0.5, got %f", episode.Importance)
 	}
 	if episode.ConsolidationStatus != "pending" {
 		t.Fatalf("expected consolidation pending, got %q", episode.ConsolidationStatus)
 	}
 
-	// Idempotency: archiving again returns the same episode without a
-	// duplicate row.
+	// 幂等：再次归档返回同一条 episode，无重复行。
 	again, err := l2.ArchiveL1Task(context.Background(), task.ID)
 	if err != nil {
 		t.Fatalf("second archive failed: %v", err)
@@ -183,7 +178,7 @@ func TestL2CreateMilestoneEpisode(t *testing.T) {
 		t.Fatalf("expected default outcome 'success', got %q", ep.Outcome)
 	}
 
-	// Empty title should be rejected by validation.
+	// 空标题应由校验拒绝。
 	if _, err = l2.CreateMilestoneEpisode(context.Background(), CreateEpisodeInput{
 		SessionID: "sess-ms", AgentID: "agent-ms",
 	}); err == nil {
@@ -229,7 +224,7 @@ func TestL2ListEventsReturnsMessages(t *testing.T) {
 		t.Fatalf("expected both messages in event stream, got user=%v asst=%v", sawUser, sawAsst)
 	}
 
-	// Keyword filter should narrow the result set.
+	// 关键词过滤应缩小结果集。
 	filtered, err := l2.ListEvents(context.Background(), domain.MemoryL2EventQuery{
 		SessionID: "sess-ev", Keyword: "hi back",
 	})
@@ -293,8 +288,7 @@ func TestL2MarkBumpsImportance(t *testing.T) {
 		t.Fatalf("unexpected marks: %#v", marks)
 	}
 
-	// UnMark soft-deletes; importance is left as-is so re-marking does not
-	// double-count.
+	// UnMark 为软删；重要度保持，避免再次标星重复加算。
 	if err = l2.UnMark(context.Background(), stored.ID); err != nil {
 		t.Fatalf("unmark failed: %v", err)
 	}
@@ -312,8 +306,7 @@ func TestL2RecallByQueryFromBM25(t *testing.T) {
 	seedAgentAndSession(t, repo, "agent-rc", "sess-rc")
 	seedAgentSettings(t, repo, "agent-rc", true)
 
-	// Two episodes: the dark-mode one should rank above the auth one for
-	// a query about "dark theme".
+	// 两条 episode：对「dark theme」查询，dark-mode 应排在 auth 之上。
 	dark, err := l2.CreateMilestoneEpisode(context.Background(), CreateEpisodeInput{
 		SessionID: "sess-rc", AgentID: "agent-rc",
 		Title: "dark mode rollout",
@@ -354,7 +347,7 @@ func TestL2RecallByQueryFromBM25(t *testing.T) {
 		t.Fatalf("expected positive fused rank, got %f", results[0].FinalRank)
 	}
 
-	// L0 segment should render when recall is on and there are hits.
+	// recall 开启且有命中时应渲染 L0 片段。
 	seg, ok := l2.RecallSegmentForL0(context.Background(), "sess-rc", "agent-rc", "dark theme")
 	if !ok {
 		t.Fatalf("expected an L0 segment from recall")
@@ -383,8 +376,8 @@ func TestL2BuildIndexForUpsertsFTS(t *testing.T) {
 		t.Fatalf("create episode failed: %v", err)
 	}
 
-	// CreateMilestoneEpisode already calls BuildIndexFor when index is on,
-	// but invoking it explicitly should be a safe upsert.
+	// CreateMilestoneEpisode 在索引开启时已调 BuildIndexFor，
+	// 再显式调用须为安全 upsert。
 	if err = l2.BuildIndexFor(context.Background(), ep.ID); err != nil {
 		t.Fatalf("reindex failed: %v", err)
 	}
@@ -392,7 +385,7 @@ func TestL2BuildIndexForUpsertsFTS(t *testing.T) {
 		t.Fatalf("second reindex (upsert) failed: %v", err)
 	}
 
-	// The episode should now be findable via BM25.
+	// 该 episode 现应可通过 BM25 搜到。
 	hits, err := repo.SearchL2BM25("sess-ix", "reindex", 0, 5)
 	if err != nil {
 		t.Fatalf("bm25 search failed: %v", err)
@@ -401,8 +394,7 @@ func TestL2BuildIndexForUpsertsFTS(t *testing.T) {
 		t.Fatalf("expected the indexed episode to surface, got %#v", hits)
 	}
 
-	// SoftDeleteEpisode purges the FTS rows; subsequent searches should
-	// not find the episode.
+	// SoftDeleteEpisode 清 FTS 行；后续搜索不应再命中该 episode。
 	if err = l2.DeleteEpisode(context.Background(), ep.ID); err != nil {
 		t.Fatalf("delete episode failed: %v", err)
 	}

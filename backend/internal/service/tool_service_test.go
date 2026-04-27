@@ -1,7 +1,6 @@
-// tool_service_test.go covers the agent-evolution → tool-policy wiring
-// added in Phase 3 (§5.10): ToolService.EffectiveForAgent must downgrade
-// blacklisted tools to denied with reason="evolution_blacklist" and
-// reorder allowed items by the agent's strategy.tool_preference scores.
+// tool_service_test.go 覆盖第三阶段（§5.10）接入的 agent-evolution → 工具策略：`ToolService.EffectiveForAgent` 须将黑名单工具降为
+// denied 且 reason="evolution_blacklist"，
+// 并按智能体 strategy.tool_preference 重排允许项。
 package service
 
 import (
@@ -29,9 +28,8 @@ func newTestToolService(t *testing.T) (*ToolService, *AgentEvolutionService, rep
 	return tools, evo, repo
 }
 
-// §13 – evolution blacklist must surface in EffectiveForAgent as
-// state=denied / reason="evolution_blacklist" without disturbing the
-// rest of the catalog.
+// §13 – 进化黑名单须在 EffectiveForAgent 中体现为
+// state=denied / reason="evolution_blacklist"，且不影响目录其余项。
 func TestToolEffectiveAppliesEvolutionBlacklist(t *testing.T) {
 	tools, evo, _ := newTestToolService(t)
 	bl := []string{"shell_exec"}
@@ -58,8 +56,7 @@ func TestToolEffectiveAppliesEvolutionBlacklist(t *testing.T) {
 	}
 }
 
-// §13 – tool_preference scores must reorder allowed items so the
-// highest-scoring tool ranks first in the prompt-rendered view.
+// §13 – tool_preference 须重排允许项，使最高分工具在提示渲染视图中排最前。
 func TestToolEffectiveSortsByEvolutionPreference(t *testing.T) {
 	tools, evo, _ := newTestToolService(t)
 	if _, err := evo.UpdateStrategy(context.Background(), "agent-pref", StrategyPatch{
@@ -94,8 +91,7 @@ func TestToolEffectiveSortsByEvolutionPreference(t *testing.T) {
 	}
 }
 
-// Without a wired evolution source ToolService must still produce a
-// consistent view — guarding against accidental nil dereferences.
+// 未接入 evolution 源时 ToolService 仍须产生一致视图 —— 防止意外空指针解引用。
 func TestToolEffectiveWithoutEvolutionSourceWorks(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "tools.db")
 	repo, err := repository.NewSQLiteRepository(dbPath)

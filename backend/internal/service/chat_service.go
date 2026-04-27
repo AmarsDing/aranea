@@ -87,31 +87,28 @@ func NewChatService(repo repository.Store, runtimeAdapter *runtime.ADKRuntimeAda
 	}
 }
 
-// MemoryL0 exposes the L0 assembly service so HTTP handlers can serve
-// preview / snapshot endpoints without re-wiring dependencies in main.go.
+// MemoryL0 暴露 L0 组装服务，供 HTTP 处理程序提供
+// 预览/快照端点，而无需在 main.go 中重新接线依赖。
 func (s *ChatService) MemoryL0() *MemoryL0Service { return s.memoryL0 }
 
-// MemoryL1 exposes the L1 working-memory service so HTTP handlers can
-// serve task/field endpoints without re-wiring dependencies in main.go.
+// MemoryL1 暴露 L1 工作记忆服务，供 HTTP 处理程序提供
+// 任务/字段端点，而无需在 main.go 中重新接线依赖。
 func (s *ChatService) MemoryL1() *MemoryL1Service { return s.memoryL1 }
 
-// MemoryL2 exposes the L2 episodic-memory service so HTTP handlers can
-// serve episode / event / mark endpoints without re-wiring dependencies.
+// MemoryL2 暴露 L2 情节记忆服务，供 HTTP 处理程序提供
+// 情节/事件/标记端点，而无需重新接线依赖。
 func (s *ChatService) MemoryL2() *MemoryL2Service { return s.memoryL2 }
 
-// MemoryL3 exposes the L3 semantic-memory service so HTTP handlers and
-// the decay worker can call Upsert / Recall / RunDecayBatch without
-// re-wiring the repository in main.go.
+// MemoryL3 暴露 L3 语义记忆服务，供 HTTP 处理程序与
+// 衰减任务调用 Upsert / Recall / RunDecayBatch，而无需在 main.go 中重新接线仓库。
 func (s *ChatService) MemoryL3() *MemoryL3Service { return s.memoryL3 }
 
-// MemoryL4 exposes the L4 persistent-memory / knowledge-graph service so
-// HTTP handlers can serve entity / relation / neighborhood endpoints
-// without re-wiring the repository in main.go.
+// MemoryL4 暴露 L4 持久记忆/知识图谱服务，供 HTTP 处理程序提供
+// 实体/关系/邻域端点，而无需在 main.go 中重新接线仓库。
 func (s *ChatService) MemoryL4() *MemoryL4Service { return s.memoryL4 }
 
-// AgentEvolution exposes the L4 self-evolution service so HTTP handlers
-// can serve identity / strategy / proposal / event endpoints without
-// re-wiring the repository in main.go.
+// AgentEvolution 暴露 L4 自进化服务，供 HTTP 处理程序提供
+// 身份/策略/提案/事件端点，而无需在 main.go 中重新接线仓库。
 func (s *ChatService) AgentEvolution() *AgentEvolutionService { return s.agentEvolution }
 
 func (s *ChatService) Send(ctx context.Context, in SendMessageInput) (SendMessageResult, error) {
@@ -351,10 +348,9 @@ func (s *ChatService) runtimeToolSettings(agentID string) *domain.AgentRuntimeSe
 	return &settings
 }
 
-// singleAgentRuntimeContext builds the structured runtime context that
-// is rendered into the agent's system prompt for non-team chats. The
-// context tells the model exactly which session it's running in, what
-// dialog mode is active and that it operates in a single-agent role.
+// singleAgentRuntimeContext 构建结构化运行时上下文，
+// 在非团队对话中渲染到智能体系统提示中。上下文向模型说明
+// 当前会话、启用的对话模式，以及以单智能体角色运行。
 func (s *ChatService) singleAgentRuntimeContext(session domain.Session, agent domain.Agent, options SendMessageOptions) *runtime.RuntimeContext {
 	dialogMode := strings.TrimSpace(options.DialogMode)
 	if dialogMode == "" {
@@ -422,10 +418,9 @@ func previewJSON(value any, limit int) string {
 	return string([]rune(text)[:limit]) + "..."
 }
 
-// assembleL0Prompt builds the prompt through MemoryL0Service and translates
-// the result into the runtime adapter's ChatMessage shape. Falling back to a
-// raw `(history + user)` prompt would leak L0 logic into ChatService, so any
-// L0 failure is propagated up.
+// assembleL0Prompt 通过 MemoryL0Service 构建提示，并将结果转换为
+// 运行时适配器的 ChatMessage 形态。若退回到原始「历史+用户」提示会把 L0 逻辑泄露到 ChatService，
+// 因此任何 L0 失败都向上传递。
 func (s *ChatService) assembleL0Prompt(ctx context.Context, in SendMessageInput, session domain.Session, agent domain.Agent, providerModel domain.PlatformResource, userMsg domain.Message) ([]runtime.ChatMessage, domain.L0AssemblyResult, error) {
 	if s.memoryL0 == nil {
 		s.memoryL0 = NewMemoryL0Service(s.repo)
@@ -454,10 +449,9 @@ func (s *ChatService) assembleL0Prompt(ctx context.Context, in SendMessageInput,
 	return messages, result, nil
 }
 
-// recordL0Actual closes the loop on a successful model call by writing real
-// prompt-token usage back to both the snapshot and the session row. It is a
-// best-effort path: snapshot/session updates must not fail user-visible
-// requests, so callers wrap this in `_ = ...`.
+// recordL0Actual 在模型调用成功后闭环，将真实提示词 token 用量写回
+// 快照与会话行。此为尽力而为路径：快照/会话更新不得影响用户可见请求，
+// 因此调用方用 `_ = ...` 包裹。
 func (s *ChatService) recordL0Actual(ctx context.Context, sessionID string, agent domain.Agent, providerModel domain.PlatformResource, l0Result domain.L0AssemblyResult, generated runtime.GenerateResult) error {
 	if s.memoryL0 == nil {
 		return nil
@@ -480,11 +474,9 @@ func resolveProviderModel(options SendMessageOptions, session domain.Session, ag
 	return agent.Provider, agent.Model
 }
 
-// RouteAgentModelCandidates orders the supplied (provider, model)
-// candidates according to the agent's self-evolution model preference
-// (§5.9 ResolveModelRouting). Returns the input unchanged when no
-// preferences are recorded yet. Used by future fallback / retry logic
-// and exposed for tests.
+// RouteAgentModelCandidates 按智能体自进化的模型偏好（§5.9 ResolveModelRouting）
+// 对给定的 (provider, model) 候选排序。尚无偏好记录时原样返回。
+// 供后续回退/重试逻辑使用，并对测试暴露。
 func (s *ChatService) RouteAgentModelCandidates(ctx context.Context, agentID string, candidates []ModelCandidate) ([]ModelCandidate, error) {
 	if s.agentEvolution == nil || agentID == "" || len(candidates) == 0 {
 		return candidates, nil
@@ -690,11 +682,9 @@ func (s *ChatService) recordProviderModelTPS(providerModel domain.PlatformResour
 	return err
 }
 
-// ensureL1Task starts the default L1 task on the first user message of a
-// session and is otherwise a no-op. The task_goal field is seeded with the
-// first message so the L0 renderer can show a sensible header from turn 1.
-// Failures are logged via the audit trail (best-effort) and never block the
-// chat path because L1 is supplemental memory, not a hard dependency.
+// ensureL1Task 在会话首条用户消息上启动默认 L1 任务，否则为空操作。
+// task_goal 用首条消息播种，使 L0 渲染器从首轮起显示合理标题。
+// 失败通过审计轨迹记录（尽力而为），不阻塞聊天路径，因 L1 为补充记忆而非硬依赖。
 func (s *ChatService) ensureL1Task(ctx context.Context, session domain.Session, agent domain.Agent, userInput string) {
 	if s.memoryL1 == nil || session.ID == "" || agent.ID == "" {
 		return
@@ -725,13 +715,11 @@ func (s *ChatService) ensureL1Task(ctx context.Context, session domain.Session, 
 	})
 }
 
-// EndSessionL1Tasks marks every active task of a session as completed. It is
-// invoked by the session archive flow / monitor cron so dangling tasks don't
-// keep leaking into prompts after a session is closed.
+// EndSessionL1Tasks 将会话中所有活动任务标为已完成。
+// 由会话归档流程/监控定时任务调用，避免会话关闭后未结束任务仍渗入提示。
 //
-// When the L2 service is configured each ended task is also archived into a
-// `memory_episodes` row (spec §5.4 "L1 task EndTask → ArchiveL1Task"). L2
-// archival is best-effort: failures never block the L1 close path.
+// 若配置了 L2 服务，每个已结束任务还会归档到 `memory_episodes` 行
+//（规范 §5.4「L1 任务 EndTask → ArchiveL1Task」）。L2 归档为尽力而为：失败不阻塞 L1 关闭路径。
 func (s *ChatService) EndSessionL1Tasks(ctx context.Context, sessionID string, status domain.L1TaskStatus) {
 	if s.memoryL1 == nil || sessionID == "" {
 		return

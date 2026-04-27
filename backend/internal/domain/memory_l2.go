@@ -1,13 +1,10 @@
-// Package domain – memory L2 episodic memory types described in
-// `aranea/docs/14 memory-L2-episodic.md`. L2 records the unified event
-// stream for a session (messages + tool/skill/MCP calls + L1 task
-// snapshots) and exposes per-session episodes that feed L3 / L4
-// consolidation.
+// Package domain – L2 情景记忆领域类型，见 `aranea/docs/14 memory-L2-episodic.md`。
+// L2 记录会话的统一事件流（消息 + 工具 / 技能 / MCP 调用 + L1 任务快照），
+// 并暴露按会话的片段（episode），供 L3 / L4 合并使用。
 package domain
 
-// EpisodeKind enumerates the high-level reason an episode was created.
-// The string values are persisted in `memory_episodes.episode_kind` so
-// changing them requires a migration.
+// EpisodeKind 枚举创建片段的高层级原因。
+// 字符串持久化在 `memory_episodes.episode_kind`，变更需迁移。
 type EpisodeKind string
 
 const (
@@ -18,9 +15,8 @@ const (
 	EpisodeKindCriticPass   EpisodeKind = "critic_pass"
 )
 
-// IsValid returns true when the value matches one of the kinds above.
-// Empty input is treated as "task" by callers; that translation happens
-// at the service layer so the domain stays free of defaults.
+// IsValid 在值与上述种类之一匹配时为 true。
+// 调用方将空输入视为 "task"；该转换在服务层完成，领域层不含默认值。
 func (k EpisodeKind) IsValid() bool {
 	switch k {
 	case EpisodeKindTask, EpisodeKindMilestone, EpisodeKindFailurePM, EpisodeKindUserMarked, EpisodeKindCriticPass:
@@ -29,9 +25,8 @@ func (k EpisodeKind) IsValid() bool {
 	return false
 }
 
-// MemoryEpisode is the persisted row in `memory_episodes`. Field naming
-// mirrors the SQL column names so JSON tags double as the wire format
-// for the HTTP API in §6.3.
+// MemoryEpisode 为 `memory_episodes` 表的持久化行。字段名与 SQL 列一致，
+// JSON 标签兼作 §6.3 HTTP API 的线格式。
 type MemoryEpisode struct {
 	ID                  string  `json:"id"`
 	SessionID           string  `json:"session_id"`
@@ -78,10 +73,9 @@ type MemoryEpisode struct {
 	DeletedAt           string  `json:"deleted_at,omitempty"`
 }
 
-// MemoryL2Event is the read-only unified event row exposed by §6.2.
-// Its physical source can be `messages`, `session_trace_spans`,
-// `tool_invocations`, `skill_invocation`, `team_run_steps`, `monitor_events`
-// — `RefTable` / `RefID` lets callers drill back to the canonical row.
+// MemoryL2Event 为 §6.2 暴露的只读统一事件行。
+// 物理来源可为 `messages`、`session_trace_spans`、`tool_invocations`、`skill_invocation`、
+// `team_run_steps`、`monitor_events` — `RefTable` / `RefID` 供调用方回链到权威行。
 type MemoryL2Event struct {
 	ID         string         `json:"id"`
 	Kind       string         `json:"kind"`
@@ -105,10 +99,8 @@ type MemoryL2Event struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
-// MemoryL2EventQuery captures the filter set accepted by §6.2. Empty
-// fields are treated as "match anything"; an empty session_id is rejected
-// at the service layer so callers can never accidentally return cross-
-// session data.
+// MemoryL2EventQuery 为 §6.2 接受的过滤集合。空字段视为「匹配任意」；
+// 空 session_id 在服务层拒绝，避免误返回跨会话数据。
 type MemoryL2EventQuery struct {
 	SessionID    string   `json:"session_id"`
 	TurnID       string   `json:"turn_id,omitempty"`
@@ -123,9 +115,8 @@ type MemoryL2EventQuery struct {
 	Offset       int      `json:"offset,omitempty"`
 }
 
-// MemoryL2RecallQuery is the input to RecallByQuery / POST /l2/recall.
-// QueryEmbedding is optional: when empty, the service falls back to
-// BM25-only ranking (Phase 2).
+// MemoryL2RecallQuery 为 RecallByQuery / POST /l2/recall 的输入。
+// QueryEmbedding 可选：为空时服务回退为仅 BM25 排序（第二阶段）。
 type MemoryL2RecallQuery struct {
 	SessionID      string        `json:"session_id"`
 	AgentID        string        `json:"agent_id,omitempty"`
@@ -136,9 +127,7 @@ type MemoryL2RecallQuery struct {
 	IncludeKinds   []EpisodeKind `json:"include_kinds,omitempty"`
 }
 
-// MemoryL2RecallResult is the row shape returned by §6.5. Episode is
-// pruned (only summary fields) before serialisation so prompt growth
-// stays bounded.
+// MemoryL2RecallResult 为 §6.5 返回的行形态。序列化前会裁剪 Episode（仅摘要字段），以控制提示增长。
 type MemoryL2RecallResult struct {
 	Episode   MemoryEpisode `json:"episode"`
 	BM25Score float64       `json:"bm25_score,omitempty"`
@@ -146,9 +135,8 @@ type MemoryL2RecallResult struct {
 	FinalRank float64       `json:"final_rank"`
 }
 
-// MemoryEventMark is the persisted row in `memory_event_marks`. The
-// (RefKind, RefID, MarkType, MarkedBy) tuple is unique so re-marking
-// the same event by the same actor is idempotent (UPSERT).
+// MemoryEventMark 为 `memory_event_marks` 表的持久化行。
+// (RefKind, RefID, MarkType, MarkedBy) 唯一，同一主体对同一事件重复标记幂等（UPSERT）。
 type MemoryEventMark struct {
 	ID           string         `json:"id"`
 	SessionID    string         `json:"session_id"`
@@ -165,9 +153,8 @@ type MemoryEventMark struct {
 	DeletedAt    string         `json:"deleted_at,omitempty"`
 }
 
-// MemoryL2IndexEntry mirrors `memory_l2_index_meta`. Phase 2 writes one
-// row per (episode, text_kind) tuple; the FTS5 virtual table holds the
-// tokenised text for BM25 ranking.
+// MemoryL2IndexEntry 对应 `memory_l2_index_meta`。第二阶段对每个 (episode, text_kind) 写入一行；
+// FTS5 虚拟表保存分词文本供 BM25 排序。
 type MemoryL2IndexEntry struct {
 	ID             string  `json:"id"`
 	EpisodeID      string  `json:"episode_id"`
@@ -184,10 +171,8 @@ type MemoryL2IndexEntry struct {
 	UpdatedAt      string  `json:"updated_at,omitempty"`
 }
 
-// L2KeyDecision and L2KeyArtifact are the structured shapes packed into
-// `key_decisions_json` / `key_artifacts_json`. Persisting them as JSON
-// strings keeps the column count bounded while still letting the API /
-// front-end render them as first-class lists.
+// L2KeyDecision 与 L2KeyArtifact 为打包进 `key_decisions_json` / `key_artifacts_json` 的结构形态。
+// 以 JSON 字符串持久化可控制列数，同时 API / 前端仍可将其作为一等列表渲染。
 type L2KeyDecision struct {
 	Decision  string `json:"decision"`
 	Rationale string `json:"rationale,omitempty"`

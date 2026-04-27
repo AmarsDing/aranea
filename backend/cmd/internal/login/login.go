@@ -1,6 +1,5 @@
-// Package login implements `aranea login` and `aranea logout`. Local
-// single-process deployments do not need authentication, so the command
-// is also useful to simply pin a base URL into the active profile.
+// Package login 实现 `aranea login` 与 `aranea logout`。本地单进程部署
+// 无需鉴权，本命令也便于将基址固定到活动 profile。
 package login
 
 import (
@@ -16,7 +15,7 @@ import (
 	"arenea/backend/cmd/internal/output"
 )
 
-// NewCommand returns the parent command for login/logout.
+// NewCommand 返回 login/logout 的父级命令。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",

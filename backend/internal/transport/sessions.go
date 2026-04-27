@@ -172,9 +172,9 @@ func parseSessionSearchQuery(r *http.Request) domain.SessionSearchQuery {
 	}
 }
 
-// splitSessionPathSuffix splits a path of the form `<sessionID><sep><rest>`
-// into (sessionID, rest). When the separator is missing it returns
-// (id, ""). The rest is normalised by trimming the trailing slash.
+// splitSessionPathSuffix 将形如 `<sessionID><sep><rest>` 的路径拆分为
+// (sessionID, rest)。若缺少分隔符则返回 (id, "")。
+// rest 会通过去除尾部斜杠规范化。
 func splitSessionPathSuffix(id, sep string) (string, string) {
 	idx := strings.Index(id, sep)
 	if idx < 0 {

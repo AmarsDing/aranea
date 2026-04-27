@@ -10,10 +10,8 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// CreateEpisode inserts a new memory_episodes row. The caller is expected to
-// have populated identity / counter / kind / importance fields already; the
-// repository fills timestamps and JSON defaults so the row is consistent
-// regardless of which service path produced it.
+// CreateEpisode 插入新的 memory_episodes 行。调用方应已填好标识、计数、类型、重要性等；
+// 仓库补充时间戳与 JSON 默认值，使不同服务路径产生的行一致。
 func (r *SQLiteRepository) CreateEpisode(e domain.MemoryEpisode) (domain.MemoryEpisode, error) {
 	if e.ID == "" {
 		return domain.MemoryEpisode{}, errors.New("episode id is required")
@@ -75,9 +73,7 @@ func (r *SQLiteRepository) CreateEpisode(e domain.MemoryEpisode) (domain.MemoryE
 	return r.GetEpisode(e.ID)
 }
 
-// UpdateEpisode replaces the mutable columns. Embedding / consolidation
-// columns are excluded — they have dedicated update methods because the L3
-// pipeline / index worker write them in their own goroutines.
+// UpdateEpisode 更新可变列。嵌入与巩固相关列不在此更新——L3 管道/索引工作协程有独立写入方法。
 func (r *SQLiteRepository) UpdateEpisode(e domain.MemoryEpisode) error {
 	if e.ID == "" {
 		return errors.New("episode id is required")
@@ -111,17 +107,14 @@ func (r *SQLiteRepository) UpdateEpisode(e domain.MemoryEpisode) error {
 	return err
 }
 
-// GetEpisode returns a single episode by ID. Soft-deleted rows are still
-// returned so the HTTP layer can show audit history; service-level filters
-// strip them when serving Recall / List endpoints.
+// GetEpisode 按 ID 返回单条 episode。软删除行仍会返回，便于 HTTP 层展示审计；Recall/List 由服务层过滤。
 func (r *SQLiteRepository) GetEpisode(id string) (domain.MemoryEpisode, error) {
 	row := r.db.QueryRow(memoryEpisodeSelectSQL()+` WHERE id = ?`, id)
 	return scanMemoryEpisode(row)
 }
 
-// ListEpisodes returns the most recent episodes for a session ordered by
-// ended_at DESC (then created_at DESC as a stable tie-breaker). Soft-deleted
-// rows are excluded; archived rows ARE included so the UI can show history.
+// ListEpisodes 返回某会话下最近的 episode，按 ended_at 降序（再按 created_at 降序作稳定排序）。
+// 排除软删除；包含已归档以便界面展示历史。
 func (r *SQLiteRepository) ListEpisodes(sessionID, kind string, limit, offset int) ([]domain.MemoryEpisode, int, error) {
 	if sessionID == "" {
 		return nil, 0, errors.New("session id is required")
@@ -164,9 +157,7 @@ func (r *SQLiteRepository) ListEpisodes(sessionID, kind string, limit, offset in
 	return out, total, rows.Err()
 }
 
-// ListPendingConsolidation feeds the L3 / L4 consolidation worker. Episodes
-// with importance below the agent threshold are skipped so the worker never
-// wastes budget on low-signal interactions.
+// ListPendingConsolidation 为 L3/L4 巩固工作进程供数。重要性低于智能体阈值的 episode 会跳过，避免低信号浪费预算。
 func (r *SQLiteRepository) ListPendingConsolidation(minImportance float64, limit int) ([]domain.MemoryEpisode, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
@@ -191,8 +182,7 @@ func (r *SQLiteRepository) ListPendingConsolidation(minImportance float64, limit
 	return out, rows.Err()
 }
 
-// UpdateEpisodeConsolidationStatus is invoked by the consolidation worker
-// after L3 / L4 absorbed the episode (or when it was deemed un-consolidatable).
+// UpdateEpisodeConsolidationStatus 由巩固工作进程在 L3/L4 吸收 episode 后调用（或判定不可巩固时）。
 func (r *SQLiteRepository) UpdateEpisodeConsolidationStatus(id, status string, l3Count, l4Count int) error {
 	if id == "" {
 		return errors.New("episode id is required")
@@ -211,9 +201,7 @@ func (r *SQLiteRepository) UpdateEpisodeConsolidationStatus(id, status string, l
 	return err
 }
 
-// UpdateEpisodeEmbedding is called by the index worker once the BM25 row is
-// in place and the embedding is computed. Both operations are idempotent so
-// retries from the worker stay safe.
+// UpdateEpisodeEmbedding 在索引工作进程完成 BM25 行并算好嵌入后调用。两步均可幂等，重试安全。
 func (r *SQLiteRepository) UpdateEpisodeEmbedding(id, status, model string, dim int, norm float64) error {
 	if id == "" {
 		return errors.New("episode id is required")
@@ -228,9 +216,7 @@ func (r *SQLiteRepository) UpdateEpisodeEmbedding(id, status, model string, dim 
 	return err
 }
 
-// SoftDeleteEpisode flips deleted_at so the row is hidden from List / Recall.
-// The FTS index is purged synchronously so deleted rows can never re-enter
-// search results.
+// SoftDeleteEpisode 设置 deleted_at，使行从 List/Recall 中隐藏。同步清除 FTS，避免已删行再入搜索结果。
 func (r *SQLiteRepository) SoftDeleteEpisode(id string) error {
 	if id == "" {
 		return errors.New("episode id is required")
@@ -245,8 +231,7 @@ func (r *SQLiteRepository) SoftDeleteEpisode(id string) error {
 	return r.DeleteL2Index(id)
 }
 
-// UpsertL2Index writes both the meta row and the FTS row inside a single
-// transaction so a partial failure can never leave one without the other.
+// UpsertL2Index 在单事务中同时写入元数据行与 FTS 行，避免只成功一半。
 func (r *SQLiteRepository) UpsertL2Index(entry domain.MemoryL2IndexEntry, text string) error {
 	if entry.EpisodeID == "" {
 		return errors.New("index episode_id is required")
@@ -290,7 +275,7 @@ func (r *SQLiteRepository) UpsertL2Index(entry domain.MemoryL2IndexEntry, text s
 	); err != nil {
 		return err
 	}
-	// FTS5 has no upsert: delete-then-insert keeps the index consistent.
+	// FTS5 无 upsert：先删后插以保持索引一致。
 	if _, err = tx.Exec(
 		`DELETE FROM memory_l2_index_fts WHERE episode_id = ? AND text_kind = ?`,
 		entry.EpisodeID, entry.TextKind,
@@ -309,8 +294,7 @@ func (r *SQLiteRepository) UpsertL2Index(entry domain.MemoryL2IndexEntry, text s
 	return tx.Commit()
 }
 
-// DeleteL2Index removes both meta and FTS rows for an episode. It is safe to
-// call when no rows exist (the DELETE is a no-op).
+// DeleteL2Index 删除某 episode 的元数据与 FTS 行。无行时也可安全调用（DELETE 为 no-op）。
 func (r *SQLiteRepository) DeleteL2Index(episodeID string) error {
 	if episodeID == "" {
 		return errors.New("episode id is required")
@@ -329,10 +313,8 @@ func (r *SQLiteRepository) DeleteL2Index(episodeID string) error {
 	return tx.Commit()
 }
 
-// SearchL2BM25 runs an FTS5 MATCH query against the index and returns the
-// matching episodes joined with their meta row. Negative bm25 values come
-// from FTS5 (lower is better); we flip the sign so callers can treat higher
-// numbers as "more relevant" — the service layer normalises later.
+// SearchL2BM25 对索引执行 FTS5 MATCH，返回匹配的 episode 及其元数据。FTS5 的 bm25 为负（越小越好），
+// 这里取反使更大数值表示“更相关”，服务层会再归一化。
 func (r *SQLiteRepository) SearchL2BM25(sessionID, query string, minImportance float64, limit int) ([]domain.MemoryL2RecallResult, error) {
 	if sessionID == "" {
 		return nil, errors.New("session id is required")
@@ -362,8 +344,7 @@ func (r *SQLiteRepository) SearchL2BM25(sessionID, query string, minImportance f
 		q, sessionID, minImportance, limit,
 	)
 	if err != nil {
-		// FTS5 query syntax errors degrade to "no hits" so the caller can
-		// fall back to BM25-less recall instead of bubbling up.
+		// FTS5 查询语法错误时视为无命中，便于调用方回退到无 BM25 的召回，而非向上冒泡错误。
 		if strings.Contains(strings.ToLower(err.Error()), "syntax error") {
 			return nil, nil
 		}
@@ -401,9 +382,8 @@ func (r *SQLiteRepository) SearchL2BM25(sessionID, query string, minImportance f
 	return out, nil
 }
 
-// UpsertEventMark applies the (ref_kind, ref_id, mark_type, marked_by)
-// uniqueness constraint so the same actor re-marking the same event is
-// idempotent — only `reason`, `weight` and metadata get refreshed.
+// UpsertEventMark 利用 (ref_kind, ref_id, mark_type, marked_by) 唯一约束，
+// 同一行为者对同一事件重复打标为幂等——仅刷新 `reason`、`weight` 与元数据。
 func (r *SQLiteRepository) UpsertEventMark(m domain.MemoryEventMark) (domain.MemoryEventMark, error) {
 	if m.SessionID == "" {
 		return domain.MemoryEventMark{}, errors.New("mark session_id is required")
@@ -453,8 +433,7 @@ func (r *SQLiteRepository) UpsertEventMark(m domain.MemoryEventMark) (domain.Mem
 	return r.getMark(m.RefKind, m.RefID, m.MarkType, m.MarkedBy)
 }
 
-// SoftDeleteEventMark flips deleted_at so historical marks remain queryable
-// for audit but are excluded from importance recomputation.
+// SoftDeleteEventMark 设置 deleted_at，历史标记仍可查审计，但不参与重要性重算。
 func (r *SQLiteRepository) SoftDeleteEventMark(id string) error {
 	if id == "" {
 		return errors.New("mark id is required")
@@ -466,8 +445,7 @@ func (r *SQLiteRepository) SoftDeleteEventMark(id string) error {
 	return err
 }
 
-// ListEventMarks lists all non-deleted marks for a session, optionally
-// filtered by mark_type. Newest first so the UI can show recent activity.
+// ListEventMarks 列出某会话下未删除的标记，可选按 mark_type 过滤。新到旧，便于界面展示最近活动。
 func (r *SQLiteRepository) ListEventMarks(sessionID, markType string, limit int) ([]domain.MemoryEventMark, error) {
 	if sessionID == "" {
 		return nil, errors.New("session id is required")
@@ -509,9 +487,7 @@ func (r *SQLiteRepository) getMark(refKind, refID, markType, markedBy string) (d
 	return scanMemoryEventMark(row)
 }
 
-// ListMarksForEpisode returns every mark that targets a specific episode or
-// any of the events that originated inside that episode. Used by the episode
-// detail view (§8.2).
+// ListMarksForEpisode 返回指向某 episode 或该 episode 内产生的事件的全部标记。供 episode 详情（§8.2）使用。
 func (r *SQLiteRepository) ListMarksForEpisode(episodeID string) ([]domain.MemoryEventMark, error) {
 	if episodeID == "" {
 		return nil, errors.New("episode id is required")
@@ -535,11 +511,9 @@ func (r *SQLiteRepository) ListMarksForEpisode(episodeID string) ([]domain.Memor
 	return out, rows.Err()
 }
 
-// ListL2Events implements the cross-table UNION ALL described in spec §16.
-// Phase 1 sources from messages / tool_invocations / skill_invocation /
-// team_run_steps / monitor_events; trace spans land in Phase 2 once
-// session_trace_spans is wired up. The function returns rows ordered by
-// occurred_at DESC and respects (limit, offset) for pagination.
+// ListL2Events 实现规范 §16 中的跨表合并思路。阶段一从 messages / tool_invocations /
+// skill_invocation / team_run_steps / monitor_events 取数；session_trace_spans 接入后阶段二再纳入 trace。
+// 结果在内存中按 occurred_at 降序合并，再按 (offset, limit) 分页。
 func (r *SQLiteRepository) ListL2Events(q domain.MemoryL2EventQuery) ([]domain.MemoryL2Event, int, error) {
 	if q.SessionID == "" {
 		return nil, 0, errors.New("session id is required")
@@ -689,10 +663,8 @@ func (r *SQLiteRepository) ListL2Events(q domain.MemoryL2EventQuery) ([]domain.M
 	}
 
 	if keep("skill_call") {
-		// `skill_invocation` does not carry a session_id today (see
-		// migrations/0001_init.sql), so we filter by agents that have
-		// participated in the session through tool_invocations (the only
-		// other table that links agent_id ↔ session_id today).
+		// 当前 `skill_invocation` 无 session_id（见 migrations/0001_init.sql），
+		// 故通过曾出现在本会话 tool_invocations 中的 agent 过滤（现唯一能关联 agent_id 与 session_id 的旁路表）。
 		sRows, err := r.db.Query(
 			`SELECT si.id, si.skill_id, si.agent_id, si.status, si.input_json, si.output_json, si.created_at, si.updated_at
 			 FROM skill_invocation si
@@ -816,7 +788,7 @@ func (r *SQLiteRepository) ListL2Events(q domain.MemoryL2EventQuery) ([]domain.M
 		stRows.Close()
 	}
 
-	// Order by OccurredAt DESC across all sources, then apply pagination.
+	// 在所有来源上按 OccurredAt 降序插入排序，再分页。
 	for i := 1; i < len(events); i++ {
 		j := i
 		for j > 0 && events[j].OccurredAt > events[j-1].OccurredAt {
@@ -835,9 +807,7 @@ func (r *SQLiteRepository) ListL2Events(q domain.MemoryL2EventQuery) ([]domain.M
 	return events[offset:end], total, nil
 }
 
-// ArchiveEpisodesBeforeDate flips archived_at for non-archived rows older
-// than the cutoff. Returns the number of rows touched so the caller can
-// surface a metric / audit entry.
+// ArchiveEpisodesBeforeDate 为早于截止时间的未归档行设置 archived_at。返回影响行数供指标/审计。
 func (r *SQLiteRepository) ArchiveEpisodesBeforeDate(sessionID, before string) (int, error) {
 	if before == "" {
 		return 0, errors.New("before is required")
@@ -858,11 +828,9 @@ func (r *SQLiteRepository) ArchiveEpisodesBeforeDate(sessionID, before string) (
 	return int(rows), nil
 }
 
-// CountAgentEpisodesSince returns the number of non-deleted episodes
-// owned by `agentID` whose ended_at (falling back to created_at when
-// the episode is still in-flight) is at or after `since`. Used by the
-// EvolutionScanner to gate `RunEvolutionScan` on activity volume per
-// §5.5 step 3.
+// CountAgentEpisodesSince 统计属于 `agentID` 且未删除的 episode 数量，
+// 其 ended_at（进行中则回退为 created_at）不早于 `since`。供 EvolutionScanner
+// 按活动量门控 `RunEvolutionScan`（§5.5 第 3 步）。
 func (r *SQLiteRepository) CountAgentEpisodesSince(agentID, since string) (int, error) {
 	if agentID == "" {
 		return 0, errors.New("agent_id is required")
@@ -877,9 +845,7 @@ func (r *SQLiteRepository) CountAgentEpisodesSince(agentID, since string) (int, 
 	return n, nil
 }
 
-// DeleteArchivedEpisodesBefore hard-deletes soft-deleted or archived rows
-// whose archived_at / deleted_at is older than the cutoff. Used by the
-// retention cron.
+// DeleteArchivedEpisodesBefore 物理删除 archived_at 或 deleted_at 早于截止时间的行。供保留策略定时任务使用。
 func (r *SQLiteRepository) DeleteArchivedEpisodesBefore(before string) (int, error) {
 	if before == "" {
 		return 0, errors.New("before is required")
@@ -915,7 +881,7 @@ func (r *SQLiteRepository) DeleteArchivedEpisodesBefore(before string) (int, err
 	return int(rows), nil
 }
 
-// --- helpers ----------------------------------------------------------------
+// --- 辅助 ---------------------------------------------------------------------
 
 func memoryEpisodeSelectSQL() string {
 	return `SELECT id, session_id, run_id, team_id, agent_id, l1_task_id,

@@ -1,8 +1,6 @@
-// transport/memory_l2.go exposes the L2 episodic-memory HTTP surface
-// described in `aranea/docs/14 memory-L2-episodic.md` §6.2 – §6.6. The
-// router lives in sessions.go (handleSessionByID) which forwards `/l2/`
-// suffixes here. Admin endpoints (consolidation / retention) are wired
-// in handler.go via registerMemoryL2AdminRoutes.
+// transport/memory_l2.go 暴露 L2 情景记忆 HTTP 接口，见 `aranea/docs/14 memory-L2-episodic.md` §6.2–§6.6。
+// 路由在 sessions.go（handleSessionByID）中将 `/l2/` 后缀转发至此。
+// 管理端点（合并 / 保留策略）在 handler.go 中通过 registerMemoryL2AdminRoutes 挂载。
 package transport
 
 import (
@@ -15,14 +13,13 @@ import (
 	"arenea/backend/internal/service"
 )
 
-// registerMemoryL2AdminRoutes installs the admin-scoped retention and
-// consolidation endpoints. They live under /api/v1/admin/memory/l2/.
+// registerMemoryL2AdminRoutes 挂载管理作用域的保留与合并端点，位于 /api/v1/admin/memory/l2/。
 func (h *HTTPHandler) registerMemoryL2AdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/admin/memory/l2/retention/run", h.handleL2RetentionRun)
 }
 
-// handleL2Routes dispatches /api/v1/sessions/{sid}/l2/<resource>... requests.
-// Resources:
+// handleL2Routes 分发 /api/v1/sessions/{sid}/l2/<resource>... 请求。
+// 资源：
 //   - events                         (GET)
 //   - events/{ref_kind}/{ref_id}     (GET, Phase 2)
 //   - episodes                       (GET, POST)
@@ -57,13 +54,12 @@ func (h *HTTPHandler) handleL2Routes(w http.ResponseWriter, r *http.Request, ses
 	}
 }
 
-// --- Events -----------------------------------------------------------------
+// --- 事件 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL2Events(w http.ResponseWriter, r *http.Request, svc *service.MemoryL2Service, sessionID string, parts []string) {
 	if len(parts) > 0 && parts[0] != "" {
-		// `events/{ref_kind}/{ref_id}` would land here; not implemented in
-		// Phase 1 because clients can drill back through ref_table / ref_id
-		// using existing per-table endpoints.
+		// `events/{ref_kind}/{ref_id}` 会进入此分支；第一阶段未实现，客户端可通过
+		// ref_table / ref_id 经现有按表端点回查。
 		writeErr(w, http.StatusNotImplemented, errors.New("event detail endpoint not implemented in phase 1"))
 		return
 	}
@@ -92,7 +88,7 @@ func (h *HTTPHandler) handleL2Events(w http.ResponseWriter, r *http.Request, svc
 	writeJSON(w, http.StatusOK, result)
 }
 
-// --- Episodes ---------------------------------------------------------------
+// --- 片段 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL2Episodes(w http.ResponseWriter, r *http.Request, svc *service.MemoryL2Service, sessionID string, parts []string) {
 	switch len(parts) {
@@ -246,9 +242,7 @@ func (h *HTTPHandler) handleL2EpisodeAction(w http.ResponseWriter, r *http.Reque
 		_ = h.auditSvc.Log("l2.reindex", "memory_episodes", episodeID, r.Header.Get("X-Request-Id"), "")
 		w.WriteHeader(http.StatusAccepted)
 	case "consolidate":
-		// Phase 3: the consolidation worker will pick the episode up. For
-		// now we just bump the audit trail so the front-end can confirm
-		// the request reached the backend.
+		// 第三阶段：合并工作者将拾取该片段。当前仅写入审计轨迹，供前端确认请求已到达后端。
 		_ = h.auditSvc.Log("l2.consolidate_request", "memory_episodes", episodeID, r.Header.Get("X-Request-Id"), "")
 		w.WriteHeader(http.StatusAccepted)
 	default:
@@ -257,7 +251,7 @@ func (h *HTTPHandler) handleL2EpisodeAction(w http.ResponseWriter, r *http.Reque
 	_ = sessionID
 }
 
-// --- Marks ------------------------------------------------------------------
+// --- 标记 --------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL2Marks(w http.ResponseWriter, r *http.Request, svc *service.MemoryL2Service, sessionID string, parts []string) {
 	switch len(parts) {
@@ -305,7 +299,7 @@ func (h *HTTPHandler) handleL2Marks(w http.ResponseWriter, r *http.Request, svc 
 	}
 }
 
-// --- Recall -----------------------------------------------------------------
+// --- 回忆 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL2Recall(w http.ResponseWriter, r *http.Request, svc *service.MemoryL2Service, sessionID string) {
 	if r.Method != http.MethodPost {
@@ -328,7 +322,7 @@ func (h *HTTPHandler) handleL2Recall(w http.ResponseWriter, r *http.Request, svc
 	writeJSON(w, http.StatusOK, listResponse[domain.MemoryL2RecallResult]{Items: results})
 }
 
-// --- Admin ------------------------------------------------------------------
+// --- 管理 -------------------------------------------------------------------
 
 func (h *HTTPHandler) handleL2RetentionRun(w http.ResponseWriter, r *http.Request) {
 	svc := h.l2Service()
@@ -348,11 +342,10 @@ func (h *HTTPHandler) handleL2RetentionRun(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, report)
 }
 
-// --- helpers ----------------------------------------------------------------
+// --- 辅助 -------------------------------------------------------------------
 
-// l2Service is a thin accessor that hides the chatSvc indirection. Returning
-// nil triggers a 503 in callers so misconfigured builds (no MemoryL2Service
-// injected) don't panic.
+// l2Service 为薄访问器，隐藏 chatSvc 间接层。返回 nil 时调用方返回 503，
+// 避免错误构建（未注入 MemoryL2Service）导致 panic。
 func (h *HTTPHandler) l2Service() *service.MemoryL2Service {
 	if h.chatSvc == nil {
 		return nil

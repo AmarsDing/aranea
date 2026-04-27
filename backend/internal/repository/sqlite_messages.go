@@ -17,15 +17,10 @@ func addMessageTx(tx *sql.Tx, m domain.Message) error {
 	return err
 }
 
-// ListLatestMessagesByTokens walks `messages` from newest to oldest and returns
-// the longest suffix that fits within (maxTokens, hardCap). It is the primary
-// data source for the L0 sliding-window assembly described in
-// `12 memory-L0-sensory.md`. The returned slice is in chronological order
-// (oldest first) so callers can append it directly to a prompt.
+// ListLatestMessagesByTokens 从 `messages` 由新到旧遍历，返回在 (maxTokens, hardCap) 内能容纳的最长后缀。
+// 是 `12 memory-L0-sensory.md` 所述 L0 滑动窗口组装的主要数据来源。返回切片为时间正序（最旧在前），可直接拼入提示。
 //
-// The estimator uses `token_in + token_out` when present, falling back to a
-// 4-rune-per-token approximation of `content_markdown`. We always keep at least
-// one message so a fresh session never returns an empty window.
+// 估计器优先使用 `token_in + token_out`，否则按 `content_markdown` 每 4 个码点约 1 token 估算。至少保留一条消息，新会话不会得到空窗口。
 func (r *SQLiteRepository) ListLatestMessagesByTokens(sessionID string, maxTokens int, hardCap int) ([]domain.Message, error) {
 	if hardCap <= 0 {
 		hardCap = 200
@@ -67,8 +62,7 @@ func (r *SQLiteRepository) ListLatestMessagesByTokens(sessionID string, maxToken
 	return collected, nil
 }
 
-// approxTokensFromText is the same 4-rune heuristic used by the runtime
-// adapter. Keeping it private here so the repository does not import runtime.
+// approxTokensFromText 与运行时适配器相同的每 4 码点启发式。私有于此，避免 repository 依赖 runtime。
 func approxTokensFromText(text string) int {
 	runes := 0
 	for range text {

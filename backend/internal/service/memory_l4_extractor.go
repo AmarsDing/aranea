@@ -1,15 +1,11 @@
-// Package service – L4 Phase 2 entity-extraction heuristic.
+// Package service – L4 第二阶段实体抽取启发式。
 //
-// The Phase 2 spec (§12 Phase 2) calls for a lightweight extractor that
-// scans facts and episodes for well-known tech / framework / company
-// names and turns them into knowledge-graph entities, with a reverse
-// link back to the source fact / episode.
+// 第二阶段规范（§12 Phase 2）要求轻量抽取器：扫描事实与 episode 中的常见技术/框架/公司
+// 名，转为知识图谱实体，并反向链回源事实/episode。
 //
-// This file ships a small dictionary-based matcher that produces the
-// canonical entity name + type for each match. It is deliberately
-// dependency-free — no LLMs, no embeddings — so it can run inline in the
-// request path. Phase 3+ can replace `scanExtractionMatches` with a
-// model-driven extractor without disturbing the call sites.
+// 本文件提供基于小词典的匹配器，为每次命中产出规范名与类型。刻意
+// 零依赖 —— 无 LLM、无嵌入 —— 以便在请求路径内联运行。第三阶段及以后可将 `scanExtractionMatches` 换为
+// 模型驱动抽取器，调用点不变。
 package service
 
 import (
@@ -19,19 +15,16 @@ import (
 	"arenea/backend/internal/domain"
 )
 
-// extractionTerm is one row of the seed dictionary. Aliases are matched
-// case-insensitively against word-boundary tokens in the source text.
+// extractionTerm 为种子词典的一行。别名在源文本中按词边界、不区分大小写匹配。
 type extractionTerm struct {
 	Name    string
 	Type    domain.EntityType
 	Aliases []string
 }
 
-// extractionDictionary is the curated seed list. Names are intentionally
-// short and high-precision so the extractor avoids polluting the graph
-// with ambiguous matches. Add entries here only if the term is unlikely
-// to appear in unrelated prose (e.g. "Go" is risky but accepted because
-// the matcher requires whole-word boundaries).
+// extractionDictionary 为人工筛选的种子表。名称刻意短而高精，避免模糊匹配污染图谱。
+// 仅当该词不太可能出现在无关正文时再添加（如 "Go" 有风险但仍可接受，因
+// 匹配器要求整词边界）。
 var extractionDictionary = []extractionTerm{
 	{Name: "React", Type: domain.EntityFramework, Aliases: []string{"react", "reactjs", "react.js"}},
 	{Name: "React 19", Type: domain.EntityFramework, Aliases: []string{"react 19", "react19"}},
@@ -87,18 +80,16 @@ var extractionDictionary = []extractionTerm{
 	{Name: "Gemini", Type: domain.EntityTech, Aliases: []string{"gemini"}},
 }
 
-// extractionMatch is one (canonical name, entity type) hit produced by
-// the scanner, with the alias list trimmed to whatever variants were
-// actually observed in the source text.
+// extractionMatch 为扫描器产出的一则（规范名、实体类型）命中，别名列表仅保留
+// 源文中实际出现的变体。
 type extractionMatch struct {
 	Name    string
 	Type    domain.EntityType
 	Aliases []string
 }
 
-// scanExtractionMatches walks the dictionary against `text` and returns
-// one entry per canonical name observed. The match is order-stable so
-// repeat calls produce identical reports.
+// scanExtractionMatches 对 `text` 遍历词典，每个规范名至多一条。匹配顺序稳定，
+// 重复调用报告一致。
 func scanExtractionMatches(text string) []extractionMatch {
 	if strings.TrimSpace(text) == "" {
 		return nil
@@ -135,10 +126,8 @@ func scanExtractionMatches(text string) []extractionMatch {
 	return out
 }
 
-// containsWord checks whether `needle` appears in the already-lowercased
-// `haystack` surrounded by non-alphanumeric characters. The haystack is
-// expected to be wrapped with leading + trailing spaces so callers can
-// still match terms at the start / end of the original string.
+// containsWord 判断已小写的 `haystack` 中 `needle` 是否被非字母数字包围。`haystack` 预期
+// 首尾加空格，以便匹配原串开头/结尾的词。
 func containsWord(haystack, needle string) bool {
 	if needle == "" {
 		return false
@@ -150,8 +139,7 @@ func containsWord(haystack, needle string) bool {
 			return false
 		}
 		pos := start + idx
-		// Boundary check: alphanumerics on either side disqualify so
-		// "react" inside "reaction" never matches.
+		// 边界检查：任一侧为字母数字则不算，故 "reaction" 中的 "react" 不匹配。
 		if pos > 0 {
 			r := rune(haystack[pos-1])
 			if isWordChar(r) {
@@ -175,9 +163,8 @@ func isWordChar(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }
 
-// mergeAliases returns the union of two alias slices preserving order
-// (existing entries first). Used when the same canonical name was
-// reached by multiple dictionary rows.
+// mergeAliases 合并两路别名切片并保持顺序（已有项在前）。同一规范名由
+// 多行词典命中时使用。
 func mergeAliases(existing, more []string) []string {
 	seen := map[string]bool{}
 	for _, a := range existing {

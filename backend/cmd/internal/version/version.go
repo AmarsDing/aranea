@@ -1,8 +1,6 @@
-// Package version implements `aranea version`. It prints a small
-// summary of the local CLI build plus, when reachable, the backend's
-// reported version. We do not embed Git metadata yet because the build
-// pipeline does not inject -ldflags; that can be added later without
-// changing this command's surface.
+// Package version 实现 `aranea version`。打印本地 CLI 构建的简要信息，
+// 在可达时还会打印后端报告版本。构建流水线尚未通过 -ldflags 注入
+// Git 元数据，故暂未嵌入；日后可在不改动本命令对外的行为的前提下补充。
 package version
 
 import (
@@ -15,11 +13,11 @@ import (
 	"arenea/backend/cmd/internal/output"
 )
 
-// CLIVersion is the semantic version printed by `aranea version`. It is
-// overridden at link time in CI builds via -ldflags "-X .CLIVersion=...".
+// CLIVersion 是 `aranea version` 打印的语义化版本。CI 构建中可通过
+// -ldflags "-X .CLIVersion=..." 在链接时覆盖。
 var CLIVersion = "0.1.0-dev"
 
-// NewCommand returns the cobra.Command for `aranea version`.
+// NewCommand 返回 `aranea version` 的 cobra.Command。
 func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
@@ -44,7 +42,7 @@ func NewCommand(g *apiclient.GlobalContext) *cobra.Command {
 			info.Client.Go = runtime.Version()
 			info.Backend.BaseURL = g.BaseURL
 
-			// Best-effort backend probe; never fail the command.
+			// 尽力探测后端；不应因此使命令失败。
 			var probe map[string]string
 			if err := g.Client().Get(cmd.Context(), "/healthz", nil, &probe); err == nil {
 				info.Backend.Reachable = true

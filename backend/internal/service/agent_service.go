@@ -237,10 +237,9 @@ func defaultRuntimeSettings() domain.AgentRuntimeSettings {
 	}
 }
 
-// withSettingDefaults fills in missing numeric/string values on a partial
-// AgentRuntimeSettings payload. Boolean flags are intentionally NOT defaulted
-// here so that explicitly disabling a feature is preserved through
-// create/update calls.
+// withSettingDefaults 为不完整的 AgentRuntimeSettings 补全缺省数字/字符串。
+// 此处有意不为布尔置默认值，以便显式关闭的功能在
+// 创建/更新调用中仍被保留。
 func withSettingDefaults(v domain.AgentRuntimeSettings) domain.AgentRuntimeSettings {
 	d := defaultRuntimeSettings()
 	defaultInt(&v.SubagentsMaxConcurrency, d.SubagentsMaxConcurrency)

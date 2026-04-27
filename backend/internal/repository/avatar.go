@@ -83,7 +83,7 @@ func (r *SQLiteRepository) ListAvatarAssets(scope string, workspaceID string, ow
 			args = append(args, ownerUserID)
 		}
 	default:
-		// Include system and current workspace uploads for the picker default.
+		// 选择器默认：包含系统资源与当前工作区上传。
 		where = append(where, "(is_system = 1 OR workspace_id = ? OR owner_user_id = ?)")
 		args = append(args, workspaceID, ownerUserID)
 	}

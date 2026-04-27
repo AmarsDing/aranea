@@ -1,8 +1,6 @@
-// Package config owns the on-disk CLI configuration at
-// ~/.aranea/config.toml. It deliberately uses a hand-rolled TOML reader
-// for the small subset of syntax the CLI cares about (key = "value"
-// pairs grouped under [profile.<name>] sections) so that the binary
-// stays free of an extra third-party dependency.
+// Package config 管理磁盘上的 CLI 配置 ~/.aranea/config.toml。刻意用手写
+// TOML 读取器处理 CLI 关心的一小部分语法（[profile.<name>] 下的 key = "value"
+// 等），使二进制无需额外第三方依赖。
 package config
 
 import (
@@ -19,17 +17,15 @@ import (
 	"arenea/backend/cmd/internal/output"
 )
 
-// Config models the contents of ~/.aranea/config.toml. The file uses
-// TOML by convention but this package only needs the small subset
-// described in 前端/25 cli.md §10. Anything more elaborate (lists,
-// inline tables, nested arrays) is intentionally rejected so the parser
-// stays tiny and predictable.
+// Config 建模 ~/.aranea/config.toml 的内容。文件按惯例为 TOML，但本包
+// 仅需 前端/25 cli.md §10 所述子集。更复杂语法（列表、内联表、嵌套数组）
+// 有意拒绝，以保持解析器小而可预期。
 type Config struct {
 	Default  string              `toml:"default"`
 	Profiles map[string]*Profile `toml:"profile"`
 }
 
-// Profile is a single named configuration block.
+// Profile 为单个命名配置块。
 type Profile struct {
 	BaseURL     string `toml:"base_url"`
 	Token       string `toml:"token"`
@@ -38,7 +34,7 @@ type Profile struct {
 	DefaultMode string `toml:"default_mode"`
 }
 
-// Profile returns the named profile or nil if it doesn't exist.
+// Profile 返回指定名称的 profile，不存在则 nil。
 func (c *Config) Profile(name string) *Profile {
 	if c == nil || c.Profiles == nil {
 		return nil
@@ -46,8 +42,8 @@ func (c *Config) Profile(name string) *Profile {
 	return c.Profiles[name]
 }
 
-// Path returns the resolved absolute path to the config file. It honors
-// $ARANEA_CONFIG and otherwise defaults to ~/.aranea/config.toml.
+// Path 返回配置文件的已解析绝对路径。尊重 $ARANEA_CONFIG，否则默认
+// ~/.aranea/config.toml。
 func Path() (string, error) {
 	if env := os.Getenv("ARANEA_CONFIG"); env != "" {
 		return env, nil
@@ -59,9 +55,7 @@ func Path() (string, error) {
 	return filepath.Join(home, ".aranea", "config.toml"), nil
 }
 
-// Load reads the config file from disk. A missing file is treated as an
-// empty configuration rather than an error so first-run usage works
-// without setup.
+// Load 从磁盘读取配置文件。文件缺失视为空配置而非错误，便于首次使用。
 func Load() (*Config, error) {
 	p, err := Path()
 	if err != nil {
@@ -82,7 +76,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Save persists cfg to disk, creating ~/.aranea if it does not exist.
+// Save 将 cfg 持久化到磁盘，若 ~/.aranea 不存在则创建。
 func Save(cfg *Config) error {
 	p, err := Path()
 	if err != nil {
@@ -209,9 +203,8 @@ func unquote(s string) string {
 	return s
 }
 
-// NewCommand builds the `aranea config` Cobra sub-tree (get/set/path/show).
-// We intentionally keep the surface area tiny — heavier ergonomics belong
-// in the web UI, not the CLI.
+// NewCommand 构建 `aranea config` 的 Cobra 子树（get/set/path/show）。
+// 刻意保持覆盖面很小——更重体验属于 Web UI，而非 CLI。
 func NewCommand(_ any) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
